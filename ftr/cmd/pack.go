@@ -80,8 +80,14 @@ var packCmd = &cobra.Command{
 			}
 			defer file.Close()
 
+			// Get file info for the current file
+			fileInfo, err := file.Stat()
+			if err != nil {
+				return fmt.Errorf("failed to get file info for '%s': %w", filePath, err)
+			}
+
 			// Create a header and writer for the file in the zip
-			zipHeader, err := zip.FileInfoHeader(info)
+			zipHeader, err := zip.FileInfoHeader(fileInfo)
 			if err != nil {
 				return fmt.Errorf("failed to create header for file '%s': %w", relPath, err)
 			}

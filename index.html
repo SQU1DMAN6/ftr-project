@@ -4,7 +4,7 @@
         <meta charset="UTF-8" />
         <script type="text/javascript" src="js/3d.js" defer></script>
         <link rel="stylesheet" href="css/3d.css" />
-        <link rel="stylesheet" href="root.css" />
+        <link rel="stylesheet" href="root.css?version=0.3409584529" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
@@ -212,6 +212,73 @@
                     </a>
                 </div>
             </div>
+            <div
+                class="links"
+                style="
+                    display: flex;
+                    flex-direction: column;
+                    overflow-x: hidden;
+                    overflow-y: hidden;
+                    padding: 40px;
+                    margin: 0px;
+                    width: 90%;
+                    height: 300px;
+                    position: relative;
+                    align-items: center;
+                    justify-content: center;
+                "
+            >
+                <h2>Join the community. Start a conversation. Connect.</h2>
+                <br />
+                <div class="optioncontainer">
+                    <a href="/ftrchat" class="redirector">
+                        <div class="atropos" data-atropos>
+                            <div class="atropos-scale" style="width: 200px; margin: 0px">
+                                <div
+                                    class="atropos-rotate"
+                                    style="
+                                        width: 200px;
+                                        height: 200px;
+                                        border: 1px solid var(--light-blue);
+                                        border-radius: 6px;
+                                        background-color: white;
+                                        color: var(--secondary);
+                                    "
+                                >
+                                    <div class="atropos-inner">
+                                        <div
+                                            data-atropos-offset="0"
+                                            style="
+                                                position: relative;
+                                                display: flex;
+                                                flex-direction: column;
+                                                align-items: center;
+                                                justify-content: center;
+                                            "
+                                        >
+                                            <h2
+                                                style="
+                                                    line-height: 35px;
+                                                    width: 100px;
+                                                    text-align: center;
+                                                "
+                                            >
+                                                FtR Chat
+                                            </h2>
+                                            <img
+                                                src="assets/img/ftrchat_logo.png"
+                                                alt="image"
+                                                width="auto"
+                                                height="165"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </div>
             <!--<div
                 class="atropos"
                 style="
@@ -251,14 +318,13 @@
     </body>
     <style>
         * {
-            scrollbar-width: none;
+            overflow: hidden;
         }
 
         main {
+            overflow: auto;
             width: 100%;
             height: 100vh;
-            display: flex;
-            flex-direction: column;
             /*https://www.svgbackgrounds.com/*/
             background-image: linear-gradient(
                 to bottom,
@@ -340,6 +406,12 @@
             el: document.querySelectorAll(".atropos")[2],
             shadowScale: 2,
             alwaysActive: true,
+        });
+
+        window.atropos = new Atropos({
+          el: document.querySelectorAll(".atropos")[3],
+          shadowscale: 2,
+          alwaysActive: true,
         });
     </script>
 </html>
