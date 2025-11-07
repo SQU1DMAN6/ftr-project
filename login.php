@@ -1,16 +1,5 @@
 <?php
-session_start();
-if (empty($_SERVER["HTTPS"]) || $_SERVER["HTTPS"] === "off") {
-    header(
-        "Location: https://" . $_SERVER["HTTP_HOST"] . $_SERVER["REQUEST_URI"],
-    );
-    exit();
-}
-
-if (isset($_SESSION["login"]) && isset($_SESSION["name"])) {
-    header("Location: index.php");
-    exit();
-}
+include "guard.php";
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -23,7 +12,7 @@ if (isset($_SESSION["login"]) && isset($_SESSION["name"])) {
     <link
         href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Source+Code+Pro:ital@0;1&display=swap"
         rel="stylesheet" />
-    <title>InkDrop Login</title>
+    <title>Login</title>
 </head>
 <style>
     * {
@@ -71,7 +60,7 @@ if (isset($_SESSION["login"]) && isset($_SESSION["name"])) {
 <body>
     <main>
         <div class="login-box">
-            <h1 class="intro">Login with an existing InkDrop account</h1>
+            <h1 class="intro">Login to access FtR services</h1>
             <br><hr class="linebreaker" /><br>
             <form method="POST" name="login" action="login.php">
                 <input class="details" type="email" name="email" required placeholder="EMAIL" /><br /><br />
@@ -79,9 +68,9 @@ if (isset($_SESSION["login"]) && isset($_SESSION["name"])) {
                 <button type="submit" class="redirect">Login</button><br /><br />
             </form>
             <br /><hr class="linebreaker" /><br />
-            <a href="register.php"><button class="redirect">Register for a new InkDrop account</button></a><br><br>
+            <a href="register.php"><button class="redirect">Register for a new account</button></a><br><br>
             <?php
-            include "connect.php";
+            include "inkdrop/connect.php";
 
             if (isset($_POST["email"]) && isset($_POST["password"])) {
                 $email = trim($_POST["email"]);
@@ -98,10 +87,18 @@ if (isset($_SESSION["login"]) && isset($_SESSION["name"])) {
                 if (pg_num_rows($result) > 0) {
                     $row = pg_fetch_assoc($result);
                     if (password_verify($password, $row["password"])) {
+                        // Set session cookie to last 90 days
+                        $lifetime = 60 * 60 * 24 * 90; // 90 days in seconds
+                        session_set_cookie_params($lifetime);
+                        session_regenerate_id(true);
+                        
                         $_SESSION["login"] = true;
                         $_SESSION["name"] = $row["name"];
                         $_SESSION["email"] = $row["email"];
-                        session_regenerate_id(true);
+                        
+                        // Set last login time
+                        $_SESSION["login_time"] = time();
+                        
                         echo "<script>window.location.href = 'index.php';</script>";
                         exit();
                     } else {

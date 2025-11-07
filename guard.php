@@ -9,8 +9,4 @@ if (empty($_SERVER["HTTPS"]) || $_SERVER["HTTPS"] === "off") {
     );
     exit();
 }
-if (!isset($_SESSION["login"]) || !isset($_SESSION["name"])) {
-    header("Location: /login.php");
-    exit();
-}
 ?>

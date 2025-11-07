@@ -12,11 +12,12 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
-	BaseURL = "https://quanthai.net/inkdrop"
-	RepoURL = BaseURL + "/repos"
+	BaseURL = "https://quanthai.net"
+	RepoURL = BaseURL + "/inkdrop/repos"
 )
 
 type Client struct {
@@ -252,6 +253,16 @@ func (c *Client) Login(email, password string) error {
 		}
 
 		return fmt.Errorf("session verification failed")
+	}
+
+	// Set expiration time of session cookie to 90 days
+	for _, cookie := range c.http.Jar.Cookies(baseURLParsed) {
+		if cookie.Name == "PHPSESSID" {
+			cookie.MaxAge = 60 * 60 * 24 * 90 // 90 days in seconds
+			cookie.Expires = time.Now().Add(time.Hour * 24 * 90)
+			c.http.Jar.SetCookies(baseURLParsed, []*http.Cookie{cookie})
+			break
+		}
 	}
 
 	return nil

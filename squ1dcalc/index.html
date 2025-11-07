@@ -32,13 +32,13 @@
                     <h3>Install Squ1dCalc for Linux:</h3>
                     <br /><br /><br /><br />
                     <p class="iifl_p">
-                        1. Install FileShare package manager if not already:
+                        1. Install the FtR package manager if not already:
                         <br /><br />
-                        <code>curl https://quanthai.net/installfs.sh | sh</code>
+                        <code>curl https://quanthai.net/installftr.sh | sh</code>
                         <br /><br />
-                        2. Use FileShare to install Squ1dCalc:
+                        2. Use FtR to install Squ1dCalc:
                         <br /><br />
-                        <code>sudo fileshare get qchef/squ1dcalc</code>
+                        <code>ftr get qchef/squ1dcalc</code>
                         <br /><br />
                         3. Enjoy Squ1dCalc!
                     </p>
@@ -52,12 +52,26 @@
             margin: 0px;
         }
 
+        main::-webkit-scrollbar {
+            width: 20px;
+        }
+
+        main::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        main::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
         body {
             color: var(--light);
             background-color: var(--primary);
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: thin;
             height: 100vh;
         }
 

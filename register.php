@@ -1,4 +1,6 @@
 <?php
+ini_set("session.gc_maxlifetime", 60 * 60 * 24 * 90);
+ini_set("session.cookie_lifetime", 60 * 60 * 24 * 90);
 session_start();
 
 if (isset($_SESSION["login"])) {
@@ -29,11 +31,11 @@ $message2 = "";
             href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Source+Code+Pro:ital@0;1&display=swap"
             rel="stylesheet"
         />
-        <title>InkDrop Register</title>
+        <title>Register</title>
     </head>
     <body>
         <main>
-            <h1 class="intro">Register for a new InkDrop account</h1>
+            <h1 class="intro">Register for FtR Services</h1>
             <br/><hr class="linebreaker"/><br/>
             <div class="register-box">
                 <?php if (!$store): ?>
@@ -47,12 +49,10 @@ $message2 = "";
                 <h2>If you already have an account, please proceed to <a href="login.php"><button class="redirect">Login</button></a></h2><br/><br/>
                 <?php endif; ?>
                 <?php
-                include "connect.php";
-                include "util.php";
+                include "inkdrop/connect.php";
+                include "inkdrop/util.php";
 
                 $store = false;
-
-                // Displaying form results once submitted
 
                 if (
                     isset($_POST["name"]) &&
