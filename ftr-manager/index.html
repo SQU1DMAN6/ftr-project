@@ -244,9 +244,9 @@ ftr clear</code></pre>
                 <strong>.fsdl</strong> package. From a tiny game to a full OS,
                 it contains everything your app needs to run.
             </p>
-            <p>Zip it, upload it, share it — FtR handles the rest.</p>
+            <p>Pack it, upload it, share it — FtR handles the rest.</p>
             <div class="code-block">
-                <pre><code>zip -r myapp.fsdl *</code></pre>
+                <pre><code>ftr pack . myapp</code></pre>
                 <button class="copy-btn">Copy</button>
             </div>
             <p>
@@ -277,13 +277,14 @@ ftr clear</code></pre>
         <section>
             <h2>Build Your App.</h2>
             <p>
-                Creating and sharing your own FtR app is simple. Follow these steps
-                to package and distribute your application:
+                Creating and sharing your own FtR app is simple. Follow these
+                steps to package and distribute your application:
             </p>
 
             <h2>1. Structure Your Project</h2>
             <p>
-                Place all your project files in a directory. FtR automatically detects:
+                Place all your project files in a directory. FtR automatically
+                detects:
             </p>
             <div class="code-block">
                 <pre><code>
@@ -295,43 +296,34 @@ myapp/
             </div>
 
             <h2>2. Package Your App</h2>
-            <p>
-                Create an FSDL package from your project directory:
-            </p>
+            <p>Create an FSDL package from your project directory:</p>
             <div class="code-block">
                 <pre><code>
-cd myapp
-zip -r ../myapp.fsdl *</code></pre>
+                ftr pack . myapp</code></pre>
             </div>
             <p>
-                Your app is now wrapped in a single <strong>.fsdl</strong> package,
-                ready for distribution.
+                Your app is now wrapped in a single
+                <strong>.fsdl</strong> package, ready for distribution.
             </p>
 
             <h2>3. Upload to InkDrop</h2>
-            <p>
-                Share your app through your InkDrop repository:
-            </p>
+            <p>Share your app through your InkDrop repository:</p>
             <div class="code-block">
                 <pre><code>ftr up myapp.fsdl username/myapp</code></pre>
                 <button class="copy-btn">Copy</button>
             </div>
-            <p>
-                FtR handles dependencies and distribution automatically.
-            </p>
+            <p>FtR handles dependencies and distribution automatically.</p>
 
             <h2>4. Installation</h2>
-            <p>
-                Users can now install your app with a single command:
-            </p>
+            <p>Users can now install your app with a single command:</p>
             <div class="code-block">
                 <pre><code>ftr get username/myapp</code></pre>
                 <button class="copy-btn">Copy</button>
             </div>
             <p>
-                Your app is now available to everyone in the FtR ecosystem.
-                No complex configuration, no dependency handling; just clean, efficient
-                software distribution.
+                Your app is now available to everyone in the FtR ecosystem. No
+                complex configuration, no dependency handling; just clean,
+                efficient software distribution.
             </p>
         </section>
 
@@ -339,28 +331,8 @@ zip -r ../myapp.fsdl *</code></pre>
             <h2>Cross-Platform Power.</h2>
             <p>
                 FtR works everywhere: Linux, macOS, even ARM devices. Commands
-                stay identical and performance stays consistent, so you can focus
-                on building.
-            </p>
-        </section>
-
-        <section>
-            <h2>Version Control for .fsdl</h2>
-            <p>
-                Keep history and distribute .fsdl packages with minimal fuss.
-                We provide a lightweight, local VCS prototype you can try now —
-                it stores package blobs by content-hash and records immutable
-                versions so you can publish, list, inspect, and retrieve builds.
-            </p>
-            <div class="code-block">
-                <pre><code>python3 ftr_vcs.py init
-python3 ftr_vcs.py publish ./myapp.fsdl --name username/myapp --version 1.0.0 --desc "Initial"
-python3 ftr_vcs.py list
-python3 ftr_vcs.py get username/myapp 1.0.0 --out myapp.fsdl</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-            <p>
-                Read the docs: <a href="vcs/README.md">vcs/README.md</a>
+                stay identical and performance stays consistent, so you can
+                focus on building.
             </p>
         </section>
 

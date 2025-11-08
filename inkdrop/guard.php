@@ -1,6 +1,7 @@
 <?php
-ini_set("session.gc_maxlifetime", 60 * 60 * 24 * 90);
-ini_set("session.cookie_lifetime", 60 * 60 * 24 * 90);
+ini_set("session.gc_maxlifetime", 7776000);
+ini_set("session.cookie_lifetime", 7776000);
+session_set_cookie_params(7776000, "/");
 session_start();
 
 if (empty($_SERVER["HTTPS"]) || $_SERVER["HTTPS"] === "off") {
@@ -9,7 +10,7 @@ if (empty($_SERVER["HTTPS"]) || $_SERVER["HTTPS"] === "off") {
     );
     exit();
 }
-if (!isset($_SESSION["login"]) || !isset($_SESSION["name"])) {
+if (isset($_SESSION["login"]) || !isset($_SESSION["name"])) {
     header("Location: /login.php");
     exit();
 }

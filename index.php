@@ -3,7 +3,7 @@ include "guard.php";
 
 // Validate session duration (90 days)
 if (isset($_SESSION["login_time"])) {
-    $session_duration = 60 * 60 * 24 * 90; // 90 days in seconds
+    $session_duration = 7776000; // 90 days in seconds
     if (time() - $_SESSION["login_time"] > $session_duration) {
         // Session expired
         session_destroy();
@@ -135,14 +135,12 @@ if (isset($_SESSION["name"]) && isset($_SESSION["login"])) {
 
         <!-- Intro section -->
         <div class="section-block">
-            <?php
-            if ($login === true) {
+            <?php if ($login === true) {
                 echo "<h2>Welcome, " . $username . ", to the FtR project.</h2>";
                 echo "<br /><br /><a href='logout.php'><button class='redirect'>Logout</button></a>";
             } else {
                 echo "<p>You might not be logged in. If so, please proceed to the <a href='login.php'><button class='redirect'>Login</button></a> page to access FtR's services.<br />If you don't have an account, please proceed to <a href='register.php'><button class='redirect'>Sign Up</button></a></p>";
-            }
-            ?>
+            } ?>
         </div>
 
         <!-- SECTION 1 -->
