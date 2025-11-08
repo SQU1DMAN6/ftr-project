@@ -52,8 +52,10 @@ Example: ftr get user/myapp`,
 			return fmt.Errorf("failed to create API client: %w", err)
 		}
 
-		fmt.Printf("Trying %s/%s/%s/%s.fsdl ...\n", api.BaseURL, user, repoName, repoName)
-		reader, err := client.DownloadFile(repoPath, repoName+".fsdl")
+		downloadPath := fmt.Sprintf("%s/%s/%s/%s.fsdl", api.RepoURL, user, repoName, repoName)
+
+		fmt.Printf("Trying %s ...\n", downloadPath)
+		reader, err := client.DownloadFile(downloadPath, repoName+".fsdl")
 		if err != nil {
 			return fmt.Errorf("download failed: %w", err)
 		}

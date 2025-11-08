@@ -101,6 +101,15 @@ func (b *Builder) DetectAndBuild() (string, error) {
 		return filepath.Join(b.WorkDir, b.RepoName), nil
 	}
 
+	// Check for main.sqd
+	if _, err := os.Stat(filepath.Join(b.WorkDir, "main.sqd")); err == nil {
+		fmt.Println("Detected SQU1D app. Building with squ1d++...")
+		if err := b.run(fmt.Sprintf("squ1d++ -B main.sqd -o $s", b.RepoName)); err != nil {
+			return "", fmt.Errorf("squ1d++ build failed: %w", err)
+		}
+		return filepath.Join(b.WorkDir, b.RepoName), nil
+	}
+
 	return "", fmt.Errorf("no known entry point found")
 }
 

@@ -375,9 +375,8 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	return fmt.Errorf("upload failed - unexpected response from server")
 }
 
-func (c *Client) DownloadFile(repoPath string, fileName string) (io.ReadCloser, error) {
+func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadCloser, error) {
 	// Download from /inkdrop/repos/USER/REPO/filename
-	downloadURL := fmt.Sprintf("%s/repos/%s/%s", BaseURL, repoPath, fileName)
 
 	resp, err := c.http.Get(downloadURL)
 	if err != nil {

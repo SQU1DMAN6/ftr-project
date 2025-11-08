@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 var removeCmd = &cobra.Command{
@@ -20,7 +21,7 @@ Example: ftr remove myapp
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		repoPath := args[0]
-		
+
 		// Extract repo name if full path is given
 		repoName := repoPath
 		if strings.Contains(repoPath, "/") {
