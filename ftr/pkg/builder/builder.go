@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 // Builder handles the detection and building of different project types
@@ -129,12 +130,14 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 		return fmt.Errorf("failed to copy to /usr/local/bin: %w", err)
 	}
 
-	// Create and copy to share directory
-	if err := b.run(fmt.Sprintf("sudo mkdir -p %s", shareDir)); err != nil {
-		return fmt.Errorf("failed to create share directory: %w", err)
-	}
-	if err := b.run(fmt.Sprintf("sudo cp %s %s", binaryPath, shareDir)); err != nil {
-		return fmt.Errorf("failed to copy to share directory: %w", err)
+	// Create and copy to share directory if kernel is not darwin
+	if runtime.GOOS != "darwin" {
+		if err := b.run(fmt.Sprintf("sudo mkdir -p %s", shareDir)); err != nil {
+			return fmt.Errorf("failed to create share directory: %w", err)
+		}
+		if err := b.run(fmt.Sprintf("sudo cp %s %s", binaryPath, shareDir)); err != nil {
+			return fmt.Errorf("failed to copy to share directory: %w", err)
+		}
 	}
 
 	fmt.Printf("Installed as '%s'\n", binName)
