@@ -1,11 +1,11 @@
 <?php
 include "guard.php";
+include "loguserinfo.php";
 
 // Validate session duration (90 days)
 if (isset($_SESSION["login_time"])) {
     $session_duration = 7776000; // 90 days in seconds
     if (time() - $_SESSION["login_time"] > $session_duration) {
-        // Session expired
         session_destroy();
         header("Location: login.php");
         exit();

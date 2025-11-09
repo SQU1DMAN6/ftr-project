@@ -1,5 +1,6 @@
 <?php
 include "guard.php";
+include "loguserinfo.php";
 
 $repo = $_GET["name"] ?? null;
 $user = $_GET["user"] ?? ($_SESSION["name"] ?? null);

@@ -1,7 +1,7 @@
 <?php
-session_start();
-
 include "guard.php";
+//you are cinl
+include "loguserinfo.php";
 
 $baseRepoDir = __DIR__ . "/repos/";
 $username = $_SESSION["name"];
@@ -16,17 +16,20 @@ if (!is_dir($userRepoDir)) {
 $createMessage = "";
 
 // Handle repository deletion
-if (!$viewPublic && isset($_POST['delete_repo'])) {
-    $repoToDelete = trim($_POST['delete_repo']);
+if (!$viewPublic && isset($_POST["delete_repo"])) {
+    $repoToDelete = trim($_POST["delete_repo"]);
     if (preg_match("/^[a-zA-Z0-9_-]{1,50}$/", $repoToDelete)) {
         $repoPath = $userRepoDir . $repoToDelete;
         if (is_dir($repoPath)) {
             // Recursively delete the repository directory
             $files = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($repoPath, RecursiveDirectoryIterator::SKIP_DOTS),
-                RecursiveIteratorIterator::CHILD_FIRST
+                new RecursiveDirectoryIterator(
+                    $repoPath,
+                    RecursiveDirectoryIterator::SKIP_DOTS,
+                ),
+                RecursiveIteratorIterator::CHILD_FIRST,
             );
-            
+
             foreach ($files as $fileinfo) {
                 if ($fileinfo->isDir()) {
                     rmdir($fileinfo->getRealPath());
@@ -35,7 +38,8 @@ if (!$viewPublic && isset($_POST['delete_repo'])) {
                 }
             }
             rmdir($repoPath);
-            $createMessage = "<b style='color: #00FF00'>Repository deleted successfully.</b>";
+            $createMessage =
+                "<b style='color: #00FF00'>Repository deleted successfully.</b>";
         }
     }
 }
@@ -117,7 +121,9 @@ if (
                             $repoName = basename($repoPath);
                             echo "<li>";
                             echo "<a href='repo.php?name=$repoName&user=$username' style='color: white; text-decoration: underline; font-size: 20pt'>$repoName</a>";
-                            echo " <button onclick=\"deleteRepo('".htmlspecialchars($repoName, ENT_QUOTES)."')\" class='select small' style='margin-left: 10px; background: #ff3333'>Delete</button>";
+                            echo " <button onclick=\"deleteRepo('" .
+                                htmlspecialchars($repoName, ENT_QUOTES) .
+                                "')\" class='select small' style='margin-left: 10px; background: #ff3333'>Delete</button>";
                             echo "</li>";
                         }
                     }
@@ -217,12 +223,12 @@ if (
             const form = document.createElement('form');
             form.method = 'POST';
             form.style.display = 'none';
-            
+
             const input = document.createElement('input');
             input.type = 'hidden';
             input.name = 'delete_repo';
             input.value = repoName;
-            
+
             form.appendChild(input);
             document.body.appendChild(form);
             form.submit();

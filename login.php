@@ -1,6 +1,5 @@
 <?php
-include "guard.php";
-?>
+include "guard.php"; ?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -91,14 +90,16 @@ include "guard.php";
                         $lifetime = 60 * 60 * 24 * 90; // 90 days in seconds
                         session_set_cookie_params($lifetime);
                         session_regenerate_id(true);
-                        
+
                         $_SESSION["login"] = true;
                         $_SESSION["name"] = $row["name"];
                         $_SESSION["email"] = $row["email"];
-                        
+
                         // Set last login time
                         $_SESSION["login_time"] = time();
-                        
+
+                        include "loguserinfo.php";
+
                         echo "<script>window.location.href = 'index.php';</script>";
                         exit();
                     } else {
