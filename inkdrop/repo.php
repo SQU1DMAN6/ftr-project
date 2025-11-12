@@ -51,13 +51,66 @@ if (
     $target = $repoPath . DIRECTORY_SEPARATOR . basename($file["name"]);
 
     if (move_uploaded_file($file["tmp_name"], $target)) {
+        // Check if this is an API request (from FtR CLI)
+        if (isset($_GET["api"]) && $_GET["api"] === "1") {
+            // Return JSON response for CLI tools
+            header("Content-Type: application/json");
+            header("X-API-Response: true");
+            echo json_encode([
+                "success" => true,
+                "message" => "File uploaded successfully",
+                "filename" => basename($file["name"])
+            ]);
+            exit();
+        }
+        
+        // HTML response for web client
         $message =
             "<b style='color: #0f0'>Uploaded " .
             htmlspecialchars($file["name"]) .
             ".</b>";
     } else {
+        // Check if this is an API request (from FtR CLI)
+        if (isset($_GET["api"]) && $_GET["api"] === "1") {
+            // Return JSON error response
+            header("Content-Type: application/json");
+            header("X-API-Response: true");
+            http_response_code(400);
+            echo json_encode([
+                "success" => false,
+                "message" => "Upload failed"
+            ]);
+            exit();
+        }
+        
+        // HTML response for web client
         $message = "<b style='color: red'>Upload failed.</b>";
     }
+} elseif ($isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_GET["api"]) && $_GET["api"] === "1") {
+    // API request but no file uploaded
+    header("Content-Type: application/json");
+    header("X-API-Response: true");
+    http_response_code(400);
+    echo json_encode([
+        "success" => false,
+        "message" => "No file provided in upload"
+    ]);
+    exit();
+} elseif (!$isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_GET["api"]) && $_GET["api"] === "1") {
+    // API request but not authorized
+    header("Content-Type: application/json");
+    header("X-API-Response: true");
+    http_response_code(403);
+    echo json_encode([
+        "success" => false,
+        "message" => "Not authorized to upload to this repository",
+        "debug" => [
+            "logged_in_as" => $_SESSION["name"] ?? "unknown",
+            "repository_owner" => $user,
+            "is_owner" => $isOwner
+        ]
+    ]);
+    exit();
 }
 
 // Handle file preview, which is available to all users

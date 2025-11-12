@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -16,9 +17,17 @@ import (
 )
 
 const (
-	BaseURL = "https://quanthai.net"
-	RepoURL = BaseURL + "/inkdrop/repos"
+	BaseURL     = "https://quanthai.net"
+	RepoURL     = BaseURL + "/inkdrop/repos"
+	InkDropPath = "/inkdrop"
 )
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 type Client struct {
 	http      *http.Client
@@ -222,11 +231,11 @@ func (c *Client) Login(email, password string) error {
 		}
 	}
 
-	// Verify session by accessing index.php
+	// Verify session by accessing index.php in inkdrop
 	// Build a verification request and explicitly include the PHPSESSID cookie
 	// as a header to ensure it is sent to the server (this helps isolate
 	// whether the cookie jar matching is the issue).
-	verifyReq, err := http.NewRequest("GET", BaseURL+"/index.php", nil)
+	verifyReq, err := http.NewRequest("GET", BaseURL+InkDropPath+"/index.php", nil)
 	if err != nil {
 		return fmt.Errorf("failed to create verification request: %w", err)
 	}
@@ -289,8 +298,8 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	}
 	user, repoName := parts[0], parts[1]
 
-	// First verify our session is still valid
-	resp, err := c.http.Get(BaseURL + "/index.php")
+	// First verify our session is still valid and get current user info
+	resp, err := c.http.Get(BaseURL + InkDropPath + "/index.php")
 	if err != nil {
 		return fmt.Errorf("session verification failed: %w", err)
 	}
@@ -302,8 +311,21 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 		return fmt.Errorf("session expired - please login again")
 	}
 
+	// Extract current logged-in user from the response for debugging
+	// Look for "Logged in as: <username>" or similar pattern
+	var loggedInUser string
+	if idx := bytes.Index(body, []byte("Logged in as")); idx != -1 {
+		// Try to extract the username (this is a best effort)
+		start := idx + len("Logged in as")
+		if end := bytes.Index(body[start:], []byte("<")); end != -1 {
+			loggedInUser = strings.TrimSpace(string(body[start : start+end]))
+			loggedInUser = strings.TrimPrefix(loggedInUser, ":")
+			loggedInUser = strings.TrimSpace(loggedInUser)
+		}
+	}
+
 	// Now try to access or create the repo
-	resp, err = c.http.Get(fmt.Sprintf("%s/repo.php?name=%s&user=%s", BaseURL, url.QueryEscape(repoName), url.QueryEscape(user)))
+	resp, err = c.http.Get(fmt.Sprintf("%s%s/repo.php?name=%s&user=%s", BaseURL, InkDropPath, url.QueryEscape(repoName), url.QueryEscape(user)))
 	if err != nil {
 		return fmt.Errorf("failed to check repository: %w", err)
 	}
@@ -313,6 +335,9 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 
 	// If repo doesn't exist, create it with our first upload
 	if bytes.Contains(body, []byte("repository is not found")) {
+		if loggedInUser != "" && loggedInUser != user {
+			return fmt.Errorf("repository does not exist and you are not the owner (logged in as '%s', trying to upload to '%s')", loggedInUser, user)
+		}
 		if os.Getenv("USER") != user {
 			return fmt.Errorf("repository does not exist and you are not the owner")
 		}
@@ -334,7 +359,8 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	w.Close()
 
 	// Create request to repo.php with appropriate query parameters
-	uploadURL := fmt.Sprintf("%s/repo.php?name=%s&user=%s", BaseURL, url.QueryEscape(repoName), url.QueryEscape(user))
+	// Use api=1 to request JSON response from CLI uploads
+	uploadURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repoName), url.QueryEscape(user))
 	req, err := http.NewRequest("POST", uploadURL, &b)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -354,7 +380,39 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Look for the success message in the response
+	// Debug: Print response for debugging
+	if os.Getenv("FTR_DEBUG") == "1" {
+		fmt.Printf("DEBUG: Response status: %d\n", resp.StatusCode)
+		fmt.Printf("DEBUG: Response body (first 500 chars): %s\n", string(body[:min(len(body), 500)]))
+	}
+
+	// Try to parse JSON response (API response)
+	var apiResp map[string]interface{}
+	if err := json.Unmarshal(body, &apiResp); err == nil {
+		if success, ok := apiResp["success"].(bool); ok {
+			if success {
+				return nil // Success case
+			}
+			// Error response
+			errMsg := "upload failed - server error"
+			if msg, ok := apiResp["message"].(string); ok {
+				errMsg = msg
+			}
+
+			// Add debug info if available
+			if debug, ok := apiResp["debug"].(map[string]interface{}); ok {
+				if loggedIn, ok := debug["logged_in_as"].(string); ok {
+					if owner, ok := debug["repository_owner"].(string); ok {
+						errMsg = fmt.Sprintf("upload failed: %s (logged in as '%s', repository owner is '%s')", errMsg, loggedIn, owner)
+						return fmt.Errorf("%s", errMsg)
+					}
+				}
+			}
+			return fmt.Errorf("%s", errMsg)
+		}
+	}
+
+	// Fallback for HTML responses (shouldn't happen with api=1, but just in case)
 	if bytes.Contains(body, []byte("color: #0f0")) && bytes.Contains(body, []byte("Uploaded")) {
 		return nil // Success case
 	}
@@ -376,8 +434,6 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 }
 
 func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadCloser, error) {
-	// Download from /inkdrop/repos/USER/REPO/filename
-
 	resp, err := c.http.Get(downloadURL)
 	if err != nil {
 		return nil, fmt.Errorf("download request failed: %w", err)
