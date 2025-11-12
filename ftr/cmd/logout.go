@@ -24,12 +24,31 @@ var logoutCmd = &cobra.Command{
 
 		configDir := filepath.Join(home, ".config", "ftr")
 		sessionFile := filepath.Join(configDir, "session")
+		emailFile := filepath.Join(configDir, "email")
+		usernameFile := filepath.Join(configDir, "username")
 
 		// Delete the session file if it exists
 		if _, err := os.Stat(sessionFile); err == nil {
 			if err := os.Remove(sessionFile); err != nil {
 				return fmt.Errorf("failed to remove session file: %w", err)
 			}
+		}
+
+		// Delete the email file if it exists
+		if _, err := os.Stat(emailFile); err == nil {
+			if err := os.Remove(emailFile); err != nil {
+				return fmt.Errorf("failed to remove email file: %w", err)
+			}
+		}
+
+		// Delete the username file if it exists
+		if _, err := os.Stat(usernameFile); err == nil {
+			if err := os.Remove(usernameFile); err != nil {
+				return fmt.Errorf("failed to remove username file: %w", err)
+			}
+		}
+
+		if _, err := os.Stat(sessionFile); err == nil {
 			fmt.Println("Logged out successfully.")
 		} else {
 			fmt.Println("No active session found.")

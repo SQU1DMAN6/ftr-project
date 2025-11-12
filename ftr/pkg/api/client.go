@@ -32,6 +32,8 @@ func min(a, b int) int {
 type Client struct {
 	http      *http.Client
 	sessionID string
+	email     string
+	username  string
 	configDir string
 }
 
@@ -59,10 +61,8 @@ func NewClient() (*Client, error) {
 
 	client := &Client{
 		http: &http.Client{
-			Jar: jar,
-			// Keep a simple redirect limiter. Let the default transport and cookie jar
-			// handle Set-Cookie headers so cookies get stored with proper domain/path
-			// attributes.
+			Jar:     jar,
+			Timeout: 30 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return fmt.Errorf("too many redirects")
@@ -86,6 +86,10 @@ func NewClient() (*Client, error) {
 			Path:   "/",
 			Domain: baseURLParsed.Hostname(),
 		}})
+
+		// Also load user info if available
+		_ = client.loadUserInfo()
+
 		return client, nil
 	}
 
@@ -105,6 +109,45 @@ func (c *Client) loadSession() error {
 func (c *Client) saveSession() error {
 	sessionFile := filepath.Join(c.configDir, "session")
 	return os.WriteFile(sessionFile, []byte(c.sessionID), 0600)
+}
+
+func (c *Client) saveUserInfo(email, username string) error {
+	c.email = email
+	c.username = username
+
+	emailFile := filepath.Join(c.configDir, "email")
+	if err := os.WriteFile(emailFile, []byte(email), 0600); err != nil {
+		return err
+	}
+
+	usernameFile := filepath.Join(c.configDir, "username")
+	if err := os.WriteFile(usernameFile, []byte(username), 0600); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) loadUserInfo() error {
+	emailFile := filepath.Join(c.configDir, "email")
+	email, err := os.ReadFile(emailFile)
+	if err != nil {
+		return err
+	}
+	c.email = string(email)
+
+	usernameFile := filepath.Join(c.configDir, "username")
+	username, err := os.ReadFile(usernameFile)
+	if err != nil {
+		return err
+	}
+	c.username = string(username)
+
+	return nil
+}
+
+func (c *Client) GetSessionInfo() (email, username string) {
+	return c.email, c.username
 }
 
 func (c *Client) Login(email, password string) error {
@@ -252,16 +295,30 @@ func (c *Client) Login(email, password string) error {
 	verifyResp.Body.Close()
 
 	if bytes.Contains(verifyBody, []byte("Login with an existing InkDrop account")) {
-		for k, v := range verifyResp.Header {
-			fmt.Printf("  %s: %v\n", k, v)
-		}
-		// Print a short snippet of the body
-		snippet := string(verifyBody)
-		if len(snippet) > 1024 {
-			snippet = snippet[:1024]
-		}
-
 		return fmt.Errorf("session verification failed")
+	}
+
+	// Extract username from "Logged in as <b>username</b>" in the response
+	var username string
+	if idx := bytes.Index(verifyBody, []byte("Logged in as")); idx != -1 {
+		// Look for the pattern after "Logged in as"
+		start := idx + len("Logged in as")
+		// Find the opening <b> tag
+		if bidx := bytes.Index(verifyBody[start:], []byte("<b>")); bidx != -1 {
+			bstart := start + bidx + len("<b>")
+			// Find the closing </b> tag
+			if bidx2 := bytes.Index(verifyBody[bstart:], []byte("</b>")); bidx2 != -1 {
+				username = string(verifyBody[bstart : bstart+bidx2])
+				username = strings.TrimSpace(username)
+			}
+		}
+	}
+
+	// Save user info (email and username)
+	if username != "" {
+		if err := c.saveUserInfo(email, username); err != nil {
+			fmt.Println("Warning: Failed to save user info")
+		}
 	}
 
 	// Set expiration time of session cookie to 90 days

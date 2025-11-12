@@ -19,6 +19,7 @@ func init() {
 		removeCmd,
 		loginCmd,
 		logoutCmd,
+		sessionCmd,
 		packCmd,
 		buildCmd,
 	)
