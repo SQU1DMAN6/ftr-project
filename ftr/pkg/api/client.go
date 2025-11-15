@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"ftr/pkg/screen"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -410,9 +411,28 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	if err != nil {
 		return fmt.Errorf("failed to create form file: %w", err)
 	}
-	if _, err := io.Copy(fw, reader); err != nil {
+
+	var fileSize int64
+	if rs, ok := reader.(io.ReadSeeker); ok {
+		cur, _ := rs.Seek(0, io.SeekCurrent)
+		end, _ := rs.Seek(0, io.SeekEnd)
+		fileSize = end - cur
+		rs.Seek(cur, io.SeekStart)
+	}
+
+	pr := &screen.ProgressReader{
+		R:     reader,
+		Total: fileSize,
+		Start: time.Now(),
+	}
+
+	if _, err := io.Copy(fw, pr); err != nil {
 		return fmt.Errorf("failed to copy file data: %w", err)
 	}
+
+	fmt.Println()
+	screen.ClearProgressBar()
+
 	w.Close()
 
 	// Create request to repo.php with appropriate query parameters
@@ -492,6 +512,15 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 
 func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadCloser, error) {
 	resp, err := c.http.Get(downloadURL)
+
+	size := resp.ContentLength
+
+	pr := &screen.ProgressReader{
+		R:     resp.Body,
+		Total: size,
+		Start: time.Now(),
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("download request failed: %w", err)
 	}
@@ -501,5 +530,7 @@ func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadClose
 		return nil, fmt.Errorf("download failed with status: %s", resp.Status)
 	}
 
-	return resp.Body, nil
+	screen.ClearProgressBar()
+
+	return io.NopCloser(pr), nil
 }
