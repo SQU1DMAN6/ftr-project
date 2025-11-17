@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"ftr/pkg/screen"
@@ -426,7 +427,11 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 		Start: time.Now(),
 	}
 
-	if _, err := io.Copy(fw, pr); err != nil {
+	// Compute SHA-256 while uploading
+	hasher := sha256.New()
+	tr := io.TeeReader(pr, hasher)
+
+	if _, err := io.Copy(fw, tr); err != nil {
 		return fmt.Errorf("failed to copy file data: %w", err)
 	}
 
@@ -468,6 +473,15 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	if err := json.Unmarshal(body, &apiResp); err == nil {
 		if success, ok := apiResp["success"].(bool); ok {
 			if success {
+				// If server returned a hash, compare with our computed hash
+				serverHash := ""
+				if h, ok := apiResp["hash"].(string); ok {
+					serverHash = h
+				}
+				computed := fmt.Sprintf("%x", hasher.Sum(nil))
+				if serverHash != "" && !strings.EqualFold(serverHash, computed) {
+					return fmt.Errorf("upload succeeded but integrity mismatch: server=%s local=%s", serverHash, computed)
+				}
 				return nil // Success case
 			}
 			// Error response
@@ -533,4 +547,107 @@ func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadClose
 	screen.ClearProgressBar()
 
 	return io.NopCloser(pr), nil
+}
+
+// GetFileMeta attempts to retrieve file metadata (hash/signature) via the API.
+// This endpoint may not be implemented on the server; the function gracefully
+// returns nil map if metadata is not available.
+func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, error) {
+	metaURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&filemeta=1&file=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+	resp, err := c.http.Get(metaURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch file metadata: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// Try parse JSON error
+		body, _ := io.ReadAll(resp.Body)
+		var apiResp map[string]interface{}
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			if msg, ok := apiResp["message"].(string); ok {
+				return nil, fmt.Errorf("server error: %s", msg)
+			}
+		}
+		return nil, fmt.Errorf("metadata request failed: %s", resp.Status)
+	}
+
+	var apiResp map[string]interface{}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read metadata response: %w", err)
+	}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		// Not JSON - return nil to indicate metadata not available
+		return nil, nil
+	}
+
+	out := make(map[string]string)
+	if h, ok := apiResp["hash"].(string); ok {
+		out["hash"] = h
+	}
+	if s, ok := apiResp["signature"].(string); ok {
+		out["signature"] = s
+	}
+	return out, nil
+}
+
+// DownloadAndVerify downloads a file from a repository via the repo.php API,
+// optionally verifies the SHA-256 hash if metadata is available, and saves to destPath.
+func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath string) error {
+	parts := strings.Split(repoPath, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid repository path. Must be in format user/repo")
+	}
+	user, repo := parts[0], parts[1]
+
+	// Try to get metadata first
+	meta, _ := c.GetFileMeta(user, repo, fileName)
+	expectedHash := ""
+	if meta != nil {
+		expectedHash = meta["hash"]
+	}
+
+	downloadURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&download=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+	resp, err := c.http.Get(downloadURL)
+	if err != nil {
+		return fmt.Errorf("download request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// Try parse JSON error
+		body, _ := io.ReadAll(resp.Body)
+		var apiResp map[string]interface{}
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			if msg, ok := apiResp["message"].(string); ok {
+				return fmt.Errorf("server error: %s", msg)
+			}
+		}
+		return fmt.Errorf("download failed: %s", resp.Status)
+	}
+
+	// Prepare destination file
+	outFile, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer outFile.Close()
+
+	// Stream download with progress and compute hash
+	size := resp.ContentLength
+	pr := &screen.ProgressReader{R: resp.Body, Total: size, Start: time.Now()}
+	hasher := sha256.New()
+	tr := io.TeeReader(pr, hasher)
+
+	if _, err := io.Copy(outFile, tr); err != nil {
+		return fmt.Errorf("failed to save downloaded file: %w", err)
+	}
+
+	computed := fmt.Sprintf("%x", hasher.Sum(nil))
+	if expectedHash != "" && !strings.EqualFold(expectedHash, computed) {
+		return fmt.Errorf("integrity check failed: expected %s computed %s", expectedHash, computed)
+	}
+
+	return nil
 }

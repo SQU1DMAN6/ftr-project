@@ -48,7 +48,7 @@ func RenderProgress(prefix string, current, total int64, start time.Time) {
 	if filled < barwidth {
 		bar[filled] = '>'
 		for i := filled + 1; i < barwidth; i++ {
-			bar[i] = ' '
+			bar[i] = '-'
 		}
 	}
 
@@ -67,6 +67,7 @@ func RenderProgress(prefix string, current, total int64, start time.Time) {
 func ClearProgressBar() {
 	width := termWidth()
 	fmt.Fprintf(os.Stdout, "\r%s\r", strings.Repeat(" ", width))
+	fmt.Println()
 }
 
 func roundToDecimal(val float64, precision uint) float64 {

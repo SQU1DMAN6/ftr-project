@@ -5,7 +5,6 @@ import (
 	"ftr/pkg/api"
 	"ftr/pkg/builder"
 	"ftr/pkg/fsdl"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +33,7 @@ Example: ftr get user/myapp`,
 		if len(parts) != 2 {
 			return fmt.Errorf("invalid repository path. Must be in format user/repo")
 		}
-		user, repoName := parts[0], parts[1]
+		repoName := parts[1]
 
 		// Create temporary directory
 		tmpDir := "/tmp/fsdl"
@@ -52,24 +51,10 @@ Example: ftr get user/myapp`,
 			return fmt.Errorf("failed to create API client: %w", err)
 		}
 
-		downloadPath := fmt.Sprintf("%s/%s/%s/%s.fsdl", api.RepoURL, user, repoName, repoName)
-
-		fmt.Printf("Trying %s ...\n", downloadPath)
-		reader, err := client.DownloadFile(downloadPath, repoName+".fsdl")
-		if err != nil {
+		fmt.Printf("Fetching package via API...\n")
+		// Use repo.php API to download and verify
+		if err := client.DownloadAndVerify(repoPath, repoName+".fsdl", fsdlFile); err != nil {
 			return fmt.Errorf("download failed: %w", err)
-		}
-		defer reader.Close()
-
-		// Save to temp file
-		f, err := os.Create(fsdlFile)
-		if err != nil {
-			return fmt.Errorf("failed to create temporary file: %w", err)
-		}
-		defer f.Close()
-
-		if _, err := io.Copy(f, reader); err != nil {
-			return fmt.Errorf("failed to save downloaded file: %w", err)
 		}
 
 		if noUnzip {
