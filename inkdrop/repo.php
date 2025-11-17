@@ -2,6 +2,247 @@
 include "guard.php";
 include "loguserinfo.php";
 
+// ============ Repo metadata and encryption functions ============
+
+/**
+ * Get the metadata file path for a repository
+ */
+function getMetaBaseDir() {
+    // Allow overriding via env var for deployment to a secure location
+    $env = getenv('INKDROP_META_DIR');
+    if ($env && strlen($env) > 0) {
+        return rtrim($env, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'repos';
+    }
+
+    // Default fallback outside the web-accessible folder (one level up)
+    $fallback = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '.inkdrop_meta' . DIRECTORY_SEPARATOR . 'repos';
+    if (!is_dir($fallback)) {
+        @mkdir($fallback, 0700, true);
+    }
+    return $fallback;
+}
+
+function getRepoMetaPath($repoPath) {
+    // Attempt to extract user and repo from the repoPath which should be
+    // something like /.../inkdrop/repos/{user}/{repo}
+    $parts = explode(DIRECTORY_SEPARATOR, trim($repoPath, DIRECTORY_SEPARATOR));
+    $repo = array_pop($parts);
+    $user = array_pop($parts);
+
+    $base = getMetaBaseDir();
+    $userDir = $base . DIRECTORY_SEPARATOR . $user;
+    if (!is_dir($userDir)) {
+        @mkdir($userDir, 0700, true);
+    }
+    return $userDir . DIRECTORY_SEPARATOR . $repo . '.json';
+}
+
+/**
+ * Load repository metadata
+ */
+function loadRepoMeta($repoPath) {
+    $metaPath = getRepoMetaPath($repoPath);
+    // If metadata exists in the secure store, use it
+    if (is_file($metaPath)) {
+        $data = json_decode(file_get_contents($metaPath), true);
+        if (is_array($data)) return $data;
+    }
+
+    // Legacy location (inside repo) migration: if .repo_meta.json exists in repoPath,
+    // move it to the secure store and remove the legacy file.
+    $legacy = $repoPath . DIRECTORY_SEPARATOR . '.repo_meta.json';
+    if (is_file($legacy)) {
+        $data = json_decode(file_get_contents($legacy), true);
+        if (is_array($data)) {
+            // Ensure destination dir exists
+            $metaDir = dirname($metaPath);
+            if (!is_dir($metaDir)) @mkdir($metaDir, 0700, true);
+            file_put_contents($metaPath, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            @chmod($metaPath, 0600);
+            @unlink($legacy);
+            return $data;
+        }
+    }
+
+    // Default metadata for new repositories
+    return [
+        'type' => 'generic_public_readonly',
+        'encrypted' => true,
+        'created_at' => time(),
+        'modified_at' => time(),
+        'files' => [],
+    ];
+}
+
+/**
+ * Save repository metadata
+ */
+function saveRepoMeta($repoPath, $meta) {
+    $metaPath = getRepoMetaPath($repoPath);
+    $metaDir = dirname($metaPath);
+    if (!is_dir($metaDir)) @mkdir($metaDir, 0700, true);
+    file_put_contents($metaPath, json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    @chmod($metaPath, 0600);
+}
+
+/**
+ * Generate an AES-256 encryption key (for file storage)
+ */
+function generateAESKey() {
+    return bin2hex(random_bytes(32)); // 256-bit key in hex
+}
+
+/**
+ * Check if repo is accessible by current user
+ */
+function canAccessRepo($repoType, $isOwner) {
+    if ($isOwner) return true;
+    
+    return in_array($repoType, [
+        'generic_public_readonly',
+        'generic_opensource',
+        'software_public',
+        'software_opensource',
+    ]);
+}
+
+/**
+ * Check if current user can edit repo
+ */
+function canEditRepo($repoType, $isOwner) {
+    if ($isOwner) return true;
+    
+    return in_array($repoType, [
+        'generic_opensource',
+        'software_opensource',
+    ]);
+}
+
+/**
+ * Check if repo can be fetched via API (FtR)
+ */
+function canFetchViaAPI($repoType) {
+    // Only Software repos are accessible via the FtR API
+    return in_array($repoType, [
+        'software_public',
+        'software_opensource',
+    ]);
+}
+
+/**
+ * Compute SHA256 hash of raw data
+ */
+function computeDataHash($data) {
+    return hash('sha256', $data);
+}
+
+/**
+ * Simple malware/content check for an in-memory payload
+ */
+function checkForMalwareContent($content, $fileName) {
+    $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+    $dangerousExts = ['exe', 'bat', 'cmd', 'scr', 'vbs', 'dll', 'sys', 'drv', 'pif'];
+    if (in_array($ext, $dangerousExts)) {
+        return "Potentially malicious file extension detected: .$ext";
+    }
+
+    if ($ext === 'php' || $ext === 'phtml') {
+        $suspiciousPatterns = [
+            'exec(',
+            'system(',
+            'passthru(',
+            'shell_exec(',
+            'eval(',
+            'assert(',
+            'create_function(',
+            'base64_decode(',
+        ];
+
+        foreach ($suspiciousPatterns as $pattern) {
+            if (stripos($content, $pattern) !== false) {
+                return "Suspicious code pattern detected in PHP file: $pattern";
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Compute SHA256 hash of a file
+ */
+function computeFileHash($filePath) {
+    return hash_file('sha256', $filePath);
+}
+
+/**
+ * Compute HMAC signature for a file (for package verification)
+ */
+function computeFileSignature($filePath, $key) {
+    $fileContent = file_get_contents($filePath);
+    return hash_hmac('sha256', $fileContent, $key);
+}
+
+/**
+ * Simple malware signature check (extension + content patterns)
+ */
+function checkForMalware($filePath, $fileName) {
+    $dangerousExts = ['exe', 'bat', 'cmd', 'scr', 'vbs', 'dll', 'sys', 'drv', 'pif'];
+    $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+    
+    if (in_array($ext, $dangerousExts)) {
+        return "Potentially malicious file extension detected: .$ext";
+    }
+    
+    // Check for common PHP webshell patterns
+    if ($ext === 'php' || $ext === 'phtml') {
+        $content = file_get_contents($filePath);
+        $suspiciousPatterns = [
+            'exec(',
+            'system(',
+            'passthru(',
+            'shell_exec(',
+            'eval(',
+            'assert(',
+            'create_function(',
+            'base64_decode(',
+        ];
+        
+        foreach ($suspiciousPatterns as $pattern) {
+            if (stripos($content, $pattern) !== false) {
+                return "Suspicious code pattern detected in PHP file: $pattern";
+            }
+        }
+    }
+    
+    return null; // No malware detected
+}
+
+/**
+ * Encrypt file using AES-256 (OpenSSL)
+ */
+function encryptFile($filePath, $encryptionKey) {
+    $plaintext = file_get_contents($filePath);
+    $iv = openssl_random_pseudo_bytes(openssl_cipher_iv_length('aes-256-cbc'));
+    $encrypted = openssl_encrypt($plaintext, 'aes-256-cbc', hex2bin($encryptionKey), OPENSSL_RAW_DATA, $iv);
+    
+    // Store IV with encrypted data: IV:encrypted
+    return bin2hex($iv) . ':' . bin2hex($encrypted);
+}
+
+/**
+ * Decrypt file using AES-256 (OpenSSL)
+ */
+function decryptFile($encryptedData, $encryptionKey) {
+    list($ivHex, $encryptedHex) = explode(':', $encryptedData, 2);
+    $iv = hex2bin($ivHex);
+    $encrypted = hex2bin($encryptedHex);
+    
+    return openssl_decrypt($encrypted, 'aes-256-cbc', hex2bin($encryptionKey), OPENSSL_RAW_DATA, $iv);
+}
+
+// ============ Main logic ============
+
 $repo = $_GET["name"] ?? null;
 $user = $_GET["user"] ?? ($_SESSION["name"] ?? null);
 
@@ -11,31 +252,235 @@ if (!$repo || !$user) {
 }
 
 $repoPath = __DIR__ . "/repos/$user/$repo";
-
-// Handle repository creation
 $isOwner = ($_SESSION["name"] ?? null) === $user;
 
+// Load metadata
+$repoMeta = [];
+$repoType = 'generic_private';
+$isEncrypted = false;
+$encryptionKey = null;
+
+// Handle repository creation
 if (!is_dir($repoPath)) {
     // Only the owner can create a new repository
-    if ($isOwner && $_SERVER["REQUEST_METHOD"] === "POST") {
+    if ($isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'create') {
+        $selectedType = $_POST['repo_type'] ?? 'generic_private';
+        $enableEncryption = isset($_POST['encrypt']) && $_POST['encrypt'] === '1';
+        
+        // Validate repo type
+        $validTypes = [
+            'generic_private',
+            'generic_public_readonly',
+            'generic_opensource',
+            'software_public',
+            'software_opensource',
+        ];
+        
+        if (!in_array($selectedType, $validTypes)) {
+            echo "Invalid repository type specified.";
+            exit();
+        }
+        
         if (!mkdir($repoPath, 0755, true)) {
             echo "Failed to create repository.";
             exit();
         }
+        
+        // Create metadata file
+        $repoMeta = [
+            'type' => $selectedType,
+            'encrypted' => $enableEncryption,
+            'encryption_key' => $enableEncryption ? generateAESKey() : null,
+            'created_at' => time(),
+            'modified_at' => time(),
+            'files' => [],
+        ];
+        saveRepoMeta($repoPath, $repoMeta);
     } else {
+        // Check if showing creation form
+        if ($isOwner && $_SERVER["REQUEST_METHOD"] === "GET") {
+            // Show repo creation form
+            include_repo_creation_form($repo, $user);
+            exit();
+        }
+        
         echo "The repository is not found. Please proceed to <a href='index.php'>the main page</a>.";
+        exit();
+    }
+} else {
+    $repoMeta = loadRepoMeta($repoPath);
+    $repoType = $repoMeta['type'] ?? 'generic_private';
+    $isEncrypted = $repoMeta['encrypted'] ?? false;
+    $encryptionKey = $repoMeta['encryption_key'] ?? null;
+    
+    // Handle API file metadata request (used by FtR to get expected hashes/signatures)
+    if (isset($_GET['filemeta']) && $_GET['filemeta'] === '1' && isset($_GET['file']) && isset($_GET['api']) && $_GET['api'] === '1') {
+        header('Content-Type: application/json');
+        header('X-API-Response: true');
+
+        // Only allow metadata queries for Software repos via API
+        if (!canFetchViaAPI($repoType)) {
+            http_response_code(403);
+            echo json_encode(["success" => false, "message" => "File metadata available only for Software repositories via API"]);
+            exit();
+        }
+
+        $qfile = basename($_GET['file']);
+        $entry = $repoMeta['files'][$qfile] ?? null;
+        if (!$entry) {
+            http_response_code(404);
+            echo json_encode(["success" => false, "message" => "File not found"]);
+            exit();
+        }
+
+        echo json_encode([
+            'success' => true,
+            'file' => $qfile,
+            'hash' => $entry['hash'] ?? null,
+            'signature' => $entry['signature'] ?? null,
+            'encrypted' => $entry['encrypted'] ?? false,
+        ]);
+        exit();
+    }
+    
+    // Check access permissions
+    if (!canAccessRepo($repoType, $isOwner)) {
+        http_response_code(403);
+        echo "You do not have permission to access this repository.";
         exit();
     }
 }
 
-// Handle file delection, but only available to the owner of the repository
+// Handle settings changes (repo type and encryption) - owner only
+if ($isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'update_settings') {
+    $newType = $_POST['repo_type'] ?? $repoType;
+    $validTypes = [
+        'generic_private',
+        'generic_public_readonly',
+        'generic_opensource',
+        'software_public',
+        'software_opensource',
+    ];
+    
+    if (in_array($newType, $validTypes)) {
+        $repoMeta['type'] = $newType;
+        $repoMeta['modified_at'] = time();
+        
+        // Handle encryption toggle
+        $enableEncryption = isset($_POST['encrypt']) && $_POST['encrypt'] === '1';
+        if ($enableEncryption && !$repoMeta['encrypted']) {
+            // Enable encryption - generate new key
+            $repoMeta['encrypted'] = true;
+            $repoMeta['encryption_key'] = generateAESKey();
+        } elseif (!$enableEncryption) {
+            // Disable encryption
+            $repoMeta['encrypted'] = false;
+            $repoMeta['encryption_key'] = null;
+        }
+        
+        saveRepoMeta($repoPath, $repoMeta);
+        $isEncrypted = $repoMeta['encrypted'];
+        $encryptionKey = $repoMeta['encryption_key'];
+        $settingsMessage = "<b style='color: #0f0'>Repository settings updated successfully.</b>";
+    }
+}
+
+// Handle file deletion, but only available to the owner of the repository
 if ($isOwner && isset($_GET["delete"])) {
     $fileToDelete = basename($_GET["delete"]);
     $filePath = $repoPath . DIRECTORY_SEPARATOR . $fileToDelete;
 
     if (is_file($filePath)) {
         unlink($filePath);
-        header("Location: repo.php?name=" . urlencode($repo));
+        
+        // Remove from metadata
+        if (isset($repoMeta['files'][$fileToDelete])) {
+            unset($repoMeta['files'][$fileToDelete]);
+            saveRepoMeta($repoPath, $repoMeta);
+        }
+        
+        header("Location: repo.php?name=" . urlencode($repo) . "&user=" . urlencode($user));
+        exit();
+    }
+}
+
+// Handle file download with permission checks and decryption
+if (isset($_GET["download"])) {
+    $fileToDownload = basename($_GET["download"]);
+    $filePath = $repoPath . DIRECTORY_SEPARATOR . $fileToDownload;
+    
+    // Check if this is an API request and enforce restrictions
+    $isAPIRequest = isset($_GET["api"]) && $_GET["api"] === "1";
+    if ($isAPIRequest && !canFetchViaAPI($repoType)) {
+        http_response_code(403);
+        header("Content-Type: application/json");
+        echo json_encode([
+            "success" => false,
+            "message" => "API downloads only available from Software repositories"
+        ]);
+        exit();
+    }
+    
+    if (is_file($filePath)) {
+        $fileContent = file_get_contents($filePath);
+        
+        // Decrypt if needed. For API (FtR) we only allow fetches from Software repos,
+        // and only decrypt when serving to the API.
+        if ($isEncrypted && $encryptionKey) {
+            $fileContent = decryptFile($fileContent, $encryptionKey);
+        }
+
+        // If this is an API request, perform integrity and malware checks before serving
+        if ($isAPIRequest) {
+            $fileMeta = $repoMeta['files'][$fileToDownload] ?? null;
+            // Integrity check: compare stored hash (plaintext) with computed hash of decrypted content
+            if ($fileMeta && isset($fileMeta['hash'])) {
+                $computed = computeDataHash($fileContent);
+                if (!hash_equals($fileMeta['hash'], $computed)) {
+                    http_response_code(400);
+                    header("Content-Type: application/json");
+                    echo json_encode([
+                        "success" => false,
+                        "message" => "Package integrity check failed (hash mismatch)"
+                    ]);
+                    exit();
+                }
+            }
+
+            // Malware/content scan on decrypted content
+            $malware = checkForMalwareContent($fileContent, $fileToDownload);
+            if ($malware) {
+                http_response_code(403);
+                header("Content-Type: application/json");
+                echo json_encode([
+                    "success" => false,
+                    "message" => "Malware detected: $malware"
+                ]);
+                exit();
+            }
+        }
+        
+        // Get file info
+        $fileSize = strlen($fileContent);
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime_type = finfo_file($finfo, $filePath) ?: 'application/octet-stream';
+        finfo_close($finfo);
+        
+        // Send file
+        header("Content-Type: $mime_type");
+        header("Content-Disposition: attachment; filename=\"" . basename($fileToDownload) . "\"");
+        header("Content-Length: $fileSize");
+        header("Cache-Control: no-cache, no-store, must-revalidate");
+        echo $fileContent;
+        exit();
+    } else {
+        http_response_code(404);
+        if ($isAPIRequest) {
+            header("Content-Type: application/json");
+            echo json_encode(["success" => false, "message" => "File not found"]);
+        } else {
+            echo "File not found.";
+        }
         exit();
     }
 }
@@ -48,43 +493,74 @@ if (
     isset($_FILES["upload"])
 ) {
     $file = $_FILES["upload"];
-    $target = $repoPath . DIRECTORY_SEPARATOR . basename($file["name"]);
+    $fileName = basename($file["name"]);
+    $target = $repoPath . DIRECTORY_SEPARATOR . $fileName;
+    $uploadSuccess = false;
+    $uploadError = "Upload failed";
 
-    if (move_uploaded_file($file["tmp_name"], $target)) {
-        // Check if this is an API request (from FtR CLI)
-        if (isset($_GET["api"]) && $_GET["api"] === "1") {
-            // Return JSON response for CLI tools
-            header("Content-Type: application/json");
-            header("X-API-Response: true");
+    // Check for malware
+    $malwareCheck = checkForMalware($file["tmp_name"], $fileName);
+    if ($malwareCheck) {
+        $uploadError = $malwareCheck;
+    } elseif (move_uploaded_file($file["tmp_name"], $target)) {
+        $uploadSuccess = true;
+        
+        // Compute file hash and signature
+        $fileHash = computeFileHash($target);
+        $fileSignature = null;
+        if ($encryptionKey) {
+            $fileSignature = computeFileSignature($target, $encryptionKey);
+        }
+        
+        // Encrypt file if needed
+        if ($isEncrypted && $encryptionKey) {
+            $encryptedData = encryptFile($target, $encryptionKey);
+            file_put_contents($target, $encryptedData);
+        }
+        
+        // Update metadata
+        $repoMeta['files'][$fileName] = [
+            'hash' => $fileHash,
+            'signature' => $fileSignature,
+            'size' => filesize($target),
+            'uploaded_at' => time(),
+            'encrypted' => $isEncrypted,
+        ];
+        $repoMeta['modified_at'] = time();
+        saveRepoMeta($repoPath, $repoMeta);
+        
+        $uploadError = null;
+    }
+    
+    // Check if this is an API request (from FtR CLI)
+    if (isset($_GET["api"]) && $_GET["api"] === "1") {
+        header("Content-Type: application/json");
+        header("X-API-Response: true");
+        
+        if ($uploadSuccess) {
+            http_response_code(200);
             echo json_encode([
                 "success" => true,
                 "message" => "File uploaded successfully",
-                "filename" => basename($file["name"])
+                "filename" => $fileName,
+                "hash" => $repoMeta['files'][$fileName]['hash'] ?? null,
+                "signature" => $repoMeta['files'][$fileName]['signature'] ?? null,
             ]);
-            exit();
-        }
-        
-        // HTML response for web client
-        $message =
-            "<b style='color: #0f0'>Uploaded " .
-            htmlspecialchars($file["name"]) .
-            ".</b>";
-    } else {
-        // Check if this is an API request (from FtR CLI)
-        if (isset($_GET["api"]) && $_GET["api"] === "1") {
-            // Return JSON error response
-            header("Content-Type: application/json");
-            header("X-API-Response: true");
+        } else {
             http_response_code(400);
             echo json_encode([
                 "success" => false,
-                "message" => "Upload failed"
+                "message" => $uploadError
             ]);
-            exit();
         }
-        
-        // HTML response for web client
-        $message = "<b style='color: red'>Upload failed.</b>";
+        exit();
+    }
+    
+    // HTML response for web client
+    if ($uploadSuccess) {
+        $message = "<b style='color: #0f0'>Uploaded " . htmlspecialchars($fileName) . ".</b>";
+    } else {
+        $message = "<b style='color: red'>" . htmlspecialchars($uploadError) . "</b>";
     }
 } elseif ($isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_GET["api"]) && $_GET["api"] === "1") {
     // API request but no file uploaded
@@ -120,21 +596,26 @@ if (isset($_GET["preview"])) {
     $previewFile = basename($_GET["preview"]);
     $previewPath = $repoPath . DIRECTORY_SEPARATOR . $previewFile;
 
-    $finfo = finfo_open(FILEINFO_MIME_TYPE);
-    $mime_type = finfo_file($finfo, $previewPath);
-    finfo_close($finfo);
-
     if (is_file($previewPath)) {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE); // Return MIME type
-        $mime_type = finfo_file($finfo, $previewPath);
+        // Get file content (decrypt if needed)
+        $fileContent = file_get_contents($previewPath);
+        if ($isEncrypted && $encryptionKey && isset($repoMeta['files'][$previewFile]['encrypted']) && $repoMeta['files'][$previewFile]['encrypted']) {
+            $fileContent = decryptFile($fileContent, $encryptionKey);
+        }
+        
+        // Determine MIME type
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime_type = finfo_file($finfo, $previewPath) ?: 'application/octet-stream';
         finfo_close($finfo);
 
         if ($mime_type !== false) {
             $main_type = strtok($mime_type, "/"); // Get the part before the '/' in the MIME type
 
-            // Prepare web-accessible URL for media files
+            // Use repo.php endpoint for media files (enforces permissions and decryption)
             $mediaUrl =
-                "/inkdrop/repos/$user/$repo/" . rawurlencode($previewFile);
+                "repo.php?name=" . urlencode($repo) .
+                "&user=" . urlencode($user) .
+                "&download=" . urlencode($previewFile);
 
             switch ($main_type) {
                 case "video":
@@ -162,14 +643,13 @@ if (isset($_GET["preview"])) {
                         "<img src='$mediaUrl' style='max-width: 90%; height: auto;'>";
                     break;
                 case "text":
-                    $content = file_get_contents($previewPath);
                     $previewContent =
                         "<h3>Preview of " .
                         htmlspecialchars($previewFile) .
                         "</h3>" .
                         "<br><br>" .
                         "<pre>" .
-                        htmlspecialchars($content) .
+                        htmlspecialchars($fileContent) .
                         "</pre>";
                 default:
                     $allowedExts = [
@@ -210,6 +690,118 @@ if (isset($_GET["preview"])) {
         echo "<p style='color: orange'>File is not previewable.</p>";
     }
 }
+
+/**
+ * Render repository creation form
+ */
+function include_repo_creation_form($repo, $user) {
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <link rel="stylesheet" href="root.css?version=1.2" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Source+Code+Pro:ital@0;1&display=swap" rel="stylesheet" />
+        <title>Create Repository - InkDrop</title>
+    </head>
+    <body>
+        <main style="justify-content: center;">
+            <div style="background: rgba(0,0,0,0.3); padding: 40px; border-radius: 10px; max-width: 500px; margin: 20px;">
+                <h2>Create New Repository: <code><?php echo htmlspecialchars($repo); ?></code></h2>
+                <p>Select the repository type and encryption settings:</p>
+                
+                <form method="POST" style="margin-top: 20px;">
+                    <input type="hidden" name="action" value="create" />
+                    
+                    <h3>Repository Type</h3>
+                    
+                    <div style="margin: 15px 0;">
+                        <input type="radio" name="repo_type" value="generic_public_readonly" checked id="type2" />
+                        <label for="type2"><b>Generic Public (InkDrop FileShare)</b> - Everyone can see, only you can edit</label>
+                    </div>
+                    
+                    <div style="margin: 15px 0;">
+                        <input type="radio" name="repo_type" value="generic_private" id="type1" />
+                        <label for="type1"><b>Generic Private</b> - Only you can see and edit</label>
+                    </div>
+                    
+                    <div style="margin: 15px 0;">
+                        <input type="radio" name="repo_type" value="generic_opensource" id="type3" />
+                        <label for="type3"><b>Generic Open-Source</b> - Everyone can see and edit</label>
+                    </div>
+                    
+                    <div style="margin: 15px 0;">
+                        <input type="radio" name="repo_type" value="software_public" id="type4" />
+                        <label for="type4"><b>Software Public</b> - API-accessible software repository</label>
+                    </div>
+                    
+                    <div style="margin: 15px 0;">
+                        <input type="radio" name="repo_type" value="software_opensource" id="type5" />
+                        <label for="type5"><b>Software Open-Source</b> - API-accessible and editable</label>
+                    </div>
+                    
+                    <hr style="margin: 30px 0;" />
+                    
+                    <h3>Security Options</h3>
+                    
+                    <div style="margin: 15px 0;">
+                        <input type="checkbox" name="encrypt" value="1" id="encrypt_check" checked />
+                        <label for="encrypt_check"><b>Enable AES-256 Encryption</b> - Files will be encrypted at rest</label>
+                    </div>
+                    
+                    <p style="font-size: 12px; color: #aaa; margin: 10px 0;">
+                        Encrypted files cannot be decrypted without the encryption key. The key is stored with the repository.
+                    </p>
+                    
+                    <div style="margin-top: 30px;">
+                        <button type="submit" class="redirect" style="width: 100%; padding: 12px;">Create Repository</button>
+                        <a href="index.php" style="display: block; text-align: center; margin-top: 10px;">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </main>
+        <style>
+            body {
+                background-image: linear-gradient(135deg, #0f1419 0%, #1a2a3f 100%);
+                color: white;
+                font-family: "Open Sans", sans-serif;
+            }
+            
+            main {
+                display: flex;
+                height: 100vh;
+                align-items: center;
+                overflow: auto;
+            }
+            
+            label {
+                margin-left: 8px;
+                cursor: pointer;
+            }
+            
+            h2, h3 {
+                margin: 10px 0;
+                color: #0f0;
+            }
+            
+            code {
+                background: #222;
+                padding: 2px 6px;
+                border-radius: 3px;
+                color: #0f0;
+            }
+            
+            hr {
+                border: none;
+                border-top: 1px solid #444;
+            }
+        </style>
+    </body>
+    </html>
+    <?php
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -249,6 +841,44 @@ if (isset($_GET["preview"])) {
 
             <div class="main main1">
                 <?php if ($isOwner): ?>
+                
+                <!-- Repository Settings Panel -->
+                <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 8px; margin: 15px 0; border-left: 3px solid #0f0;">
+                    <h3 style="margin-top: 0; color: #222;">Repository Settings</h3>
+                    <form method="POST" style="display: grid; gap: 15px;">
+                        <input type="hidden" name="action" value="update_settings" />
+                        
+                        <div>
+                            <label for="repo_type_select"><b>Repository Type:</b></label>
+                            <select name="repo_type" id="repo_type_select" style="background: #222; color: white; padding: 8px; border-radius: 4px; width: 100%; margin-top: 5px;">
+                                <option value="generic_private" <?php echo $repoType === 'generic_private' ? 'selected' : ''; ?>>Generic Private</option>
+                                <option value="generic_public_readonly" <?php echo $repoType === 'generic_public_readonly' ? 'selected' : ''; ?>>Generic Public</option>
+                                <option value="generic_opensource" <?php echo $repoType === 'generic_opensource' ? 'selected' : ''; ?>>Generic Open-Source</option>
+                                <option value="software_public" <?php echo $repoType === 'software_public' ? 'selected' : ''; ?>>Software Public (API)</option>
+                                <option value="software_opensource" <?php echo $repoType === 'software_opensource' ? 'selected' : ''; ?>>Software Open-Source (API)</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <input type="checkbox" name="encrypt" value="1" id="encrypt_setting" <?php echo $isEncrypted ? 'checked' : ''; ?> />
+                            <label for="encrypt_setting"><b>Enable AES-256 Encryption</b></label>
+                            <p style="font-size: 12px; color: #aaa; margin: 5px 0;">Files in this repo are encrypted at rest using AES-256-CBC.</p>
+                        </div>
+                        
+                        <p style="font-size: 12px; color: #fff; margin: 0;">
+                            <b>Created:</b> <?php echo date('Y-m-d H:i:s', $repoMeta['created_at'] ?? time()); ?><br />
+                            <b>Last Modified:</b> <?php echo date('Y-m-d H:i:s', $repoMeta['modified_at'] ?? time()); ?><br />
+                            <b>Files:</b> <?php echo count(array_filter(scandir($repoPath) ?? [], function($f) { return $f !== '.' && $f !== '..' && $f !== '.repo_meta.json'; })); ?>
+                        </p>
+                        
+                        <button type="submit" class="redirect" style="padding: 10px;">Update Settings</button>
+                    </form>
+                    <?php if (isset($settingsMessage)): ?>
+                        <p style="margin-top: 10px;"><?php echo $settingsMessage; ?></p>
+                    <?php endif; ?>
+                </div>
+                
+                <!-- File Upload Form -->
                 <form
                     action="repo.php?name=<?= urlencode($repo) ?>"
                     method="POST" enctype="multipart/form-data"
@@ -274,7 +904,7 @@ if (isset($_GET["preview"])) {
                     <?php
                     $files = scandir($repoPath);
                     foreach ($files as $file) {
-                        if ($file === "." || $file === "..") {
+                        if ($file === "." || $file === ".." || $file === ".repo_meta.json") {
                             continue;
                         }
 
@@ -296,23 +926,50 @@ if (isset($_GET["preview"])) {
                         // More detailed timestamp
                         $modified = date("Y-m-d H:i:s T", filemtime($fullPath));
 
-                        // Use web paths for downloads and previews
+                        // Get file metadata
+                        $fileMeta = $repoMeta['files'][$file] ?? [];
+                        $isFileEncrypted = $fileMeta['encrypted'] ?? false;
+                        $fileHash = $fileMeta['hash'] ?? 'N/A';
+                        $fileSignature = $fileMeta['signature'] ?? null;
+                        $fileId = 'hash_' . md5($file);
+
+                        // Use repo.php for downloads (to enforce permissions and decryption)
                         $downloadLink =
-                            "/inkdrop/repos/$user/$repo/" . rawurlencode($file);
+                            "repo.php?name=" .
+                            urlencode($repo) .
+                            "&user=" .
+                            urlencode($user) .
+                            "&download=" .
+                            urlencode($file);
                         $previewLink =
-                            "/inkdrop/repo.php?name=" .
+                            "repo.php?name=" .
                             urlencode($repo) .
                             "&user=" .
                             urlencode($user) .
                             "&preview=" .
                             urlencode($file);
-                        echo "<li><code>$file</code> ($size, $modified) ";
+                        
+                        $encryptionBadge = $isFileEncrypted ? ' <span style="background: #f00; padding: 2px 6px; border-radius: 3px; font-size: 10pt;">ENCRYPTED</span>' : '';
+                        
+                        echo "<li>";
+                        echo "<code>$file</code> ($size, $modified)$encryptionBadge<br />";
+                        echo "<span style='font-size: 11pt; color: #aaa;'>Hash: <code style='color: #0f0;'>" . substr($fileHash, 0, 16) . "...</code></span>";
+                        // View Hash button to reveal full hash/signature
+                        echo " <button type='button' class='select small' onclick=\"toggleHash('" . $fileId . "')\">View Hash</button>";
+                        echo "<span id='" . $fileId . "' style='display: none; margin-left: 8px; font-size: 10pt; color: #ddd;'>Full Hash: <code style=\"color: #0f0;\">" . htmlspecialchars($fileHash) . "</code>";
+                        if ($fileSignature) {
+                            echo " Signature: <code style=\"color: #0f0;\">" . htmlspecialchars($fileSignature) . "</code>";
+                        }
+                        echo "</span>";
+                        echo "<br />";
                         echo "<a href='$downloadLink' download><button class='select small'>Download</button></a>";
                         echo "<a href='$previewLink'><button class='select small'>Preview</button></a>";
                         if ($isOwner) {
                             $deleteLink =
                                 "repo.php?name=" .
                                 urlencode($repo) .
+                                "&user=" .
+                                urlencode($user) .
                                 "&delete=" .
                                 urlencode($file);
                             echo "<a href='$deleteLink' onclick=\"return confirm('Delete $file?')\"><button class='select small'>Delete</button></a>";
@@ -417,6 +1074,11 @@ if (isset($_GET["preview"])) {
     }
     </style>
     <script>
+    function toggleHash(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'inline-block' : 'none';
+    }
     document.getElementById('uploadForm')?.addEventListener('submit', function(e) {
         e.preventDefault();
 
