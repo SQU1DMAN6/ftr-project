@@ -141,27 +141,30 @@ function computeDataHash($data) {
  */
 function checkForMalwareContent($content, $fileName) {
     $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-    $dangerousExts = ['exe', 'bat', 'cmd', 'scr', 'vbs', 'dll', 'sys', 'drv', 'pif'];
+    $dangerousExts = ['exe', 'bat', 'cmd', 'scr', 'vbs', 'dll', 'sys', 'drv', 'pif', 'com', 'msi', 'ps1'];
     if (in_array($ext, $dangerousExts)) {
         return "Potentially malicious file extension detected: .$ext";
     }
 
-    if ($ext === 'php' || $ext === 'phtml') {
-        $suspiciousPatterns = [
-            'exec(',
-            'system(',
-            'passthru(',
-            'shell_exec(',
-            'eval(',
-            'assert(',
-            'create_function(',
-            'base64_decode(',
-        ];
+    // Check for dangerous patterns in all files (especially in packages)
+    $suspiciousPatterns = [
+        'shell_exec(',
+        'exec(',
+        'system(',
+        'passthru(',
+        'eval(',
+        'assert(',
+        'create_function(',
+        'base64_decode(',
+        'proc_open(',
+        'proc_exec(',
+        'popen(',
+        'pcntl_exec(',
+    ];
 
-        foreach ($suspiciousPatterns as $pattern) {
-            if (stripos($content, $pattern) !== false) {
-                return "Suspicious code pattern detected in PHP file: $pattern";
-            }
+    foreach ($suspiciousPatterns as $pattern) {
+        if (stripos($content, $pattern) !== false) {
+            return "Suspicious code pattern detected: $pattern";
         }
     }
 
@@ -187,31 +190,33 @@ function computeFileSignature($filePath, $key) {
  * Simple malware signature check (extension + content patterns)
  */
 function checkForMalware($filePath, $fileName) {
-    $dangerousExts = ['exe', 'bat', 'cmd', 'scr', 'vbs', 'dll', 'sys', 'drv', 'pif'];
+    $dangerousExts = ['exe', 'bat', 'cmd', 'scr', 'vbs', 'dll', 'sys', 'drv', 'pif', 'com', 'msi', 'ps1'];
     $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
     
     if (in_array($ext, $dangerousExts)) {
         return "Potentially malicious file extension detected: .$ext";
     }
     
-    // Check for common PHP webshell patterns
-    if ($ext === 'php' || $ext === 'phtml') {
-        $content = file_get_contents($filePath);
-        $suspiciousPatterns = [
-            'exec(',
-            'system(',
-            'passthru(',
-            'shell_exec(',
-            'eval(',
-            'assert(',
-            'create_function(',
-            'base64_decode(',
-        ];
-        
-        foreach ($suspiciousPatterns as $pattern) {
-            if (stripos($content, $pattern) !== false) {
-                return "Suspicious code pattern detected in PHP file: $pattern";
-            }
+    // Check for dangerous patterns in all files (especially in packages)
+    $content = file_get_contents($filePath);
+    $suspiciousPatterns = [
+        'shell_exec(',
+        'exec(',
+        'system(',
+        'passthru(',
+        'eval(',
+        'assert(',
+        'create_function(',
+        'base64_decode(',
+        'proc_open(',
+        'proc_exec(',
+        'popen(',
+        'pcntl_exec(',
+    ];
+    
+    foreach ($suspiciousPatterns as $pattern) {
+        if (stripos($content, $pattern) !== false) {
+            return "Suspicious code pattern detected: $pattern";
         }
     }
     
@@ -422,42 +427,28 @@ if (isset($_GET["download"])) {
     }
     
     if (is_file($filePath)) {
+        // Read stored content (may be encrypted at rest)
         $fileContent = file_get_contents($filePath);
-        
-        // Decrypt if needed. For API (FtR) we only allow fetches from Software repos,
-        // and only decrypt when serving to the API.
-        if ($isEncrypted && $encryptionKey) {
-            $fileContent = decryptFile($fileContent, $encryptionKey);
-        }
 
-        // If this is an API request, perform integrity and malware checks before serving
+        // If this is an API request, we serve the raw stored blob (encrypted if repo is encrypted)
+        // FtR clients are expected to fetch metadata via the filemeta API and decrypt locally
         if ($isAPIRequest) {
+            // Include helpful headers for CLI clients
             $fileMeta = $repoMeta['files'][$fileToDownload] ?? null;
-            // Integrity check: compare stored hash (plaintext) with computed hash of decrypted content
             if ($fileMeta && isset($fileMeta['hash'])) {
-                $computed = computeDataHash($fileContent);
-                if (!hash_equals($fileMeta['hash'], $computed)) {
-                    http_response_code(400);
-                    header("Content-Type: application/json");
-                    echo json_encode([
-                        "success" => false,
-                        "message" => "Package integrity check failed (hash mismatch)"
-                    ]);
-                    exit();
-                }
+                header('X-File-Hash: ' . $fileMeta['hash']);
             }
+            if ($fileMeta && isset($fileMeta['signature'])) {
+                header('X-File-Signature: ' . $fileMeta['signature']);
+            }
+            header('X-File-Encrypted: ' . (($fileMeta['encrypted'] ?? false) ? '1' : '0'));
 
-            // Malware/content scan on decrypted content
-            $malware = checkForMalwareContent($fileContent, $fileToDownload);
-            if ($malware) {
-                http_response_code(403);
-                header("Content-Type: application/json");
-                echo json_encode([
-                    "success" => false,
-                    "message" => "Malware detected: $malware"
-                ]);
-                exit();
-            }
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment; filename="' . basename($fileToDownload) . '"');
+            header('Content-Length: ' . strlen($fileContent));
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            echo $fileContent;
+            exit();
         }
         
         // Get file info
@@ -712,7 +703,7 @@ function include_repo_creation_form($repo, $user) {
                 <h2>Create New Repository: <code><?php echo htmlspecialchars($repo); ?></code></h2>
                 <p>Select the repository type and encryption settings:</p>
                 
-                <form method="POST" style="margin-top: 20px;">
+                <form method="POST" action="repo.php?name=<?php echo urlencode($repo); ?>&user=<?php echo urlencode($user); ?>" style="margin-top: 20px;">
                     <input type="hidden" name="action" value="create" />
                     
                     <h3>Repository Type</h3>
@@ -845,7 +836,7 @@ function include_repo_creation_form($repo, $user) {
                 <!-- Repository Settings Panel -->
                 <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 8px; margin: 15px 0; border-left: 3px solid #0f0;">
                     <h3 style="margin-top: 0; color: #222;">Repository Settings</h3>
-                    <form method="POST" style="display: grid; gap: 15px;">
+                    <form method="POST" action="repo.php?name=<?php echo urlencode($repo); ?>&user=<?php echo urlencode($user); ?>" style="display: grid; gap: 15px;">
                         <input type="hidden" name="action" value="update_settings" />
                         
                         <div>

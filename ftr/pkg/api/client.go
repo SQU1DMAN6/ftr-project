@@ -2,8 +2,12 @@ package api
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"ftr/pkg/screen"
 	"io"
@@ -82,11 +86,18 @@ func NewClient() (*Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse base URL: %w", err)
 		}
+
+		if os.Getenv("FTR_DEBUG") == "1" {
+			fmt.Printf("DEBUG NewClient: Loaded sessionID=%s (len=%d)\n", client.sessionID, len(client.sessionID))
+		}
+
 		jar.SetCookies(baseURLParsed, []*http.Cookie{{
-			Name:   "PHPSESSID",
-			Value:  client.sessionID,
-			Path:   "/",
-			Domain: baseURLParsed.Hostname(),
+			Name:     "PHPSESSID",
+			Value:    client.sessionID,
+			Path:     "/",
+			Domain:   baseURLParsed.Hostname(),
+			Secure:   true,
+			HttpOnly: true,
 		}})
 
 		// Also load user info if available
@@ -293,7 +304,7 @@ func (c *Client) Login(email, password string) error {
 	if err != nil {
 		return fmt.Errorf("failed to verify session: %w", err)
 	}
-	verifyBody, err := io.ReadAll(verifyResp.Body)
+	verifyBody, _ := io.ReadAll(verifyResp.Body)
 	verifyResp.Body.Close()
 
 	if bytes.Contains(verifyBody, []byte("Login with an existing InkDrop account")) {
@@ -357,13 +368,56 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	}
 	user, repoName := parts[0], parts[1]
 
+	// Debug: Print session info
+	if os.Getenv("FTR_DEBUG") == "1" {
+		fmt.Printf("DEBUG UploadFile: sessionID=%s (len=%d)\n", c.sessionID, len(c.sessionID))
+		fmt.Printf("DEBUG UploadFile: email=%s, username=%s\n", c.email, c.username)
+		fmt.Printf("DEBUG UploadFile: repoPath=%s, user=%s, repoName=%s\n", repoPath, user, repoName)
+	}
+
+	// Ensure cookie jar contains our session cookie so automatic requests
+	// will include it. Some environments may not persist cookie attrs, so
+	// re-add it to the jar before making any requests.
+	baseURLParsed, _ := url.Parse(BaseURL)
+	if c.sessionID != "" {
+		c.http.Jar.SetCookies(baseURLParsed, []*http.Cookie{{
+			Name:     "PHPSESSID",
+			Value:    c.sessionID,
+			Path:     "/",
+			Domain:   baseURLParsed.Hostname(),
+			Secure:   true,
+			HttpOnly: true,
+		}})
+	}
+
 	// First verify our session is still valid and get current user info
-	resp, err := c.http.Get(BaseURL + InkDropPath + "/index.php")
+	req, err := http.NewRequest("GET", BaseURL+InkDropPath+"/index.php", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create verification request: %w", err)
+	}
+	// Also set Cookie header explicitly to be resilient in environments where
+	// the cookie jar might not be consulted for some requests.
+	if c.sessionID != "" {
+		req.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+	}
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("session verification failed: %w", err)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+
+	// Debug: Check verification response
+	if os.Getenv("FTR_DEBUG") == "1" {
+		if bytes.Contains(body, []byte("Logged in as")) {
+			fmt.Printf("DEBUG: Verification passed - found 'Logged in as' in response\n")
+		} else {
+			fmt.Printf("DEBUG: Verification FAILED - 'Logged in as' NOT found in response\n")
+			if bytes.Contains(body, []byte("Login with an existing")) {
+				fmt.Printf("DEBUG: Got redirected to login page - session is invalid!\n")
+			}
+		}
+	}
 
 	// If we got redirected to login, our session is invalid
 	if bytes.Contains(body, []byte("Login with an existing InkDrop account")) {
@@ -384,12 +438,19 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	}
 
 	// Now try to access or create the repo
-	resp, err = c.http.Get(fmt.Sprintf("%s%s/repo.php?name=%s&user=%s", BaseURL, InkDropPath, url.QueryEscape(repoName), url.QueryEscape(user)))
+	repoReq, err := http.NewRequest("GET", fmt.Sprintf("%s%s/repo.php?name=%s&user=%s", BaseURL, InkDropPath, url.QueryEscape(repoName), url.QueryEscape(user)), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create repo check request: %w", err)
+	}
+	if c.sessionID != "" {
+		repoReq.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+	}
+	resp, err = c.http.Do(repoReq)
 	if err != nil {
 		return fmt.Errorf("failed to check repository: %w", err)
 	}
 
-	body, err = io.ReadAll(resp.Body)
+	body, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
 
 	// If repo doesn't exist, create it with our first upload
@@ -443,14 +504,20 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	// Create request to repo.php with appropriate query parameters
 	// Use api=1 to request JSON response from CLI uploads
 	uploadURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repoName), url.QueryEscape(user))
-	req, err := http.NewRequest("POST", uploadURL, &b)
+	uploadReq, err := http.NewRequest("POST", uploadURL, &b)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
+	uploadReq.Header.Set("Content-Type", w.FormDataContentType())
+
+	// Ensure PHP session cookie is sent even if the cookie jar did not
+	// correctly attach it (some environments may not persist cookie attrs).
+	if c.sessionID != "" {
+		uploadReq.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+	}
 
 	// Send request
-	resp, err = c.http.Do(req)
+	resp, err = c.http.Do(uploadReq)
 	if err != nil {
 		return fmt.Errorf("upload request failed: %w", err)
 	}
@@ -492,14 +559,29 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 
 			// Add debug info if available
 			if debug, ok := apiResp["debug"].(map[string]interface{}); ok {
-				if loggedIn, ok := debug["logged_in_as"].(string); ok {
-					if owner, ok := debug["repository_owner"].(string); ok {
-						errMsg = fmt.Sprintf("upload failed: %s (logged in as '%s', repository owner is '%s')", errMsg, loggedIn, owner)
-						return fmt.Errorf("%s", errMsg)
-					}
+				dLogged := ""
+				dOwner := ""
+				if v, ok := debug["logged_in_as"].(string); ok {
+					dLogged = v
+				}
+				if v, ok := debug["repository_owner"].(string); ok {
+					dOwner = v
+				}
+				if dLogged != "" || dOwner != "" {
+					errMsg = fmt.Sprintf("upload failed: %s (logged in as '%s', repository owner is '%s')", errMsg, dLogged, dOwner)
 				}
 			}
+
+			// If debug is enabled, print full server response to help diagnose.
+			if os.Getenv("FTR_DEBUG") == "1" {
+				fmt.Printf("DEBUG: Server JSON response: %s\n", string(body))
+			}
+
 			return fmt.Errorf("%s", errMsg)
+		}
+	} else {
+		if os.Getenv("FTR_DEBUG") == "1" {
+			fmt.Printf("DEBUG: Non-JSON response from server: %s\n", string(body))
 		}
 	}
 
@@ -518,7 +600,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	}
 
 	if bytes.Contains(body, []byte("cannot upload")) || !bytes.Contains(body, []byte("uploadForm")) {
-		return fmt.Errorf("upload failed - not authorized to upload to this repository")
+		return fmt.Errorf("upload failed - not authorized to upload to this repository. Note your session may have expired, please login again")
 	}
 
 	return fmt.Errorf("upload failed - unexpected response from server")
@@ -589,6 +671,24 @@ func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, er
 	if s, ok := apiResp["signature"].(string); ok {
 		out["signature"] = s
 	}
+	if e, ok := apiResp["encrypted"]; ok {
+		switch v := e.(type) {
+		case bool:
+			if v {
+				out["encrypted"] = "1"
+			} else {
+				out["encrypted"] = "0"
+			}
+		case string:
+			out["encrypted"] = v
+		case float64:
+			if v != 0 {
+				out["encrypted"] = "1"
+			} else {
+				out["encrypted"] = "0"
+			}
+		}
+	}
 	return out, nil
 }
 
@@ -621,33 +721,157 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 		var apiResp map[string]interface{}
 		if err := json.Unmarshal(body, &apiResp); err == nil {
 			if msg, ok := apiResp["message"].(string); ok {
-				return fmt.Errorf("server error: %s", msg)
+				// Check for malware detection error
+				if strings.Contains(msg, "Suspicious") || strings.Contains(msg, "Malicious") {
+					// Alert user to potentially malicious code
+					fmt.Printf("\n[WARNING] This package contains potentially malicious code:\n")
+					fmt.Printf("  %s\n\n", msg)
+					fmt.Printf("Proceed with download anyway? [y/N]: ")
+
+					var response string
+					fmt.Scanln(&response)
+
+					if strings.ToLower(response) != "y" {
+						return fmt.Errorf("download cancelled by user")
+					}
+
+					// User chose 'y', but we still can't proceed if server rejected it
+					// Return the original error (file couldn't be stored due to malware)
+					return fmt.Errorf("server rejected file due to malware: %s", msg)
+				} else {
+					return fmt.Errorf("server error: %s", msg)
+				}
 			}
 		}
 		return fmt.Errorf("download failed: %s", resp.Status)
 	}
 
-	// Prepare destination file
-	outFile, err := os.Create(destPath)
+	// Prepare destination file (we may overwrite after decryption)
+	tmpPath := destPath + ".part"
+	outFile, err := os.Create(tmpPath)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer outFile.Close()
-
-	// Stream download with progress and compute hash
+	// Stream download with progress
 	size := resp.ContentLength
 	pr := &screen.ProgressReader{R: resp.Body, Total: size, Start: time.Now()}
-	hasher := sha256.New()
-	tr := io.TeeReader(pr, hasher)
 
-	if _, err := io.Copy(outFile, tr); err != nil {
+	if _, err := io.Copy(outFile, pr); err != nil {
+		outFile.Close()
 		return fmt.Errorf("failed to save downloaded file: %w", err)
 	}
+	outFile.Close()
 
-	computed := fmt.Sprintf("%x", hasher.Sum(nil))
+	// If file is encrypted, attempt to decrypt using local key store
+	encrypted := false
+	if meta != nil {
+		if val, ok := meta["encrypted"]; ok && val == "1" {
+			encrypted = true
+		}
+	}
+
+	if encrypted {
+		// Locate key: ~/.config/ftr/keys/{user}_{repo}.key
+		keysDir := filepath.Join(c.configDir, "keys")
+		keyFile := filepath.Join(keysDir, fmt.Sprintf("%s_%s.key", user, repo))
+		keyHex := ""
+		if data, err := os.ReadFile(keyFile); err == nil {
+			keyHex = strings.TrimSpace(string(data))
+		} else {
+			return fmt.Errorf("repository content is encrypted; no decryption key found at %s. Ask the repo owner to provide the key or place it there", keyFile)
+		}
+
+		// Read encrypted payload
+		encData, err := os.ReadFile(tmpPath)
+		if err != nil {
+			return fmt.Errorf("failed to read downloaded encrypted file: %w", err)
+		}
+
+		// decrypt format is hex(iv) ':' hex(ciphertext)
+		plaintext, err := decryptHexPayload(encData, keyHex)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt payload: %w", err)
+		}
+
+		// Verify hash against expectedHash if available
+		if expectedHash != "" {
+			computed := fmt.Sprintf("%x", sha256.Sum256(plaintext))
+			if !strings.EqualFold(expectedHash, computed) {
+				return fmt.Errorf("integrity check failed after decryption: expected %s computed %s", expectedHash, computed)
+			}
+		}
+
+		// Write plaintext to final path
+		if err := os.WriteFile(destPath, plaintext, 0644); err != nil {
+			return fmt.Errorf("failed to write decrypted file: %w", err)
+		}
+		// Remove temp
+		_ = os.Remove(tmpPath)
+		return nil
+	}
+
+	// Not encrypted: verify hash of downloaded file
+	fdata, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return fmt.Errorf("failed to read downloaded file for verification: %w", err)
+	}
+	computed := fmt.Sprintf("%x", sha256.Sum256(fdata))
 	if expectedHash != "" && !strings.EqualFold(expectedHash, computed) {
 		return fmt.Errorf("integrity check failed: expected %s computed %s", expectedHash, computed)
 	}
-
+	// Move temp to dest
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return fmt.Errorf("failed to finalize downloaded file: %w", err)
+	}
 	return nil
+}
+
+// decryptHexPayload expects data like "<iv_hex>:<cipher_hex>" and a key in hex
+func decryptHexPayload(payload []byte, keyHex string) ([]byte, error) {
+	parts := strings.SplitN(string(payload), ":", 2)
+	if len(parts) != 2 {
+		return nil, errors.New("invalid encrypted payload format")
+	}
+	iv, err := hex.DecodeString(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid IV encoding: %w", err)
+	}
+	cipherBytes, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid ciphertext encoding: %w", err)
+	}
+	key, err := hex.DecodeString(strings.TrimSpace(keyHex))
+	if err != nil {
+		return nil, fmt.Errorf("invalid key encoding: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("invalid key length: expected 32 bytes, got %d", len(key))
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+	if len(cipherBytes)%aes.BlockSize != 0 {
+		return nil, errors.New("ciphertext is not a multiple of block size")
+	}
+	if len(iv) != aes.BlockSize {
+		return nil, errors.New("invalid IV length")
+	}
+	mode := cipher.NewCBCDecrypter(block, iv)
+	out := make([]byte, len(cipherBytes))
+	mode.CryptBlocks(out, cipherBytes)
+	// PKCS7 unpad
+	if len(out) == 0 {
+		return nil, errors.New("decrypted payload empty")
+	}
+	pad := int(out[len(out)-1])
+	if pad <= 0 || pad > aes.BlockSize || pad > len(out) {
+		return nil, errors.New("invalid padding")
+	}
+	for i := 0; i < pad; i++ {
+		if out[len(out)-1-i] != byte(pad) {
+			return nil, errors.New("invalid padding bytes")
+		}
+	}
+	return out[:len(out)-pad], nil
 }

@@ -23,7 +23,7 @@ chmod 755 ./ftr
 sudo cp ./ftr /usr/local/bin/ftr
 
 echo "FtR package manager has been installed successfully. Use 'ftr' as shell command to use it."
-echo "=> ftr --help"
+echo "ftr --help"
 ftr --help
 
 echo "Removing evidence..."

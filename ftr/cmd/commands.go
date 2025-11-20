@@ -22,5 +22,6 @@ func init() {
 		sessionCmd,
 		packCmd,
 		buildCmd,
+		versionCmd,
 	)
 }

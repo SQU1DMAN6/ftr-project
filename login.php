@@ -100,7 +100,8 @@ include "guard.php"; ?>
 
                         include "loguserinfo.php";
 
-                        echo "<script>window.location.href = 'index.php';</script>";
+                        // Use HTTP redirect instead of JavaScript redirect
+                        header("Location: index.php", true, 302);
                         exit();
                     } else {
                         echo "<br><br><h2 style='color: #ff0000; background-color: black;'>Error logging in.</h2><br><br>";
