@@ -344,6 +344,8 @@ if (!is_dir($repoPath)) {
             'hash' => $entry['hash'] ?? null,
             'signature' => $entry['signature'] ?? null,
             'encrypted' => $entry['encrypted'] ?? false,
+            'flagged' => $entry['flagged'] ?? false,
+            'flagged_note' => $entry['flagged_note'] ?? null,
         ]);
         exit();
     }
@@ -430,9 +432,20 @@ if (isset($_GET["download"])) {
         // Read stored content (may be encrypted at rest)
         $fileContent = file_get_contents($filePath);
 
-        // If this is an API request, we serve the raw stored blob (encrypted if repo is encrypted)
-        // FtR clients are expected to fetch metadata via the filemeta API and decrypt locally
+        // If this is an API request, only serve the stored blob to clients that
+        // present the FtR handshake (POST + X-FTR-Client header) or requests coming
+        // from the InkDrop repo page (referer includes repo.php). This prevents
+        // direct raw GETs from revealing the stored blob.
         if ($isAPIRequest) {
+            $isFtRClient = ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_FTR_CLIENT']) && $_SERVER['HTTP_X_FTR_CLIENT'] === 'FtR-CLI');
+            $isFromRepoPage = isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'repo.php') !== false;
+            if (!($isFtRClient || $isFromRepoPage)) {
+                http_response_code(403);
+                header('Content-Type: application/json');
+                echo json_encode(["success" => false, "message" => "API downloads must use the FtR client or the repository page"]);
+                exit();
+            }
+
             // Include helpful headers for CLI clients
             $fileMeta = $repoMeta['files'][$fileToDownload] ?? null;
             if ($fileMeta && isset($fileMeta['hash'])) {
@@ -442,6 +455,10 @@ if (isset($_GET["download"])) {
                 header('X-File-Signature: ' . $fileMeta['signature']);
             }
             header('X-File-Encrypted: ' . (($fileMeta['encrypted'] ?? false) ? '1' : '0'));
+            if ($fileMeta && !empty($fileMeta['flagged'])) {
+                header('X-File-Flagged: 1');
+                header('X-File-Flagged-Note: ' . ($fileMeta['flagged_note'] ?? ''));
+            }
 
             header('Content-Type: application/octet-stream');
             header('Content-Disposition: attachment; filename="' . basename($fileToDownload) . '"');
@@ -476,12 +493,37 @@ if (isset($_GET["download"])) {
     }
 }
 
-// Handle file upload, but only available to the owner of the repository
-
+// Handle directory creation (owner or editable repos)
 if (
-    $isOwner &&
     $_SERVER["REQUEST_METHOD"] === "POST" &&
-    isset($_FILES["upload"])
+    isset($_POST['action']) && $_POST['action'] === 'mkdir' &&
+    ( $isOwner || canEditRepo($repoType, $isOwner) )
+) {
+    $dirName = trim($_POST['dir'] ?? '');
+    // Validate directory name: cannot start or end with a dot, and no .. components
+    if ($dirName === '' || strpos($dirName, '..') !== false || str_starts_with($dirName, '.') || str_ends_with($dirName, '.')) {
+        echo "Invalid directory name.";
+        exit();
+    }
+    $targetDir = $repoPath . DIRECTORY_SEPARATOR . $dirName;
+    if (!is_dir($targetDir)) {
+        if (!mkdir($targetDir, 0755, true)) {
+            echo "Failed to create directory.";
+            exit();
+        }
+    }
+    // Update metadata
+    $repoMeta['modified_at'] = time();
+    saveRepoMeta($repoPath, $repoMeta);
+    header("Location: repo.php?name=" . urlencode($repo) . "&user=" . urlencode($user));
+    exit();
+}
+
+// Handle file upload - available to the owner or repos that allow edits by others
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    isset($_FILES["upload"]) &&
+    ( $isOwner || canEditRepo($repoType, $isOwner) )
 ) {
     $file = $_FILES["upload"];
     $fileName = basename($file["name"]);
@@ -489,26 +531,32 @@ if (
     $uploadSuccess = false;
     $uploadError = "Upload failed";
 
-    // Check for malware
+    // Check for malware; if found, we will still accept the upload but flag it in metadata
     $malwareCheck = checkForMalware($file["tmp_name"], $fileName);
+    $flagged = false;
+    $flaggedNote = null;
+
     if ($malwareCheck) {
-        $uploadError = $malwareCheck;
-    } elseif (move_uploaded_file($file["tmp_name"], $target)) {
+        $flagged = true;
+        $flaggedNote = $malwareCheck;
+    }
+
+    if (move_uploaded_file($file["tmp_name"], $target)) {
         $uploadSuccess = true;
-        
+
         // Compute file hash and signature
         $fileHash = computeFileHash($target);
         $fileSignature = null;
         if ($encryptionKey) {
             $fileSignature = computeFileSignature($target, $encryptionKey);
         }
-        
+
         // Encrypt file if needed
         if ($isEncrypted && $encryptionKey) {
             $encryptedData = encryptFile($target, $encryptionKey);
             file_put_contents($target, $encryptedData);
         }
-        
+
         // Update metadata
         $repoMeta['files'][$fileName] = [
             'hash' => $fileHash,
@@ -517,9 +565,15 @@ if (
             'uploaded_at' => time(),
             'encrypted' => $isEncrypted,
         ];
+
+        if ($flagged) {
+            $repoMeta['files'][$fileName]['flagged'] = true;
+            $repoMeta['files'][$fileName]['flagged_note'] = $flaggedNote;
+        }
+
         $repoMeta['modified_at'] = time();
         saveRepoMeta($repoPath, $repoMeta);
-        
+
         $uploadError = null;
     }
     
@@ -536,6 +590,8 @@ if (
                 "filename" => $fileName,
                 "hash" => $repoMeta['files'][$fileName]['hash'] ?? null,
                 "signature" => $repoMeta['files'][$fileName]['signature'] ?? null,
+                "flagged" => $repoMeta['files'][$fileName]['flagged'] ?? false,
+                "flagged_note" => $repoMeta['files'][$fileName]['flagged_note'] ?? null,
             ]);
         } else {
             http_response_code(400);
@@ -755,16 +811,20 @@ function include_repo_creation_form($repo, $user) {
         </main>
         <style>
             body {
-                background-image: linear-gradient(135deg, #0f1419 0%, #1a2a3f 100%);
-                color: white;
-                font-family: "Open Sans", sans-serif;
+                        background-image: linear-gradient(135deg, #0b1220 0%, #172433 100%);
+                        color: #e6eef6;
+                        font-family: "Inter", "Open Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+                        line-height: 1.45;
             }
             
             main {
                 display: flex;
-                height: 100vh;
+                flex-direction: column;
+                min-height: 100vh;
                 align-items: center;
-                overflow: auto;
+                padding: 20px 10px;
+                max-width: 1100px;
+                margin: 0 auto;
             }
             
             label {
@@ -774,14 +834,16 @@ function include_repo_creation_form($repo, $user) {
             
             h2, h3 {
                 margin: 10px 0;
-                color: #0f0;
+                color: #4fe1a6;
+                font-weight: 600;
             }
             
             code {
-                background: #222;
-                padding: 2px 6px;
-                border-radius: 3px;
-                color: #0f0;
+                background: rgba(255,255,255,0.03);
+                padding: 4px 8px;
+                border-radius: 4px;
+                color: #b7f5d6;
+                font-family: "Source Code Pro", monospace;
             }
             
             hr {
@@ -870,18 +932,30 @@ function include_repo_creation_form($repo, $user) {
                 </div>
                 
                 <!-- File Upload Form -->
-                <form
-                    action="repo.php?name=<?= urlencode($repo) ?>"
-                    method="POST" enctype="multipart/form-data"
-                    id="uploadForm"
-                >
-                    <input type="file" name="upload" required />
-                    <button type="submit" class="select">Upload File</button>
-                    <div id="progressContainer" style="display: none;">
-                        <div id="progressBar"></div>
-                        <div id="progressStatus">0%</div>
-                    </div>
-                </form>
+                <div style="display: flex; gap: 16px; align-items: flex-start;">
+                    <form
+                        action="repo.php?name=<?= urlencode($repo) ?>"
+                        method="POST" enctype="multipart/form-data"
+                        id="uploadForm"
+                        style="flex: 1; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px;"
+                    >
+                        <label style="display: block; margin-bottom: 8px;"><b>Upload File</b></label>
+                        <input type="file" name="upload" required style="display:block; margin-bottom:10px;" />
+                        <button type="submit" class="select">Upload File</button>
+                        <div id="progressContainer" style="display: none;">
+                            <div id="progressBar"></div>
+                            <div id="progressStatus">0%</div>
+                        </div>
+                    </form>
+
+                    <form action="repo.php?name=<?= urlencode($repo) ?>" method="POST" style="width:260px; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px;">
+                        <input type="hidden" name="action" value="mkdir" />
+                        <label style="display:block; margin-bottom:8px;"><b>Create Directory</b></label>
+                        <input type="text" name="dir" placeholder="subdir/name" required style="width:100%; margin-bottom:8px; padding:6px;" />
+                        <button type="submit" class="select">Create</button>
+                        <p style="font-size:11px; color:#bbb; margin-top:8px;">Directory names cannot start or end with a dot and cannot contain <code>..</code>.</p>
+                    </form>
+                </div>
                 <?php if (isset($message)): ?>
                     <p><?php echo $message; ?></p>
                 <?php endif; ?>

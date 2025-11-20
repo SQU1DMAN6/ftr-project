@@ -19,13 +19,21 @@ var sessionCmd = &cobra.Command{
 
 		email, username := client.GetSessionInfo()
 
-		if email == "" || username == "" {
+		if !client.IsLoggedIn() {
 			return fmt.Errorf("no active session found. Please log in first with 'ftr login'")
 		}
 
 		fmt.Println("Current Session Information:")
-		fmt.Printf("    Email       %s\r\n", email)
-		fmt.Printf("    Username    %s\r\n", username)
+		if email != "" {
+			fmt.Printf("    Email       %s\r\n", email)
+		} else {
+			fmt.Printf("    Email       %s\r\n", "(unknown)")
+		}
+		if username != "" {
+			fmt.Printf("    Username    %s\r\n", username)
+		} else {
+			fmt.Printf("    Username    %s\r\n", "(unknown)")
+		}
 
 		return nil
 	},

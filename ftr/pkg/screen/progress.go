@@ -41,27 +41,51 @@ func RenderProgress(prefix string, current, total int64, start time.Time) {
 
 	filled := int(float64(barwidth) * value)
 
-	bar := make([]byte, barwidth)
+	// Build an uncolored rune bar for width calculation
+	barRunes := make([]rune, barwidth)
 	for i := 0; i < filled && i < barwidth; i++ {
-		bar[i] = '#'
+		barRunes[i] = '#'
 	}
 	if filled < barwidth {
-		bar[filled] = '>'
+		barRunes[filled] = '>'
 		for i := filled + 1; i < barwidth; i++ {
-			bar[i] = '-'
+			barRunes[i] = '-'
 		}
 	}
+
+	// Colorize the characters for visual appeal. Use ANSI escape codes.
+	// '#' and '>' => cyan (36); '-' => deep blue (34)
+	const (
+		colorCyan  = "\x1b[36m"
+		colorBlue  = "\x1b[34m"
+		colorReset = "\x1b[0m"
+	)
+
+	var b strings.Builder
+	// Build colored bar; each rune becomes a colored string
+	for _, r := range barRunes {
+		switch r {
+		case '#', '>':
+			b.WriteString(colorCyan)
+			b.WriteRune(r)
+			b.WriteString(colorReset)
+		case '-':
+			b.WriteString(colorBlue)
+			b.WriteRune(r)
+			b.WriteString(colorReset)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	coloredBar := b.String()
 
 	elapsed := time.Since(start).Seconds()
 	elapsed = roundToDecimal(elapsed, 1)
 
-	fmt.Fprintf(os.Stdout,
-		"\r%s [%s] %3.0f%% %.1fs elapsed\r",
-		prefix,
-		string(bar),
-		value*100,
-		elapsed,
-	)
+	// Use rune width for printing alignment
+	pct := value * 100
+	// Compose final line
+	fmt.Fprintf(os.Stdout, "\r%s [%s] %3.0f%% %.1fs elapsed\r", prefix, coloredBar, pct, elapsed)
 }
 
 func ClearProgressBar() {
