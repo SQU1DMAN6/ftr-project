@@ -432,6 +432,9 @@ if (isset($_GET["download"])) {
         // Read stored content (may be encrypted at rest)
         $fileContent = file_get_contents($filePath);
 
+        // File metadata (may include per-file encryption key)
+        $fileMeta = $repoMeta['files'][$fileToDownload] ?? null;
+
         // If this is an API request, only serve the stored blob to clients that
         // present the FtR handshake (POST + X-FTR-Client header) or requests coming
         // from the InkDrop repo page (referer includes repo.php). This prevents
@@ -467,14 +470,42 @@ if (isset($_GET["download"])) {
             echo $fileContent;
             exit();
         }
-        
-        // Get file info
-        $fileSize = strlen($fileContent);
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime_type = finfo_file($finfo, $filePath) ?: 'application/octet-stream';
-        finfo_close($finfo);
-        
-        // Send file
+        // Non-API downloads: handle encrypted files carefully. Only allow decrypted
+        // downloads when coming from the repository page (browser UI). FtR clients
+        // should use the API endpoint which is handled above.
+        $isFileEncrypted = ($fileMeta['encrypted'] ?? false) || isset($fileMeta['encryption_key']);
+
+        if ($isFileEncrypted) {
+            $isFromRepoPage = isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'repo.php') !== false;
+            if (! $isFromRepoPage) {
+                http_response_code(403);
+                echo "Encrypted files may only be downloaded via the repository page or the FtR client.";
+                exit();
+            }
+
+            // Decrypt before sending to the UI (use per-file key if present, otherwise repo key)
+            $decKey = $fileMeta['encryption_key'] ?? $encryptionKey ?? null;
+            if (! $decKey) {
+                http_response_code(500);
+                echo "Encrypted file key missing on server.";
+                exit();
+            }
+
+            $fileContent = decryptFile($fileContent, $decKey);
+            // Determine MIME type from the decrypted buffer
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime_type = finfo_buffer($finfo, $fileContent) ?: 'application/octet-stream';
+            finfo_close($finfo);
+            $fileSize = strlen($fileContent);
+        } else {
+            // Not encrypted: determine MIME type from the stored file
+            $fileSize = strlen($fileContent);
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime_type = finfo_file($finfo, $filePath) ?: 'application/octet-stream';
+            finfo_close($finfo);
+        }
+
+        // Send file (decrypted if we performed decryption above)
         header("Content-Type: $mime_type");
         header("Content-Disposition: attachment; filename=\"" . basename($fileToDownload) . "\"");
         header("Content-Length: $fileSize");
@@ -541,30 +572,58 @@ if (
         $flaggedNote = $malwareCheck;
     }
 
+
     if (move_uploaded_file($file["tmp_name"], $target)) {
         $uploadSuccess = true;
 
-        // Compute file hash and signature
-        $fileHash = computeFileHash($target);
-        $fileSignature = null;
-        if ($encryptionKey) {
-            $fileSignature = computeFileSignature($target, $encryptionKey);
+        // Determine whether this upload should be encrypted at file level
+        $encryptThis = false;
+        // Web form field
+        if (isset($_POST['encrypt_file']) && $_POST['encrypt_file'] === '1') {
+            $encryptThis = true;
+        }
+        // API clients may send encrypt via form value or query param
+        if (isset($_POST['encrypt']) && $_POST['encrypt'] === '1') {
+            $encryptThis = true;
+        }
+        if (isset($_GET['encrypt']) && $_GET['encrypt'] === '1') {
+            $encryptThis = true;
         }
 
-        // Encrypt file if needed
-        if ($isEncrypted && $encryptionKey) {
-            $encryptedData = encryptFile($target, $encryptionKey);
+        // Compute file hash on the plaintext
+        $fileHash = computeFileHash($target);
+
+        // Choose key for signature/encryption: per-file key if requested, otherwise repo-level key if repo is encrypted
+        $fileEncKey = null;
+        if ($encryptThis) {
+            $fileEncKey = generateAESKey();
+        } elseif ($isEncrypted && $encryptionKey) {
+            $fileEncKey = $encryptionKey;
+        }
+
+        $fileSignature = null;
+        if ($fileEncKey) {
+            $fileSignature = computeFileSignature($target, $fileEncKey);
+        }
+
+        // Encrypt file if we have a key to encrypt with
+        if ($fileEncKey) {
+            $encryptedData = encryptFile($target, $fileEncKey);
             file_put_contents($target, $encryptedData);
         }
 
-        // Update metadata
+        // Update metadata; store per-file encryption_key only for per-file encrypted uploads
         $repoMeta['files'][$fileName] = [
             'hash' => $fileHash,
             'signature' => $fileSignature,
             'size' => filesize($target),
             'uploaded_at' => time(),
-            'encrypted' => $isEncrypted,
+            'encrypted' => $fileEncKey ? true : false,
         ];
+        if ($encryptThis && $fileEncKey) {
+            // store per-file encryption key in secure metadata (meta dir is outside web root)
+            $repoMeta['files'][$fileName]['encryption_key'] = $fileEncKey;
+        }
 
         if ($flagged) {
             $repoMeta['files'][$fileName]['flagged'] = true;
@@ -609,7 +668,7 @@ if (
     } else {
         $message = "<b style='color: red'>" . htmlspecialchars($uploadError) . "</b>";
     }
-} elseif ($isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_GET["api"]) && $_GET["api"] === "1") {
+} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_GET["api"]) && $_GET["api"] === "1" && !isset($_FILES["upload"])) {
     // API request but no file uploaded
     header("Content-Type: application/json");
     header("X-API-Response: true");
@@ -619,8 +678,8 @@ if (
         "message" => "No file provided in upload"
     ]);
     exit();
-} elseif (!$isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_GET["api"]) && $_GET["api"] === "1") {
-    // API request but not authorized
+} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_GET["api"]) && $_GET["api"] === "1" && !($isOwner || canEditRepo($repoType, $isOwner))) {
+    // API request but not authorized (only owners or repos that allow edits may upload via API)
     header("Content-Type: application/json");
     header("X-API-Response: true");
     http_response_code(403);
@@ -646,8 +705,15 @@ if (isset($_GET["preview"])) {
     if (is_file($previewPath)) {
         // Get file content (decrypt if needed)
         $fileContent = file_get_contents($previewPath);
-        if ($isEncrypted && $encryptionKey && isset($repoMeta['files'][$previewFile]['encrypted']) && $repoMeta['files'][$previewFile]['encrypted']) {
-            $fileContent = decryptFile($fileContent, $encryptionKey);
+        $fileMeta = $repoMeta['files'][$previewFile] ?? null;
+        $isFileEncrypted = ($fileMeta['encrypted'] ?? false) || isset($fileMeta['encryption_key']);
+        if ($isFileEncrypted) {
+            $decKey = $fileMeta['encryption_key'] ?? $encryptionKey ?? null;
+            if ($decKey) {
+                $fileContent = decryptFile($fileContent, $decKey);
+            } else {
+                echo "<p style='color: orange'>Unable to preview encrypted file: key missing.</p>";
+            }
         }
         
         // Determine MIME type
@@ -674,12 +740,21 @@ if (isset($_GET["preview"])) {
                         "<video width='90%' controls><source src='$mediaUrl' type='$mime_type'>Your browser does not support HTML video.</video>";
                     break;
                 case "audio":
+                    $audioId = 'aud_' . md5($previewFile);
                     $previewContent =
                         "<h3>Preview of " .
                         htmlspecialchars($previewFile) .
                         "</h3>" .
                         "<br><br>" .
-                        "<audio controls><source src='$mediaUrl' type='$mime_type'>Your browser does not support the audio element.</audio>";
+                        "<div style='display:flex; align-items:center; gap:12px; max-width:90%;'>" .
+                        "<button id='{$audioId}_play' class='select small'>Play</button>" .
+                        "<div style='flex:1; display:flex; align-items:center; gap:8px;'>" .
+                        "<input id='{$audioId}_seek' type='range' min='0' max='100' value='0' style='width:100%;'/>" .
+                        "<span id='{$audioId}_time' style='min-width:80px; font-size:12pt; color:#ddd;'>0:00 / 0:00</span>" .
+                        "</div>" .
+                        "</div>" .
+                        "<audio id='$audioId' preload='metadata' style='display:none;'><source src='$mediaUrl' type='$mime_type'></audio>" .
+                        "<script> (function() { var a=document.getElementById('{$audioId}'); var btn=document.getElementById('{$audioId}_play'); var seek=document.getElementById('{$audioId}_seek'); var time=document.getElementById('{$audioId}_time'); btn.addEventListener('click', function(){ if(a.paused){ a.play(); btn.textContent='Pause'; } else { a.pause(); btn.textContent='Play'; } }); a.addEventListener('timeupdate', function(){ if(a.duration){ var pct=(a.currentTime/a.duration)*100; seek.value=Math.round(pct); time.textContent = Math.floor(a.currentTime/60)+':' + ('0'+Math.floor(a.currentTime%60)).slice(-2) + ' / ' + Math.floor(a.duration/60) + ':' + ('0'+Math.floor(a.duration%60)).slice(-2); } }); seek.addEventListener('input', function(){ if(a.duration){ a.currentTime = (seek.value/100)*a.duration; } }); a.addEventListener('ended', function(){ btn.textContent='Play'; seek.value=0; }); })(); </script>";
                     break;
                 case "image":
                     $previewContent =
@@ -898,7 +973,7 @@ function include_repo_creation_form($repo, $user) {
                 <!-- Repository Settings Panel -->
                 <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 8px; margin: 15px 0; border-left: 3px solid #0f0;">
                     <h3 style="margin-top: 0; color: #222;">Repository Settings</h3>
-                    <form method="POST" action="repo.php?name=<?php echo urlencode($repo); ?>&user=<?php echo urlencode($user); ?>" style="display: grid; gap: 15px;">
+                    <form id="settingsForm" method="POST" action="repo.php?name=<?php echo urlencode($repo); ?>&user=<?php echo urlencode($user); ?>" style="display: grid; gap: 15px;">
                         <input type="hidden" name="action" value="update_settings" />
                         
                         <div>
@@ -913,9 +988,7 @@ function include_repo_creation_form($repo, $user) {
                         </div>
                         
                         <div>
-                            <input type="checkbox" name="encrypt" value="1" id="encrypt_setting" <?php echo $isEncrypted ? 'checked' : ''; ?> />
-                            <label for="encrypt_setting"><b>Enable AES-256 Encryption</b></label>
-                            <p style="font-size: 12px; color: #aaa; margin: 5px 0;">Files in this repo are encrypted at rest using AES-256-CBC.</p>
+                            <p style="font-size: 12px; color: #aaa; margin: 5px 0;"><b>Encryption:</b> repository-level encryption is <b><?php echo $isEncrypted ? 'ENABLED' : 'DISABLED'; ?></b>. Use the upload form's "Encrypt file" option for per-file encryption when needed.</p>
                         </div>
                         
                         <p style="font-size: 12px; color: #fff; margin: 0;">
@@ -924,7 +997,7 @@ function include_repo_creation_form($repo, $user) {
                             <b>Files:</b> <?php echo count(array_filter(scandir($repoPath) ?? [], function($f) { return $f !== '.' && $f !== '..' && $f !== '.repo_meta.json'; })); ?>
                         </p>
                         
-                        <button type="submit" class="redirect" style="padding: 10px;">Update Settings</button>
+                        <button id="updateSettingsBtn" type="submit" class="redirect" style="padding: 10px;">Update Settings</button>
                     </form>
                     <?php if (isset($settingsMessage)): ?>
                         <p style="margin-top: 10px;"><?php echo $settingsMessage; ?></p>
@@ -941,6 +1014,10 @@ function include_repo_creation_form($repo, $user) {
                     >
                         <label style="display: block; margin-bottom: 8px;"><b>Upload File</b></label>
                         <input type="file" name="upload" required style="display:block; margin-bottom:10px;" />
+                        <div style="margin-bottom:8px;">
+                            <input type="checkbox" name="encrypt_file" value="1" id="encrypt_file_check" />
+                            <label for="encrypt_file_check">Encrypt file at upload (AES-256)</label>
+                        </div>
                         <button type="submit" class="select">Upload File</button>
                         <div id="progressContainer" style="display: none;">
                             <div id="progressBar"></div>
@@ -1181,6 +1258,14 @@ function include_repo_creation_form($repo, $user) {
         };
 
         xhr.send(formData);
+    });
+    // Prevent double-click on Update Settings by disabling the button once submitted
+    document.getElementById('settingsForm')?.addEventListener('submit', function(e) {
+        const btn = document.getElementById('updateSettingsBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Updating...';
+        }
     });
     </script>
 </html>

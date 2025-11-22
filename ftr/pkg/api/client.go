@@ -339,7 +339,7 @@ func (c *Client) CreateRepo(user, repoName string) error {
 	return nil
 }
 
-func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) error {
+func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, encrypt bool) error {
 	if c.sessionID == "" {
 		return fmt.Errorf("not logged in")
 	}
@@ -457,6 +457,10 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 
 	fmt.Println()
 	screen.ClearProgressBar()
+	// Include encrypt flag in the form if requested
+	if encrypt {
+		_ = w.WriteField("encrypt", "1")
+	}
 
 	w.Close()
 
@@ -469,6 +473,8 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader) 
 	if c.sessionID != "" {
 		uploadReq.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
 	}
+	// Mark this request as coming from FtR CLI (useful for server-side routing/validation)
+	uploadReq.Header.Set("X-FTR-CLIENT", "FtR-CLI")
 
 	resp, err = c.http.Do(uploadReq)
 	if err != nil {

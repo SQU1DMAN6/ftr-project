@@ -2,14 +2,18 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
 	"ftr/pkg/api"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/cobra"
 )
 
+var upEncrypt bool
+
 func init() {
-	// No need to register here as it's done in commands.go
+	// Register the -E flag for encrypted upload
+	upCmd.Flags().BoolVarP(&upEncrypt, "encrypt", "E", false, "Encrypt file on upload")
 }
 
 var upCmd = &cobra.Command{
@@ -45,7 +49,7 @@ Example: ftr up myfile.txt user/repo`,
 		}
 		defer f.Close()
 
-		if err := client.UploadFile(repoPath, filepath.Base(sourcePath), f); err != nil {
+		if err := client.UploadFile(repoPath, filepath.Base(sourcePath), f, upEncrypt); err != nil {
 			return fmt.Errorf("upload failed: %w", err)
 		}
 
