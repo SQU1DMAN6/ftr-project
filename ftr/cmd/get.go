@@ -57,6 +57,8 @@ Example: ftr get user/myapp`,
 			return fmt.Errorf("download failed: %w", err)
 		}
 
+		fmt.Println()
+
 		if noUnzip {
 			fmt.Println("--no-unzip used. Skipping extraction and install.")
 			return nil

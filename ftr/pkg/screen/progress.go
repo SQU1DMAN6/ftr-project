@@ -19,7 +19,7 @@ type ProgressReader struct {
 func (pr *ProgressReader) Read(p []byte) (int, error) {
 	n, err := pr.R.Read(p)
 	pr.Current += int64(n)
-	RenderProgress("   ", pr.Current, pr.Total, pr.Start)
+	RenderProgress(" ", pr.Current, pr.Total, pr.Start)
 	return n, err
 }
 
@@ -57,7 +57,7 @@ func RenderProgress(prefix string, current, total int64, start time.Time) {
 	// '#' and '>' => cyan (36); '-' => deep blue (34)
 	const (
 		colorCyan  = "\x1b[36m"
-		colorBlue  = "\x1b[34m"
+		colorRed   = "\x1b[31m"
 		colorReset = "\x1b[0m"
 	)
 
@@ -70,7 +70,7 @@ func RenderProgress(prefix string, current, total int64, start time.Time) {
 			b.WriteRune(r)
 			b.WriteString(colorReset)
 		case '-':
-			b.WriteString(colorBlue)
+			b.WriteString(colorRed)
 			b.WriteRune(r)
 			b.WriteString(colorReset)
 		default:

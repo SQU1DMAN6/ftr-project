@@ -633,6 +633,8 @@ func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadClose
 	}
 
 	screen.ClearProgressBar()
+	fmt.Println()
+	fmt.Println()
 
 	return io.NopCloser(pr), nil
 }
@@ -643,7 +645,7 @@ func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metadata request: %w", err)
 	}
-	// Identify as FtR client so server may include per-file encryption keys
+
 	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
 
 	resp, err := c.http.Do(req)
@@ -736,7 +738,7 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 	if meta != nil {
 		if note, ok := meta["flagged_note"]; ok && note != "" {
 			fmt.Printf("\n[WARNING] This package was flagged on upload: %s\n", note)
-			fmt.Printf("Proceed with download anyway? [y/N]: ")
+			fmt.Printf("Proceed with download anyway? [y/N] ")
 			var response string
 			fmt.Scanln(&response)
 			if strings.ToLower(response) != "y" {
@@ -745,9 +747,6 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 		}
 	}
 
-	// Use a small handshake: POST with a special header so raw GETs to the
-	// file path won't retrieve the API blob directly. The server recognizes
-	// FtR clients via this header for API downloads.
 	req, err := http.NewRequest("POST", downloadURL, nil)
 	if err != nil {
 		return fmt.Errorf("download request failed: %w", err)
