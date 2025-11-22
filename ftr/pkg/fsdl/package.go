@@ -10,9 +10,9 @@ import (
 
 // Package represents an FSDL package
 type Package struct {
-	Name     string
-	Files    []File
-	TempDir  string
+	Name    string
+	Files   []File
+	TempDir string
 }
 
 // File represents a file in the package
@@ -131,7 +131,7 @@ func Extract(fsdlPath, destPath string) error {
 
 			rc, err := file.Open()
 			if err != nil {
-				return fmt.Errorf("failed to open zip file %s: %w", file.Name, err)
+				return fmt.Errorf("failed to open .fsdl file. If this file is encrypted, ensure you have the key by logging in to FtR")
 			}
 			defer rc.Close()
 

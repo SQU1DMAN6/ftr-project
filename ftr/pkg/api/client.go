@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -437,29 +438,95 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 
-	fw, err := w.CreateFormFile("upload", fileName)
-	if err != nil {
-		return fmt.Errorf("failed to create form file: %w", err)
-	}
+	var computed string
 
-	pr := &screen.ProgressReader{
-		R:     reader,
-		Total: fileSize,
-		Start: time.Now(),
-	}
-
-	hasher := sha256.New()
-	tr := io.TeeReader(pr, hasher)
-
-	if _, err := io.Copy(fw, tr); err != nil {
-		return fmt.Errorf("failed to copy file data: %w", err)
-	}
-
-	fmt.Println()
-	screen.ClearProgressBar()
-	// Include encrypt flag in the form if requested
 	if encrypt {
+		// Read full plaintext, compute hash, encrypt, save key locally, and upload encrypted payload
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			return fmt.Errorf("failed to read file for encryption: %w", err)
+		}
+
+		// Compute plaintext hash
+		h := sha256.Sum256(data)
+		plaintextHash := fmt.Sprintf("%x", h)
+		computed = plaintextHash
+
+		// Generate AES-256 key
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			return fmt.Errorf("failed to generate encryption key: %w", err)
+		}
+		keyHex := hex.EncodeToString(key)
+
+		// Encrypt with AES-256-CBC + PKCS7
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return fmt.Errorf("failed to create cipher: %w", err)
+		}
+		iv := make([]byte, aes.BlockSize)
+		if _, err := rand.Read(iv); err != nil {
+			return fmt.Errorf("failed to create iv: %w", err)
+		}
+
+		pad := aes.BlockSize - (len(data) % aes.BlockSize)
+		padded := append(data, bytes.Repeat([]byte{byte(pad)}, pad)...)
+		encrypted := make([]byte, len(padded))
+		mode := cipher.NewCBCEncrypter(block, iv)
+		mode.CryptBlocks(encrypted, padded)
+
+		encPayload := hex.EncodeToString(iv) + ":" + hex.EncodeToString(encrypted)
+
+		// Save per-file key locally
+		keysDir := filepath.Join(c.configDir, "keys")
+		_ = os.MkdirAll(keysDir, 0700)
+		keyFile := filepath.Join(keysDir, fmt.Sprintf("%s_%s_%s.key", user, repoName, fileName))
+		if err := os.WriteFile(keyFile, []byte(keyHex), 0600); err != nil {
+			return fmt.Errorf("failed to save encryption key: %w", err)
+		}
+
+		// Write encrypted payload to form
+		fw, err := w.CreateFormFile("upload", fileName)
+		if err != nil {
+			return fmt.Errorf("failed to create form file: %w", err)
+		}
+		pr := &screen.ProgressReader{R: strings.NewReader(encPayload), Total: int64(len(encPayload)), Start: time.Now()}
+		if _, err := io.Copy(fw, pr); err != nil {
+			return fmt.Errorf("failed to copy encrypted file data: %w", err)
+		}
+
+		// Inform server that this upload is pre-encrypted and provide plaintext hash
 		_ = w.WriteField("encrypt", "1")
+		_ = w.WriteField("pre_encrypted", "1")
+		_ = w.WriteField("plain_hash", plaintextHash)
+		// Also provide the per-file key so the server can persist it for cross-device decryption
+		_ = w.WriteField("file_key", keyHex)
+
+		fmt.Println()
+		screen.ClearProgressBar()
+	} else {
+		fw, err := w.CreateFormFile("upload", fileName)
+		if err != nil {
+			return fmt.Errorf("failed to create form file: %w", err)
+		}
+
+		pr := &screen.ProgressReader{
+			R:     reader,
+			Total: fileSize,
+			Start: time.Now(),
+		}
+
+		hasher := sha256.New()
+		tr := io.TeeReader(pr, hasher)
+
+		if _, err := io.Copy(fw, tr); err != nil {
+			return fmt.Errorf("failed to copy file data: %w", err)
+		}
+
+		fmt.Println()
+		screen.ClearProgressBar()
+
+		computed = fmt.Sprintf("%x", hasher.Sum(nil))
 	}
 
 	w.Close()
@@ -497,8 +564,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 				if h, ok := apiResp["hash"].(string); ok {
 					serverHash = h
 				}
-				computed := fmt.Sprintf("%x", hasher.Sum(nil))
-				if serverHash != "" && !strings.EqualFold(serverHash, computed) {
+				if serverHash != "" && computed != "" && !strings.EqualFold(serverHash, computed) {
 					return fmt.Errorf("upload succeeded but integrity mismatch: server=%s local=%s", serverHash, computed)
 				}
 				return nil
@@ -573,7 +639,14 @@ func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadClose
 
 func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, error) {
 	metaURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&filemeta=1&file=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
-	resp, err := c.http.Get(metaURL)
+	req, err := http.NewRequest("GET", metaURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metadata request: %w", err)
+	}
+	// Identify as FtR client so server may include per-file encryption keys
+	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
+
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch file metadata: %w", err)
 	}
@@ -638,6 +711,9 @@ func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, er
 				out["encrypted"] = "0"
 			}
 		}
+	}
+	if ek, ok := apiResp["encryption_key"].(string); ok {
+		out["encryption_key"] = ek
 	}
 	return out, nil
 }
@@ -732,12 +808,27 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 
 	if encrypted {
 		keysDir := filepath.Join(c.configDir, "keys")
-		keyFile := filepath.Join(keysDir, fmt.Sprintf("%s_%s.key", user, repo))
+		// Try per-file key first, then repo-level key
+		perFileKey := filepath.Join(keysDir, fmt.Sprintf("%s_%s_%s.key", user, repo, fileName))
+		repoKey := filepath.Join(keysDir, fmt.Sprintf("%s_%s.key", user, repo))
 		keyHex := ""
-		if data, err := os.ReadFile(keyFile); err == nil {
+		if data, err := os.ReadFile(perFileKey); err == nil {
+			keyHex = strings.TrimSpace(string(data))
+		} else if data, err := os.ReadFile(repoKey); err == nil {
 			keyHex = strings.TrimSpace(string(data))
 		} else {
-			return fmt.Errorf("repository content is encrypted; no decryption key found at %s. Ask the repo owner to provide the key or place it there", keyFile)
+			// If server provided an encryption_key in metadata, persist it locally for next time
+			if meta != nil {
+				if ek, ok := meta["encryption_key"]; ok && ek != "" {
+					keyHex = ek
+					// write to perFileKey path
+					_ = os.MkdirAll(keysDir, 0700)
+					_ = os.WriteFile(perFileKey, []byte(keyHex), 0600)
+				}
+			}
+		}
+		if keyHex == "" {
+			return fmt.Errorf("repository content is encrypted; no decryption key found at %s or %s. Ask the repo owner to provide the key or place it there", perFileKey, repoKey)
 		}
 
 		encData, err := os.ReadFile(tmpPath)

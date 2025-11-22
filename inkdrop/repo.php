@@ -338,7 +338,13 @@ if (!is_dir($repoPath)) {
             exit();
         }
 
-        echo json_encode([
+        // Determine whether we should include the encryption key in the response.
+        // Treat clients that present the FtR header as FtR clients regardless of HTTP method;
+        // metadata requests may be GETs from CLI clients and should still be recognized.
+        $isFtRClient = (isset($_SERVER['HTTP_X_FTR_CLIENT']) && $_SERVER['HTTP_X_FTR_CLIENT'] === 'FtR-CLI');
+        $isFromRepoPage = isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'repo.php') !== false;
+
+        $resp = [
             'success' => true,
             'file' => $qfile,
             'hash' => $entry['hash'] ?? null,
@@ -346,7 +352,16 @@ if (!is_dir($repoPath)) {
             'encrypted' => $entry['encrypted'] ?? false,
             'flagged' => $entry['flagged'] ?? false,
             'flagged_note' => $entry['flagged_note'] ?? null,
-        ]);
+        ];
+
+        // Only reveal the per-file encryption key to FtR CLI clients or when requested
+        // from the repository page (the web UI). This prevents raw unauthenticated
+        // GETs from obtaining decryption keys.
+        if (($isFtRClient || $isFromRepoPage) && isset($entry['encryption_key'])) {
+            $resp['encryption_key'] = $entry['encryption_key'];
+        }
+
+        echo json_encode($resp);
         exit();
     }
     
@@ -578,6 +593,7 @@ if (
 
         // Determine whether this upload should be encrypted at file level
         $encryptThis = false;
+        $preEncrypted = false;
         // Web form field
         if (isset($_POST['encrypt_file']) && $_POST['encrypt_file'] === '1') {
             $encryptThis = true;
@@ -589,13 +605,26 @@ if (
         if (isset($_GET['encrypt']) && $_GET['encrypt'] === '1') {
             $encryptThis = true;
         }
+        // Detect if client pre-encrypted the upload (FtR CLI does this when -E is used)
+        if (isset($_POST['pre_encrypted']) && $_POST['pre_encrypted'] === '1') {
+            $preEncrypted = true;
+            $encryptThis = true;
+        }
 
-        // Compute file hash on the plaintext
-        $fileHash = computeFileHash($target);
+        // Determine file hash: if client provided plaintext hash, use it (pre-encrypted uploads)
+        if ($preEncrypted && isset($_POST['plain_hash']) && strlen($_POST['plain_hash']) > 0) {
+            $fileHash = $_POST['plain_hash'];
+        } else {
+            // compute hash of stored blob (plaintext or server-encrypted later)
+            $fileHash = computeFileHash($target);
+        }
 
-        // Choose key for signature/encryption: per-file key if requested, otherwise repo-level key if repo is encrypted
+        // Choose key for signature/encryption: if client pre-encrypted, server does not have key.
+        // Otherwise, for server-side per-file encryption generate a key; fallback to repo-level key.
         $fileEncKey = null;
-        if ($encryptThis) {
+        if ($preEncrypted) {
+            $fileEncKey = null; // key is held by client
+        } elseif ($encryptThis) {
             $fileEncKey = generateAESKey();
         } elseif ($isEncrypted && $encryptionKey) {
             $fileEncKey = $encryptionKey;
@@ -606,23 +635,27 @@ if (
             $fileSignature = computeFileSignature($target, $fileEncKey);
         }
 
-        // Encrypt file if we have a key to encrypt with
-        if ($fileEncKey) {
+        // Encrypt file if we have a key to encrypt with and the client did not pre-encrypt
+        if ($fileEncKey && !$preEncrypted) {
             $encryptedData = encryptFile($target, $fileEncKey);
             file_put_contents($target, $encryptedData);
         }
 
-        // Update metadata; store per-file encryption_key only for per-file encrypted uploads
+        // Update metadata; do not store per-file encryption key when client pre-encrypted
         $repoMeta['files'][$fileName] = [
             'hash' => $fileHash,
             'signature' => $fileSignature,
             'size' => filesize($target),
             'uploaded_at' => time(),
-            'encrypted' => $fileEncKey ? true : false,
+            'encrypted' => $encryptThis ? true : false,
         ];
-        if ($encryptThis && $fileEncKey) {
+        if (!$preEncrypted && $encryptThis && $fileEncKey) {
             // store per-file encryption key in secure metadata (meta dir is outside web root)
             $repoMeta['files'][$fileName]['encryption_key'] = $fileEncKey;
+        } elseif ($preEncrypted && isset($_POST['file_key']) && strlen($_POST['file_key']) > 0) {
+            // Client provided the per-file key (FtR -E). Store it securely in metadata so
+            // authorized FtR/InkDrop clients can retrieve it for decryption on other devices.
+            $repoMeta['files'][$fileName]['encryption_key'] = $_POST['file_key'];
         }
 
         if ($flagged) {

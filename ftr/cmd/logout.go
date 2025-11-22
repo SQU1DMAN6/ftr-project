@@ -50,8 +50,6 @@ var logoutCmd = &cobra.Command{
 
 		if _, err := os.Stat(sessionFile); err == nil {
 			fmt.Println("Logged out successfully.")
-		} else {
-			fmt.Println("No active session found.")
 		}
 
 		// Optionally, remove the config directory if empty
