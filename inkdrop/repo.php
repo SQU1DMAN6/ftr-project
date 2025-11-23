@@ -68,6 +68,7 @@ function loadRepoMeta($repoPath) {
     return [
         'type' => 'generic_public_readonly',
         'encrypted' => true,
+        'description' => '',
         'created_at' => time(),
         'modified_at' => time(),
         'files' => [],
@@ -296,6 +297,7 @@ if (!is_dir($repoPath)) {
             'type' => $selectedType,
             'encrypted' => $enableEncryption,
             'encryption_key' => $enableEncryption ? generateAESKey() : null,
+            'description' => trim($_POST['description'] ?? ''),
             'created_at' => time(),
             'modified_at' => time(),
             'files' => [],
@@ -364,6 +366,45 @@ if (!is_dir($repoPath)) {
         echo json_encode($resp);
         exit();
     }
+
+    // API: list all files in repository (recursively) for FtR clients
+    if (isset($_GET['list']) && $_GET['list'] === '1' && isset($_GET['api']) && $_GET['api'] === '1') {
+        header('Content-Type: application/json');
+        // Only allow listing for Software repos via API
+        if (!canFetchViaAPI($repoType)) {
+            http_response_code(403);
+            echo json_encode(["success" => false, "message" => "Repository file listing available only for Software repositories via API"]);
+            exit();
+        }
+
+        $filesOut = [];
+        $baseLen = strlen($repoPath) + 1;
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($repoPath, RecursiveDirectoryIterator::SKIP_DOTS));
+        foreach ($it as $fileinfo) {
+            if ($fileinfo->isFile()) {
+                $rel = substr($fileinfo->getRealPath(), $baseLen);
+                if ($rel === '.repo_meta.json') continue;
+                $entry = [
+                    'path' => str_replace(DIRECTORY_SEPARATOR, '/', $rel),
+                    'size' => $fileinfo->getSize(),
+                    'modified' => $fileinfo->getMTime(),
+                ];
+                $metaEntry = $repoMeta['files'][basename($rel)] ?? null;
+                if ($metaEntry) {
+                    $entry['hash'] = $metaEntry['hash'] ?? null;
+                    $entry['signature'] = $metaEntry['signature'] ?? null;
+                    $entry['encrypted'] = $metaEntry['encrypted'] ?? false;
+                } else {
+                    $entry['hash'] = computeFileHash($fileinfo->getRealPath());
+                    $entry['encrypted'] = false;
+                }
+                $filesOut[] = $entry;
+            }
+        }
+
+        echo json_encode(['success' => true, 'files' => $filesOut]);
+        exit();
+    }
     
     // Check access permissions
     if (!canAccessRepo($repoType, $isOwner)) {
@@ -387,6 +428,10 @@ if ($isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action'])
     if (in_array($newType, $validTypes)) {
         $repoMeta['type'] = $newType;
         $repoMeta['modified_at'] = time();
+            // Update description if provided
+            if (isset($_POST['description'])) {
+                $repoMeta['description'] = trim($_POST['description']);
+            }
         
         // Handle encryption toggle
         $enableEncryption = isset($_POST['encrypt']) && $_POST['encrypt'] === '1';
@@ -982,6 +1027,9 @@ function include_repo_creation_form($repo, $user) {
             <h1 class="intro"><?php echo htmlspecialchars(
                 $repo,
             ); ?> - InkDrop</h1>
+            <?php if (!empty($repoMeta['description'])): ?>
+                <p style="max-width: 900px; text-align: center; color: #eef; margin-top:6px;"><?php echo htmlspecialchars($repoMeta['description']); ?></p>
+            <?php endif; ?>
             <br><hr class='linebreaker'><br />
 
             <div class="main main3">
@@ -1004,37 +1052,46 @@ function include_repo_creation_form($repo, $user) {
                 <?php if ($isOwner): ?>
                 
                 <!-- Repository Settings Panel -->
-                <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 8px; margin: 15px 0; border-left: 3px solid #0f0;">
-                    <h3 style="margin-top: 0; color: #222;">Repository Settings</h3>
-                    <form id="settingsForm" method="POST" action="repo.php?name=<?php echo urlencode($repo); ?>&user=<?php echo urlencode($user); ?>" style="display: grid; gap: 15px;">
-                        <input type="hidden" name="action" value="update_settings" />
-                        
-                        <div>
-                            <label for="repo_type_select"><b>Repository Type:</b></label>
-                            <select name="repo_type" id="repo_type_select" style="background: #222; color: white; padding: 8px; border-radius: 4px; width: 100%; margin-top: 5px;">
-                                <option value="generic_private" <?php echo $repoType === 'generic_private' ? 'selected' : ''; ?>>Generic Private</option>
-                                <option value="generic_public_readonly" <?php echo $repoType === 'generic_public_readonly' ? 'selected' : ''; ?>>Generic Public</option>
-                                <option value="generic_opensource" <?php echo $repoType === 'generic_opensource' ? 'selected' : ''; ?>>Generic Open-Source</option>
-                                <option value="software_public" <?php echo $repoType === 'software_public' ? 'selected' : ''; ?>>Software Public (API)</option>
-                                <option value="software_opensource" <?php echo $repoType === 'software_opensource' ? 'selected' : ''; ?>>Software Open-Source (API)</option>
-                            </select>
+                <div style="margin: 15px 0;">
+                    <button id="openSettingsBtn" class="select">Settings</button>
+
+                    <div id="settingsModal" style="display:none; position: fixed; inset:0; background: rgba(0,0,0,0.6); align-items: center; justify-content: center;">
+                        <div style="background: #fff; color: #222; padding: 20px; border-radius: 8px; width: 480px; max-width: 95%; margin: auto;">
+                            <h3 style="margin-top: 0;">Repository Settings</h3>
+                            <form id="settingsForm" method="POST" action="repo.php?name=<?php echo urlencode($repo); ?>&user=<?php echo urlencode($user); ?>" style="display: grid; gap: 12px;">
+                                <input type="hidden" name="action" value="update_settings" />
+                                <label for="repo_type_select"><b>Repository Type:</b></label>
+                                <select name="repo_type" id="repo_type_select" style="padding: 8px; border-radius: 4px;">
+                                    <option value="generic_private" <?php echo $repoType === 'generic_private' ? 'selected' : ''; ?>>Generic Private</option>
+                                    <option value="generic_public_readonly" <?php echo $repoType === 'generic_public_readonly' ? 'selected' : ''; ?>>Generic Public</option>
+                                    <option value="generic_opensource" <?php echo $repoType === 'generic_opensource' ? 'selected' : ''; ?>>Generic Open-Source</option>
+                                    <option value="software_public" <?php echo $repoType === 'software_public' ? 'selected' : ''; ?>>Software Public (API)</option>
+                                    <option value="software_opensource" <?php echo $repoType === 'software_opensource' ? 'selected' : ''; ?>>Software Open-Source (API)</option>
+                                </select>
+
+                                <div>
+                                    <p style="font-size: 12px; color: #444; margin: 4px 0;"><b>Encryption:</b> repository-level encryption is <b><?php echo $isEncrypted ? 'ENABLED' : 'DISABLED'; ?></b>.</p>
+                                </div>
+
+                                <label for="description"><b>Description (optional):</b></label>
+                                <textarea id="description" name="description" rows="3" style="width:100%; padding:8px;"><?php echo htmlspecialchars($repoMeta['description'] ?? ''); ?></textarea>
+
+                                <p style="font-size: 12px; color: #666; margin: 0;">
+                                    <b>Created:</b> <?php echo date('Y-m-d H:i:s', $repoMeta['created_at'] ?? time()); ?><br />
+                                    <b>Last Modified:</b> <?php echo date('Y-m-d H:i:s', $repoMeta['modified_at'] ?? time()); ?><br />
+                                    <b>Files:</b> <?php echo count(array_filter(scandir($repoPath) ?? [], function($f) { return $f !== '.' && $f !== '..' && $f !== '.repo_meta.json'; })); ?>
+                                </p>
+
+                                <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+                                    <button type="button" id="closeSettingsBtn" class="select" style="background:#888;">Cancel</button>
+                                    <button id="updateSettingsBtn" type="submit" class="redirect">Update Settings</button>
+                                </div>
+                            </form>
+                            <?php if (isset($settingsMessage)): ?>
+                                <p style="margin-top: 10px; color: green"><?php echo $settingsMessage; ?></p>
+                            <?php endif; ?>
                         </div>
-                        
-                        <div>
-                            <p style="font-size: 12px; color: #aaa; margin: 5px 0;"><b>Encryption:</b> repository-level encryption is <b><?php echo $isEncrypted ? 'ENABLED' : 'DISABLED'; ?></b>. Use the upload form's "Encrypt file" option for per-file encryption when needed.</p>
-                        </div>
-                        
-                        <p style="font-size: 12px; color: #fff; margin: 0;">
-                            <b>Created:</b> <?php echo date('Y-m-d H:i:s', $repoMeta['created_at'] ?? time()); ?><br />
-                            <b>Last Modified:</b> <?php echo date('Y-m-d H:i:s', $repoMeta['modified_at'] ?? time()); ?><br />
-                            <b>Files:</b> <?php echo count(array_filter(scandir($repoPath) ?? [], function($f) { return $f !== '.' && $f !== '..' && $f !== '.repo_meta.json'; })); ?>
-                        </p>
-                        
-                        <button id="updateSettingsBtn" type="submit" class="redirect" style="padding: 10px;">Update Settings</button>
-                    </form>
-                    <?php if (isset($settingsMessage)): ?>
-                        <p style="margin-top: 10px;"><?php echo $settingsMessage; ?></p>
-                    <?php endif; ?>
+                    </div>
                 </div>
                 
                 <!-- File Upload Form -->
@@ -1293,12 +1350,26 @@ function include_repo_creation_form($repo, $user) {
         xhr.send(formData);
     });
     // Prevent double-click on Update Settings by disabling the button once submitted
+    // Use a small timeout when disabling the button to avoid races where
+    // the browser may cancel the submit if the button is disabled too early.
     document.getElementById('settingsForm')?.addEventListener('submit', function(e) {
         const btn = document.getElementById('updateSettingsBtn');
         if (btn) {
-            btn.disabled = true;
-            btn.textContent = 'Updating...';
+            setTimeout(function() {
+                btn.disabled = true;
+                btn.textContent = 'Updating...';
+            }, 50);
         }
+    });
+
+    // Modal open/close handlers
+    document.getElementById('openSettingsBtn')?.addEventListener('click', function() {
+        const modal = document.getElementById('settingsModal');
+        if (modal) modal.style.display = 'flex';
+    });
+    document.getElementById('closeSettingsBtn')?.addEventListener('click', function() {
+        const modal = document.getElementById('settingsModal');
+        if (modal) modal.style.display = 'none';
     });
     </script>
 </html>

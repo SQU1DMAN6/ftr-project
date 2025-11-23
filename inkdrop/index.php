@@ -15,6 +15,50 @@ if (!is_dir($userRepoDir)) {
 
 $createMessage = "";
 
+// API: search repositories across users (used by FtR CLI)
+if (isset($_GET['search']) && isset($_GET['api']) && $_GET['api'] === '1') {
+    header('Content-Type: application/json');
+
+    $q = trim($_GET['search']);
+    if ($q === '') {
+        echo json_encode(['success' => false, 'message' => 'empty query', 'matches' => []]);
+        exit();
+    }
+
+    // Determine meta base dir (same logic as repo.php)
+    $env = getenv('INKDROP_META_DIR');
+    if ($env && strlen($env) > 0) {
+        $metaBase = rtrim($env, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'repos';
+    } else {
+        $metaBase = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '.inkdrop_meta' . DIRECTORY_SEPARATOR . 'repos';
+    }
+
+    $matches = [];
+    $users = array_filter(glob($baseRepoDir . '*'), 'is_dir');
+    foreach ($users as $userDir) {
+        $user = basename($userDir);
+        $repos = array_filter(glob($userDir . '/*'), 'is_dir');
+        foreach ($repos as $r) {
+            $repoName = basename($r);
+            $metaPath = $metaBase . DIRECTORY_SEPARATOR . $user . DIRECTORY_SEPARATOR . $repoName . '.json';
+            $desc = '';
+            if (is_file($metaPath)) {
+                $m = json_decode(file_get_contents($metaPath), true);
+                if (is_array($m) && isset($m['description'])) $desc = $m['description'];
+            }
+            $hay = strtolower($user . '/' . $repoName . ' ' . $desc);
+            if (strpos($hay, strtolower($q)) !== false) {
+                $matches[] = ['user' => $user, 'repo' => $repoName, 'description' => $desc];
+                if (count($matches) >= 200) break;
+            }
+        }
+        if (count($matches) >= 200) break;
+    }
+
+    echo json_encode(['success' => true, 'matches' => $matches]);
+    exit();
+}
+
 // Handle repository deletion
 if (!$viewPublic && isset($_POST["delete_repo"])) {
     $repoToDelete = trim($_POST["delete_repo"]);
@@ -177,14 +221,21 @@ if (
                         } else {
                             foreach ($repos as $repoPath) {
                                 $repoName = basename($repoPath);
-                                $link =
-                                    "repo.php?name=" .
-                                    urlencode($repoName) .
-                                    "&user=" .
-                                    urlencode($publicUser);
-                                echo "<li><a href='$link'><button class='select'>" .
-                                    htmlspecialchars($repoName) .
-                                    "</button></a></li>";
+                                $link = "repo.php?name=" . urlencode($repoName) . "&user=" . urlencode($publicUser);
+
+                                // Attempt to include description from metadata if available
+                                $metaPath = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '.inkdrop_meta' . DIRECTORY_SEPARATOR . 'repos' . DIRECTORY_SEPARATOR . $publicUser . DIRECTORY_SEPARATOR . $repoName . '.json';
+                                $desc = '';
+                                if (is_file($metaPath)) {
+                                    $m = json_decode(file_get_contents($metaPath), true);
+                                    if (is_array($m) && isset($m['description'])) $desc = $m['description'];
+                                }
+
+                                echo "<li><a href='" . htmlspecialchars($link) . "'><button class='select'>" . htmlspecialchars($repoName) . "</button></a>";
+                                if ($desc !== '') {
+                                    echo " <span style='margin-left:10px; color:#ddd;'>" . htmlspecialchars($desc) . "</span>";
+                                }
+                                echo "</li>";
                             }
                         }
                     }

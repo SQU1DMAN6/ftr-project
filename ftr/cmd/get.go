@@ -51,6 +51,20 @@ Example: ftr get user/myapp`,
 			return fmt.Errorf("failed to create API client: %w", err)
 		}
 
+		// Try to fetch repository description to show to the user
+		if matches, err := client.SearchRepos(repoName); err == nil {
+			for _, m := range matches {
+				if m["user"] == parts[0] && m["repo"] == repoName {
+					desc := m["description"]
+					if desc == "" {
+						desc = "(no description)"
+					}
+					fmt.Printf("Description: %s\n", desc)
+					break
+				}
+			}
+		}
+
 		fmt.Printf("Fetching package via API...\n")
 		// Use repo.php API to download and verify
 		if err := client.DownloadAndVerify(repoPath, repoName+".fsdl", fsdlFile); err != nil {

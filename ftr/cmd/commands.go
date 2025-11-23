@@ -21,6 +21,9 @@ func init() {
 		logoutCmd,
 		sessionCmd,
 		packCmd,
+		initCmd,
+		searchCmd,
+		downCmd,
 		buildCmd,
 		versionCmd,
 	)

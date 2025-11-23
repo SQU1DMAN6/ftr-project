@@ -720,6 +720,119 @@ func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, er
 	return out, nil
 }
 
+// SearchRepos queries the server search API and returns a list of matches.
+func (c *Client) SearchRepos(query string) ([]map[string]string, error) {
+	searchURL := fmt.Sprintf("%s%s/index.php?search=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(query))
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create search request: %w", err)
+	}
+
+	// Identify as FtR CLI so server may return API JSON
+	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("search request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("search failed: %s - %s", resp.Status, string(body))
+	}
+
+	var apiResp map[string]interface{}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read search response: %w", err)
+	}
+	// If server returned HTML (likely the login page), return a helpful error
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) > 0 && trimmed[0] == '<' {
+		snippet := string(trimmed)
+		if len(snippet) > 512 {
+			snippet = snippet[:512]
+		}
+		return nil, fmt.Errorf("search API not available: server returned HTML (likely login page). Try logging in or upgrade the server. Response snippet: %s", snippet)
+	}
+
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		snippet := string(body)
+		if len(snippet) > 1024 {
+			snippet = snippet[:1024]
+		}
+		return nil, fmt.Errorf("failed to parse search response: %w - response snippet: %s", err, snippet)
+	}
+
+	out := []map[string]string{}
+	if ok, _ := apiResp["success"].(bool); !ok {
+		return out, nil
+	}
+	if matches, ok := apiResp["matches"].([]interface{}); ok {
+		for _, m := range matches {
+			if mm, ok := m.(map[string]interface{}); ok {
+				item := make(map[string]string)
+				if u, ok := mm["user"].(string); ok {
+					item["user"] = u
+				}
+				if r, ok := mm["repo"].(string); ok {
+					item["repo"] = r
+				}
+				if d, ok := mm["description"].(string); ok {
+					item["description"] = d
+				}
+				out = append(out, item)
+			}
+		}
+	}
+	return out, nil
+}
+
+// ListRepoFiles returns a recursive list of files in a repository via the API
+func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, error) {
+	listURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&list=1&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user))
+	req, err := http.NewRequest("GET", listURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create list request: %w", err)
+	}
+	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list failed: %s - %s", resp.Status, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read list response: %w", err)
+	}
+
+	var apiResp map[string]interface{}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse list response: %w", err)
+	}
+
+	out := []map[string]interface{}{}
+	if ok, _ := apiResp["success"].(bool); !ok {
+		return out, nil
+	}
+	if fl, ok := apiResp["files"].([]interface{}); ok {
+		for _, f := range fl {
+			if fm, ok := f.(map[string]interface{}); ok {
+				out = append(out, fm)
+			}
+		}
+	}
+	return out, nil
+}
+
 func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath string) error {
 	parts := strings.Split(repoPath, "/")
 	if len(parts) != 2 {
