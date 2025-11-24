@@ -357,7 +357,7 @@ if (!is_dir($repoPath)) {
         ];
 
         // Only reveal the per-file encryption key to FtR CLI clients or when requested
-        // from the repository page (the web UI). This prevents raw unauthenticated
+        // from the repository browser (the web UI). This prevents raw unauthenticated
         // GETs from obtaining decryption keys.
         if (($isFtRClient || $isFromRepoPage) && isset($entry['encryption_key'])) {
             $resp['encryption_key'] = $entry['encryption_key'];
@@ -370,12 +370,6 @@ if (!is_dir($repoPath)) {
     // API: list all files in repository (recursively) for FtR clients
     if (isset($_GET['list']) && $_GET['list'] === '1' && isset($_GET['api']) && $_GET['api'] === '1') {
         header('Content-Type: application/json');
-        // Only allow listing for Software repos via API
-        if (!canFetchViaAPI($repoType)) {
-            http_response_code(403);
-            echo json_encode(["success" => false, "message" => "Repository file listing available only for Software repositories via API"]);
-            exit();
-        }
 
         $filesOut = [];
         $baseLen = strlen($repoPath) + 1;
@@ -476,18 +470,6 @@ if (isset($_GET["download"])) {
     $fileToDownload = basename($_GET["download"]);
     $filePath = $repoPath . DIRECTORY_SEPARATOR . $fileToDownload;
     
-    // Check if this is an API request and enforce restrictions
-    $isAPIRequest = isset($_GET["api"]) && $_GET["api"] === "1";
-    if ($isAPIRequest && !canFetchViaAPI($repoType)) {
-        http_response_code(403);
-        header("Content-Type: application/json");
-        echo json_encode([
-            "success" => false,
-            "message" => "API downloads only available from Software repositories"
-        ]);
-        exit();
-    }
-    
     if (is_file($filePath)) {
         // Read stored content (may be encrypted at rest)
         $fileContent = file_get_contents($filePath);
@@ -505,7 +487,7 @@ if (isset($_GET["download"])) {
             if (!($isFtRClient || $isFromRepoPage)) {
                 http_response_code(403);
                 header('Content-Type: application/json');
-                echo json_encode(["success" => false, "message" => "API downloads must use the FtR client or the repository page"]);
+                echo json_encode(["success" => false, "message" => "API downloads must use the FtR client or the repository browser"]);
                 exit();
             }
 
@@ -531,7 +513,7 @@ if (isset($_GET["download"])) {
             exit();
         }
         // Non-API downloads: handle encrypted files carefully. Only allow decrypted
-        // downloads when coming from the repository page (browser UI). FtR clients
+        // downloads when coming from the repository browser (browser UI). FtR clients
         // should use the API endpoint which is handled above.
         $isFileEncrypted = ($fileMeta['encrypted'] ?? false) || isset($fileMeta['encryption_key']);
 
@@ -539,7 +521,7 @@ if (isset($_GET["download"])) {
             $isFromRepoPage = isset($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'repo.php') !== false;
             if (! $isFromRepoPage) {
                 http_response_code(403);
-                echo "Encrypted files may only be downloaded via the repository page or the FtR client.";
+                echo "Encrypted files may only be downloaded via the repository browser or the FtR client.";
                 exit();
             }
 
