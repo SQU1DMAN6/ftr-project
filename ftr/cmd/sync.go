@@ -267,17 +267,14 @@ Examples:
 						err = client.UploadFile(repoPath, localPath, file, encrypt)
 						file.Close()
 						if err != nil {
-							screen.ClearProgressBar()
 							msg := fmt.Sprintf("Upload failed: %s: %v", localPath, err)
 							errsMu.Lock()
 							errorsList = append(errorsList, msg)
 							errsMu.Unlock()
 						} else {
-							screen.ClearProgressBar()
 							fmt.Printf("Uploaded: %s\n", localPath)
 						}
 					} else {
-						screen.ClearProgressBar()
 						msg := fmt.Sprintf("Cannot open local file: %s: %v", localPath, err)
 						errsMu.Lock()
 						errorsList = append(errorsList, msg)
@@ -294,13 +291,11 @@ Examples:
 					os.MkdirAll(filepath.Dir(destPath), 0755)
 					err := client.DownloadAndVerify(repoPath, remoteName, destPath)
 					if err != nil {
-						screen.ClearProgressBar()
 						msg := fmt.Sprintf("Download failed: %s: %v", remoteName, err)
 						errsMu.Lock()
 						errorsList = append(errorsList, msg)
 						errsMu.Unlock()
 					} else {
-						screen.ClearProgressBar()
 						fmt.Printf("Downloaded: %s\n", remoteName)
 					}
 				}
@@ -308,15 +303,19 @@ Examples:
 		}
 
 		// Queue tasks
-		for _, path := range uploads {
-			uploadChan <- path
-		}
-		close(uploadChan)
+		go func() {
+			for _, path := range uploads {
+				uploadChan <- path
+			}
+			close(uploadChan)
+		}()
 
-		for _, path := range downloads {
-			downloadChan <- path
-		}
-		close(downloadChan)
+		go func() {
+			for _, path := range downloads {
+				downloadChan <- path
+			}
+			close(downloadChan)
+		}()
 
 		// Wait for completion
 		wg.Wait()
