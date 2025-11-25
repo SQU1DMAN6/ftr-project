@@ -26,5 +26,6 @@ func init() {
 		downCmd,
 		buildCmd,
 		versionCmd,
+		syncCmd,
 	)
 }

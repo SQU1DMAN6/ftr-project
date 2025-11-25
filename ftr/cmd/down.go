@@ -73,7 +73,7 @@ var downCmd = &cobra.Command{
 				return fmt.Errorf("failed to create dir for %s: %w", fullPath, err)
 			}
 
-			fmt.Printf("Downloading %s -> %s\n", pathRel, fullPath)
+			fmt.Printf("\r\nDownloading %s -> %s\n", pathRel, fullPath)
 			if err := client.DownloadAndVerify(repoPath, pathRel, fullPath); err != nil {
 				return fmt.Errorf("failed to download %s: %w", pathRel, err)
 			}

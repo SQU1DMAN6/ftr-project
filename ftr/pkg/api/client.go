@@ -495,6 +495,8 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 			return fmt.Errorf("failed to copy encrypted file data: %w", err)
 		}
 
+		// Ensure final progress render is shown
+		pr.Finish()
 		// Inform server that this upload is pre-encrypted and provide plaintext hash
 		_ = w.WriteField("encrypt", "1")
 		_ = w.WriteField("pre_encrypted", "1")
@@ -502,8 +504,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 		// Also provide the per-file key so the server can persist it for cross-device decryption
 		_ = w.WriteField("file_key", keyHex)
 
-		fmt.Println()
-		screen.ClearProgressBar()
+		// Final render already printed by pr.Finish(); do not clear the bar.
 	} else {
 		fw, err := w.CreateFormFile("upload", fileName)
 		if err != nil {
@@ -523,8 +524,8 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 			return fmt.Errorf("failed to copy file data: %w", err)
 		}
 
-		fmt.Println()
-		screen.ClearProgressBar()
+		// Ensure final progress render is shown
+		pr.Finish()
 
 		computed = fmt.Sprintf("%x", hasher.Sum(nil))
 	}
@@ -617,12 +618,6 @@ func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadClose
 
 	size := resp.ContentLength
 
-	pr := &screen.ProgressReader{
-		R:     resp.Body,
-		Total: size,
-		Start: time.Now(),
-	}
-
 	if err != nil {
 		return nil, fmt.Errorf("download request failed: %w", err)
 	}
@@ -632,11 +627,11 @@ func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadClose
 		return nil, fmt.Errorf("download failed with status: %s", resp.Status)
 	}
 
-	screen.ClearProgressBar()
-	fmt.Println()
-	fmt.Println()
-
-	return io.NopCloser(pr), nil
+	// Wrap the response body in a progress-aware ReadCloser so callers that
+	// Close() the returned reader will trigger the final render and close the
+	// underlying HTTP body.
+	wrapped := screen.WrapReadCloserWithProgress(resp.Body, size, fmt.Sprintf("Downloading %s", fileName))
+	return wrapped, nil
 }
 
 func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, error) {
@@ -910,6 +905,9 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 		return fmt.Errorf("failed to save downloaded file: %w", err)
 	}
 	outFile.Close()
+
+	// Ensure final progress render is shown
+	pr.Finish()
 
 	encrypted := false
 	if meta != nil {
