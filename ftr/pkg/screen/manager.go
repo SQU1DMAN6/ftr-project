@@ -118,7 +118,7 @@ func (pm *progressManager) renderLocked() {
 // previous RenderProgress output, but as a string.
 func renderProgressLine(label string, current, total int64, start time.Time) string {
 	// reuse logic from progress.go's RenderProgress but return string
-	screenwidth := termWidth()
+	screenwidth := TermWidth()
 
 	value := 0.0
 	if total > 0 {

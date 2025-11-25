@@ -13,4 +13,5 @@ and packages using the FSDL format. It integrates with InkDrop for file sharing.
 
 func Execute() error {
 	return rootCmd.Execute()
+
 }

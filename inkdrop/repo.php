@@ -449,6 +449,14 @@ if ($isOwner && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action'])
     }
 }
 
+// Handle API delete request for non-owner
+if (isset($_GET["delete"]) && isset($_GET['api']) && $_GET['api'] === '1' && !$isOwner) {
+    http_response_code(403);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => 'You do not have permission to delete files from this repository.']);
+    exit();
+}
+
 // Handle file deletion, but only available to the owner of the repository
 if ($isOwner && isset($_GET["delete"])) {
     $fileToDelete = basename($_GET["delete"]);
@@ -463,7 +471,24 @@ if ($isOwner && isset($_GET["delete"])) {
             saveRepoMeta($repoPath, $repoMeta);
         }
         
+        // API response for FtR clients
+        if (isset($_GET['api']) && $_GET['api'] === '1') {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success' => true,
+                'message' => 'File deleted successfully',
+                'file' => $fileToDelete,
+            ]);
+            exit();
+        }
+
         header("Location: repo.php?name=" . urlencode($repo) . "&user=" . urlencode($user));
+        exit();
+    } elseif ($isOwner && isset($_GET['delete']) && isset($_GET['api']) && $_GET['api'] === '1') {
+        // API request to delete a file that does not exist
+        http_response_code(404);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => 'File not found']);
         exit();
     }
 }

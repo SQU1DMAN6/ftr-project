@@ -7,7 +7,7 @@ import (
 	"golang.org/x/term"
 )
 
-func termWidth() int {
+func TermWidth() int {
 	w, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || w < 10 {
 		fmt.Fprintln(os.Stderr, "Warning: Failed to get screen size or screen too small.")

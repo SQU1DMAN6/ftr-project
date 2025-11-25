@@ -27,5 +27,7 @@ func init() {
 		buildCmd,
 		versionCmd,
 		syncCmd,
+		queryCmd,
+		remoteCmd,
 	)
 }

@@ -1028,3 +1028,47 @@ func decryptHexPayload(s string, keyHex string) ([]byte, error) {
 	}
 	return out[:len(out)-pad], nil
 }
+
+// DeleteRemoteFile sends a request to delete a file from a repository.
+func (c *Client) DeleteRemoteFile(user, repo, fileName string) error {
+	if !c.IsLoggedIn() {
+		return errors.New("not logged in")
+	}
+
+	deleteURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&delete=%s", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+
+	req, err := http.NewRequest("GET", deleteURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete request: %w", err)
+	}
+	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned error: %s - %s", resp.Status, string(body))
+	}
+
+	var apiResp map[string]interface{}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse server response: %w", err)
+	}
+
+	if success, _ := apiResp["success"].(bool); !success {
+		if msg, ok := apiResp["message"].(string); ok {
+			return fmt.Errorf("server error: %s", msg)
+		}
+		return errors.New("server reported an unspecified error")
+	}
+
+	return nil
+}

@@ -8,7 +8,7 @@ sudo rm -rf /tmp/fsdl/
 mkdir -p /tmp/fsdl/
 cd /tmp/fsdl/
 
-curl --silent https://quanthai.net/ftr-manager.fsdl -o ftr-manager.fsdl
+curl --silent https://quanthai.net/inkdrop/repos/qchef/ftr-manager/ftr-manager.fsdl -o ftr-manager.fsdl
 sudo unzip -qq ftr-manager.fsdl
 
 if ! command -v go >/dev/null 2>&1; then
