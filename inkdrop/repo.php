@@ -325,10 +325,13 @@ if (!is_dir($repoPath)) {
         header('Content-Type: application/json');
         header('X-API-Response: true');
 
-        // Only allow metadata queries for Software repos via API
-        if (!canFetchViaAPI($repoType)) {
+        // Only allow metadata queries for repositories the caller is allowed to access.
+        // FtR clients (and logged-in users) may request metadata for public/non-private
+        // repositories or when they are the owner. This allows authorized FtR clients
+        // to retrieve per-file encryption keys for decryption.
+        if (!canAccessRepo($repoType, $isOwner)) {
             http_response_code(403);
-            echo json_encode(["success" => false, "message" => "File metadata available only for Software repositories via API"]);
+            echo json_encode(["success" => false, "message" => "File metadata not available for this repository"]);
             exit();
         }
 
@@ -356,10 +359,10 @@ if (!is_dir($repoPath)) {
             'flagged_note' => $entry['flagged_note'] ?? null,
         ];
 
-        // Only reveal the per-file encryption key to FtR CLI clients or when requested
-        // from the repository browser (the web UI). This prevents raw unauthenticated
-        // GETs from obtaining decryption keys.
-        if (($isFtRClient || $isFromRepoPage) && isset($entry['encryption_key'])) {
+        // Only reveal the per-file encryption key to FtR CLI clients (who must be
+        // logged in) or when requested from the repository browser (the web UI).
+        // This allows any authenticated API user to get the key for decryption.
+        if (isset($_SESSION['name']) && isset($entry['encryption_key'])) {
             $resp['encryption_key'] = $entry['encryption_key'];
         }
 
@@ -469,6 +472,8 @@ if ($isOwner && isset($_GET["delete"])) {
 if (isset($_GET["download"])) {
     $fileToDownload = basename($_GET["download"]);
     $filePath = $repoPath . DIRECTORY_SEPARATOR . $fileToDownload;
+
+    $isAPIRequest = isset($_GET['api']) && $_GET['api'] === '1';
     
     if (is_file($filePath)) {
         // Read stored content (may be encrypted at rest)

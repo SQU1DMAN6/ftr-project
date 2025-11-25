@@ -36,6 +36,7 @@ Examples:
 		encrypt, _ := cmd.Flags().GetBool("encrypt")
 		workers, _ := cmd.Flags().GetInt("workers")
 		autoChoice, _ := cmd.Flags().GetString("auto")
+		askConflicts, _ := cmd.Flags().GetBool("ask")
 
 		client, err := api.NewClient()
 		if err != nil {
@@ -53,7 +54,10 @@ Examples:
 		// List remote files
 		remoteFiles, err := client.ListRepoFiles(user, repo)
 		if err != nil {
-			return screen.SuggestLoginError(fmt.Errorf("failed to list remote files: %w", err))
+			if strings.Contains(err.Error(), "invalid character '<'") {
+				return screen.SuggestLoginError(fmt.Errorf("failed to list repo files: %w", err))
+			}
+			return fmt.Errorf("failed to list remote files: %w", err)
 		}
 
 		// List local files
@@ -113,26 +117,7 @@ Examples:
 		fmt.Printf("Conflicts: %d\n", len(conflicts))
 
 		// Handle conflicts: support automatic resolution via --auto or interactive prompts
-		switch autoChoice {
-		case "local":
-			// prefer local: upload all conflicts
-			for _, c := range conflicts {
-				uploads = append(uploads, c)
-			}
-		case "remote":
-			// prefer remote: download all conflicts
-			for _, c := range conflicts {
-				downloads = append(downloads, c)
-			}
-		case "both":
-			// keep both: download remote and also upload (so caller can rename)
-			for _, c := range conflicts {
-				downloads = append(downloads, c)
-				uploads = append(uploads, c)
-			}
-		case "skip":
-			// do nothing
-		default:
+		if askConflicts {
 			// Interactive prompts with optional 'apply to all'
 			applyAll := false
 			var applyAction string
@@ -220,9 +205,51 @@ Examples:
 					}
 				}
 			}
+		} else {
+			// Non-interactive: if an explicit auto choice was supplied, honor it
+			switch autoChoice {
+			case "local":
+				for _, c := range conflicts {
+					uploads = append(uploads, c)
+				}
+			case "remote":
+				for _, c := range conflicts {
+					downloads = append(downloads, c)
+				}
+			case "both":
+				for _, c := range conflicts {
+					downloads = append(downloads, c)
+					uploads = append(uploads, c)
+				}
+			case "skip":
+				// do nothing
+			default:
+				// Automatic resolution based on timestamps: upload if local newer, download if remote newer
+				for _, c := range conflicts {
+					lf, lok := localFiles[c]
+					rf, rok := remoteMap[c]
+					localTime := int64(0)
+					remoteTime := int64(0)
+					if lok {
+						localTime = lf.ModTime().Unix()
+					}
+					if rok {
+						if m, ok := rf["modified"].(float64); ok {
+							remoteTime = int64(m)
+						}
+					}
+					if localTime >= remoteTime {
+						uploads = append(uploads, c)
+					} else {
+						downloads = append(downloads, c)
+					}
+				}
+			}
 		}
 
 		// Execute parallel transfers with worker pool
+		var errsMu sync.Mutex
+		errorsList := []string{}
 		uploadChan := make(chan string, len(uploads))
 		downloadChan := make(chan string, len(downloads))
 		var wg sync.WaitGroup
@@ -240,12 +267,21 @@ Examples:
 						err = client.UploadFile(repoPath, localPath, file, encrypt)
 						file.Close()
 						if err != nil {
-							fmt.Printf("\n✗ Upload failed: %s: %v\n", localPath, err)
+							screen.ClearProgressBar()
+							msg := fmt.Sprintf("Upload failed: %s: %v", localPath, err)
+							errsMu.Lock()
+							errorsList = append(errorsList, msg)
+							errsMu.Unlock()
 						} else {
-							fmt.Printf("\n✓ Uploaded: %s\n", localPath)
+							screen.ClearProgressBar()
+							fmt.Printf("Uploaded: %s\n", localPath)
 						}
 					} else {
-						fmt.Printf("\n✗ Cannot open: %s: %v\n", localPath, err)
+						screen.ClearProgressBar()
+						msg := fmt.Sprintf("Cannot open local file: %s: %v", localPath, err)
+						errsMu.Lock()
+						errorsList = append(errorsList, msg)
+						errsMu.Unlock()
 					}
 				}
 			}()
@@ -258,9 +294,14 @@ Examples:
 					os.MkdirAll(filepath.Dir(destPath), 0755)
 					err := client.DownloadAndVerify(repoPath, remoteName, destPath)
 					if err != nil {
-						fmt.Printf("\n✗ Download failed: %s: %v\n", remoteName, err)
+						screen.ClearProgressBar()
+						msg := fmt.Sprintf("Download failed: %s: %v", remoteName, err)
+						errsMu.Lock()
+						errorsList = append(errorsList, msg)
+						errsMu.Unlock()
 					} else {
-						fmt.Printf("\n✓ Downloaded: %s\n", remoteName)
+						screen.ClearProgressBar()
+						fmt.Printf("Downloaded: %s\n", remoteName)
 					}
 				}
 			}()
@@ -280,6 +321,14 @@ Examples:
 		// Wait for completion
 		wg.Wait()
 
+		// Report errors collected during transfers (do not exit early)
+		if len(errorsList) > 0 {
+			fmt.Printf("\nErrors encountered during sync:\n")
+			for _, e := range errorsList {
+				fmt.Printf("- %s\n", e)
+			}
+		}
+
 		fmt.Printf("\nSync complete!\n")
 		return nil
 	},
@@ -289,4 +338,5 @@ func init() {
 	syncCmd.Flags().BoolP("encrypt", "E", false, "Encrypt uploaded files")
 	syncCmd.Flags().IntP("workers", "w", 4, "Number of parallel workers")
 	syncCmd.Flags().String("auto", "ask", "Auto-resolve conflicts: ask|local|remote|skip|both")
+	syncCmd.Flags().BoolP("ask", "A", false, "Ask interactively about conflicts")
 }

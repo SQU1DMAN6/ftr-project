@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
-	"strings"
 	"time"
 )
 
@@ -39,11 +37,11 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 	// If we've reached EOF or completed the total, force a render so the bar
 	// reaches 100% immediately. Otherwise throttle renders to 0.1s intervals.
 	if err == io.EOF || (pr.Total > 0 && pr.Current >= pr.Total) {
-		RenderProgress(pr.Label, pr.Current, pr.Total, pr.Start)
+		UpdateProgress(pr.Label, pr.Current, pr.Total, pr.Start)
 		pr.lastRender = time.Now()
 	} else {
 		if time.Since(pr.lastRender) > 100*time.Millisecond {
-			RenderProgress(pr.Label, pr.Current, pr.Total, pr.Start)
+			UpdateProgress(pr.Label, pr.Current, pr.Total, pr.Start)
 			pr.lastRender = time.Now()
 		}
 	}
@@ -55,8 +53,9 @@ func (pr *ProgressReader) Finish() {
 	// Ensure final render at 100% (or current state), then emit a newline so
 	// the completed bar remains visible for the user rather than being
 	// immediately cleared.
-	RenderProgress(pr.Label, pr.Current, pr.Total, pr.Start)
-	fmt.Fprintln(os.Stdout)
+	// Final update; leave the final bar in the managed block so callers can
+	// clear the block when they print status.
+	UpdateProgress(pr.Label, pr.Current, pr.Total, pr.Start)
 }
 
 // progressReadCloser wraps an underlying ReadCloser and a ProgressReader so
@@ -87,68 +86,15 @@ func WrapReadCloserWithProgress(rc io.ReadCloser, total int64, label string) io.
 
 // RenderProgress renders a single-line progress bar with the format:
 // \r<label> [###>----] X% X.Xs elapsed
+// RenderProgress is now managed centrally by manager.UpdateProgress
 func RenderProgress(label string, current, total int64, start time.Time) {
-	screenwidth := termWidth()
-
-	value := 0.0
-	if total > 0 {
-		value = float64(current) / float64(total)
-		if value < 0 {
-			value = 0
-		}
-		if value > 1 {
-			value = 1
-		}
-	}
-
-	barwidth := screenwidth - 25
-	if barwidth < 10 {
-		barwidth = 10
-	}
-
-	filled := int(float64(barwidth) * value)
-
-	// Build uncolored bar
-	barRunes := make([]rune, barwidth)
-	for i := 0; i < filled && i < barwidth; i++ {
-		barRunes[i] = '#'
-	}
-	if filled < barwidth {
-		barRunes[filled] = '>'
-		for i := filled + 1; i < barwidth; i++ {
-			barRunes[i] = '-'
-		}
-	}
-
-	// Colorize: '#' and '>' => cyan; '-' => default
-	const (
-		colorCyan  = "\x1b[36m"
-		colorReset = "\x1b[0m"
-	)
-
-	var b strings.Builder
-	for _, r := range barRunes {
-		switch r {
-		case '#', '>':
-			b.WriteString(colorCyan)
-			b.WriteRune(r)
-			b.WriteString(colorReset)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	coloredBar := b.String()
-
-	elapsed := time.Since(start).Seconds()
-	elapsed = roundToDecimal(elapsed, 1)
-
-	pct := value * 100
-	fmt.Fprintf(os.Stdout, "\r%s [%s] %3.0f%% %.1fs elapsed", label, coloredBar, pct, elapsed)
+	UpdateProgress(label, current, total, start)
 }
 
 // ClearProgressBar clears the last printed progress line
 func ClearProgressBar() {
-	fmt.Fprintf(os.Stdout, "\r\033[K\n")
+	// Clear the entire managed block for a tidy single-line message print
+	ClearAllProgress()
 }
 
 // roundToDecimal rounds a float to a specific decimal precision

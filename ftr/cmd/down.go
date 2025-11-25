@@ -62,6 +62,8 @@ var downCmd = &cobra.Command{
 			return nil
 		}
 
+		errorsList := []string{}
+
 		for _, f := range files {
 			pathRel, _ := f["path"].(string)
 			if pathRel == "" {
@@ -73,13 +75,22 @@ var downCmd = &cobra.Command{
 				return fmt.Errorf("failed to create dir for %s: %w", fullPath, err)
 			}
 
-			fmt.Printf("\r\nDownloading %s -> %s\n", pathRel, fullPath)
+			// Start download; progress manager will render a per-file progress line
 			if err := client.DownloadAndVerify(repoPath, pathRel, fullPath); err != nil {
-				return fmt.Errorf("failed to download %s: %w", pathRel, err)
+				errorsList = append(errorsList, fmt.Sprintf("failed to download %s: %v", pathRel, err))
+				// continue downloading remaining files
+				continue
 			}
 		}
 
-		fmt.Println("All files downloaded.")
+		if len(errorsList) > 0 {
+			fmt.Printf("\nErrors encountered during download:\n")
+			for _, e := range errorsList {
+				fmt.Printf("- %s\n", e)
+			}
+		}
+
+		fmt.Println("All files processed.")
 		return nil
 	},
 }

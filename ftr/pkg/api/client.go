@@ -62,7 +62,7 @@ func NewClient() (*Client, error) {
 	client := &Client{
 		http: &http.Client{
 			Jar:     jar,
-			Timeout: 30 * time.Second,
+			Timeout: 120 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return fmt.Errorf("too many redirects")
@@ -490,7 +490,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 		if err != nil {
 			return fmt.Errorf("failed to create form file: %w", err)
 		}
-		pr := &screen.ProgressReader{R: strings.NewReader(encPayload), Total: int64(len(encPayload)), Start: time.Now()}
+		pr := &screen.ProgressReader{R: strings.NewReader(encPayload), Total: int64(len(encPayload)), Start: time.Now(), Label: fmt.Sprintf("Uploading %s", fileName)}
 		if _, err := io.Copy(fw, pr); err != nil {
 			return fmt.Errorf("failed to copy encrypted file data: %w", err)
 		}
@@ -515,6 +515,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 			R:     reader,
 			Total: fileSize,
 			Start: time.Now(),
+			Label: fmt.Sprintf("Uploading %s", fileName),
 		}
 
 		hasher := sha256.New()
@@ -898,7 +899,7 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
 	size := resp.ContentLength
-	pr := &screen.ProgressReader{R: resp.Body, Total: size, Start: time.Now()}
+	pr := &screen.ProgressReader{R: resp.Body, Total: size, Start: time.Now(), Label: fmt.Sprintf("Downloading %s", fileName)}
 
 	if _, err := io.Copy(outFile, pr); err != nil {
 		outFile.Close()
@@ -946,7 +947,7 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 			return fmt.Errorf("failed to read downloaded encrypted file: %w", err)
 		}
 
-		plaintext, err := decryptHexPayload(encData, keyHex)
+		plaintext, err := decryptHexPayload(string(encData), keyHex)
 		if err != nil {
 			return fmt.Errorf("failed to decrypt payload: %w", err)
 		}
@@ -984,8 +985,7 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 	return nil
 }
 
-func decryptHexPayload(encData []byte, keyHex string) ([]byte, error) {
-	s := strings.TrimSpace(string(encData))
+func decryptHexPayload(s string, keyHex string) ([]byte, error) {
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
 		return nil, errors.New("invalid encrypted payload format")
