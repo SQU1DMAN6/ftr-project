@@ -496,7 +496,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 		}
 
 		// Ensure final progress render is shown
-		pr.Finish()
+		screen.FinishProgress(pr.Label)
 		// Inform server that this upload is pre-encrypted and provide plaintext hash
 		_ = w.WriteField("encrypt", "1")
 		_ = w.WriteField("pre_encrypted", "1")
@@ -526,7 +526,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 		}
 
 		// Ensure final progress render is shown
-		pr.Finish()
+		screen.FinishProgress(pr.Label)
 
 		computed = fmt.Sprintf("%x", hasher.Sum(nil))
 	}
@@ -908,7 +908,7 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 	outFile.Close()
 
 	// Ensure final progress render is shown
-	pr.Finish()
+	screen.FinishProgress(pr.Label)
 
 	encrypted := false
 	if meta != nil {

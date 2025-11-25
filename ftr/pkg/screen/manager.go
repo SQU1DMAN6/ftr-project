@@ -15,6 +15,7 @@ type progressManager struct {
 	order        []string
 	items        map[string]*progressState
 	lastRendered int
+	finished     map[string]string // Stores the final rendered line for a finished item
 }
 
 type progressState struct {
@@ -25,7 +26,8 @@ type progressState struct {
 }
 
 var manager = &progressManager{
-	items: make(map[string]*progressState),
+	items:    make(map[string]*progressState),
+	finished: make(map[string]string),
 }
 
 // Update a named progress entry (creates it if necessary) and re-render the
@@ -64,6 +66,19 @@ func RemoveProgress(label string) {
 	manager.renderLocked()
 }
 
+// FinishProgress marks a progress entry as complete, renders it one last time,
+// and stores its final state.
+func FinishProgress(label string) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if st, ok := manager.items[label]; ok {
+		st.Current = st.Total
+		finalLine := renderProgressLine(st.Label, st.Current, st.Total, st.Start)
+		manager.finished[label] = finalLine
+		delete(manager.items, label)
+	}
+}
+
 // Clear clears the whole progress block from the terminal.
 func ClearAllProgress() {
 	manager.mu.Lock()
@@ -75,6 +90,7 @@ func ClearAllProgress() {
 	fmt.Fprintf(os.Stdout, "\r\033[J")
 	manager.order = nil
 	manager.items = make(map[string]*progressState)
+	manager.finished = make(map[string]string)
 	manager.lastRendered = 0
 }
 
@@ -86,8 +102,12 @@ func (pm *progressManager) renderLocked() {
 	}
 	fmt.Fprintf(os.Stdout, "\r\033[J")
 	for _, label := range pm.order {
-		st := pm.items[label]
-		line := renderProgressLine(st.Label, st.Current, st.Total, st.Start)
+		var line string
+		if finalLine, ok := pm.finished[label]; ok {
+			line = finalLine
+		} else if st, ok := pm.items[label]; ok {
+			line = renderProgressLine(st.Label, st.Current, st.Total, st.Start)
+		}
 		fmt.Fprintln(os.Stdout, line)
 	}
 	// Remember how many lines we printed so the next render can overwrite them
