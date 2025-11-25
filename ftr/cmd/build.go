@@ -30,19 +30,19 @@ var buildCmd = &cobra.Command{
 		tmpDir := "/tmp/fsdl"
 		_, err := os.Stat(tmpDir)
 		if err == nil {
-			return fmt.Errorf("Temporary directory '%s' already exists. Consider running 'ftr clear' or renaming the directory before proceeding.", tmpDir)
+			return fmt.Errorf("temporary directory '%s' already exists. Consider running 'ftr clear' or renaming the directory before proceeding", tmpDir)
 		}
 
 		// Create a temporary directory
 		if err := os.MkdirAll(tmpDir, 0755); err != nil {
-			return fmt.Errorf("Failed to create temporary directory at '%s': %w", tmpDir, err)
+			return fmt.Errorf("failed to create temporary directory at '%s': %w", tmpDir, err)
 		}
 		defer os.RemoveAll(tmpDir) // Clean up after the operation
 
 		// Open the .fsdl file to be extracted
 		sourceFile, err := os.Open(fsdlFilePath)
 		if err != nil {
-			return fmt.Errorf("Failed to open source file '%s': %w", fsdlFilePath, err)
+			return fmt.Errorf("failed to open source file '%s': %w", fsdlFilePath, err)
 		}
 		defer sourceFile.Close()
 
@@ -50,25 +50,25 @@ var buildCmd = &cobra.Command{
 		destinationFilePath := filepath.Join(tmpDir, filepath.Base(fsdlFilePath))
 		destinationFile, err := os.Create(destinationFilePath)
 		if err != nil {
-			return fmt.Errorf("Failed to create destination file '%s': %w", destinationFilePath, err)
+			return fmt.Errorf("failed to create destination file '%s': %w", destinationFilePath, err)
 		}
 		defer destinationFile.Close()
 
 		// Copy the contents of the source .fsdl file to the temporary directory
 		_, err = io.Copy(destinationFile, sourceFile)
 		if err != nil {
-			return fmt.Errorf("Failed to copy source file to temporary directory: %w", err)
+			return fmt.Errorf("failed to copy source file to temporary directory: %w", err)
 		}
 		fmt.Printf("Successfully copied '%s' to '%s'.\n", fsdlFilePath, destinationFilePath)
 
 		// Change working directory to temporary directory for extraction
 		if err := os.Chdir(tmpDir); err != nil {
-			return fmt.Errorf("Failed to change working directory to '%s': %w", tmpDir, err)
+			return fmt.Errorf("failed to change working directory to '%s': %w", tmpDir, err)
 		}
 
 		// Extract the contents of the .fsdl file
 		if err := fsdl.Extract(destinationFilePath, tmpDir); err != nil {
-			return fmt.Errorf("Failed to extract .fsdl package: %w", err)
+			return fmt.Errorf("failed to extract .fsdl package: %w", err)
 		}
 
 		// Initialize the builder with repo name and working directory
@@ -77,13 +77,13 @@ var buildCmd = &cobra.Command{
 		// Detect and build the project
 		binaryPath, err := b.DetectAndBuild()
 		if err != nil {
-			return fmt.Errorf("Build failed: %w", err)
+			return fmt.Errorf("build failed: %w", err)
 		}
 
 		// Install if a binary was produced
 		if binaryPath != "" {
 			if err := b.InstallBinary(binaryPath); err != nil {
-				return fmt.Errorf("Installation failed: %w", err)
+				return fmt.Errorf("installation failed: %w", err)
 			}
 		}
 

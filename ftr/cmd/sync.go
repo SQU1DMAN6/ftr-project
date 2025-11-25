@@ -14,16 +14,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var defaultSyncDir string
+
 var syncCmd = &cobra.Command{
 	Use:   "sync <user>/<repo> [flags]",
 	Short: "Synchronise files with a repository",
 	Long: `Snchronise files between your local sync directory and a remote repository.
-Files are compared by name and timestamp to detect conflicts.
-
-Examples:
-  ftr sync qchef/media
-  ftr sync qchef/media -E
-  ftr sync qchef/media -w 8`,
+Files are compared by name and timestamp to detect conflicts.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		repoPath := args[0]
@@ -33,10 +30,15 @@ Examples:
 		}
 		user, repo := parts[0], parts[1]
 
+		defaultSyncDir = filepath.Join(os.Getenv("HOME"), "FtRSync", user, repo)
+
+		// Parse flags
+
 		encrypt, _ := cmd.Flags().GetBool("encrypt")
 		workers, _ := cmd.Flags().GetInt("workers")
 		autoChoice, _ := cmd.Flags().GetString("auto")
 		askConflicts, _ := cmd.Flags().GetBool("ask")
+		targetDirectory, _ := cmd.Flags().GetString("target")
 
 		client, err := api.NewClient()
 		if err != nil {
@@ -44,7 +46,10 @@ Examples:
 		}
 
 		// Get sync directory
-		syncDir := filepath.Join(os.Getenv("HOME"), "FtRSync", user, repo)
+		syncDir := targetDirectory
+		if syncDir == "" {
+			syncDir = defaultSyncDir
+		}
 		if err := os.MkdirAll(syncDir, 0755); err != nil {
 			return fmt.Errorf("failed to create sync directory: %w", err)
 		}
@@ -112,9 +117,9 @@ Examples:
 			}
 		}
 
-		fmt.Printf("Local only (will upload): %d\n", len(uploads))
-		fmt.Printf("Remote only (will download): %d\n", len(downloads))
-		fmt.Printf("Conflicts: %d\n", len(conflicts))
+		fmt.Printf("Will upload %d new local files.\n", len(uploads))
+		fmt.Printf("Will download %d new remote files.\n", len(downloads))
+		fmt.Printf("Will handle %d conflicts.\n", len(conflicts))
 
 		// Handle conflicts: support automatic resolution via --auto or interactive prompts
 		if askConflicts {
@@ -194,7 +199,7 @@ Examples:
 				}
 
 				// Ask whether to apply to all remaining
-				fmt.Printf("  Apply this action to all remaining conflicts? [y/N]: ")
+				fmt.Printf("  Apply this action to all remaining conflicts? [y/N] ")
 				resp, _ := reader.ReadString('\n')
 				resp = strings.TrimSpace(resp)
 				if strings.EqualFold(resp, "y") {
@@ -209,13 +214,9 @@ Examples:
 			// Non-interactive: if an explicit auto choice was supplied, honor it
 			switch autoChoice {
 			case "local":
-				for _, c := range conflicts {
-					uploads = append(uploads, c)
-				}
+				uploads = append(uploads, conflicts...)
 			case "remote":
-				for _, c := range conflicts {
-					downloads = append(downloads, c)
-				}
+				downloads = append(downloads, conflicts...)
 			case "both":
 				for _, c := range conflicts {
 					downloads = append(downloads, c)
@@ -335,7 +336,8 @@ Examples:
 
 func init() {
 	syncCmd.Flags().BoolP("encrypt", "E", false, "Encrypt uploaded files")
-	syncCmd.Flags().IntP("workers", "w", 4, "Number of parallel workers")
+	syncCmd.Flags().IntP("workers", "w", 100, "Number of parallel workers")
 	syncCmd.Flags().String("auto", "ask", "Auto-resolve conflicts: ask|local|remote|skip|both")
 	syncCmd.Flags().BoolP("ask", "A", false, "Ask interactively about conflicts")
+	syncCmd.Flags().StringVarP(&downDest, "target", "T", defaultSyncDir, "Target directory to sync remote repository with")
 }
