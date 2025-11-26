@@ -31,6 +31,7 @@ Example: ftr remove myapp
 
 		binPath := filepath.Join("/usr/local/bin", repoName)
 		sharePath := filepath.Join("/usr/share", repoName)
+		desktopEntry := filepath.Join("/usr/share/applications", repoName+".desktop")
 
 		// Remove binary
 		if _, err := os.Stat(binPath); err == nil {
@@ -50,6 +51,16 @@ Example: ftr remove myapp
 			fmt.Printf("Removed directory %s\n", sharePath)
 		} else {
 			fmt.Println("Share directory not found")
+		}
+
+		// Remove desktop entry
+		if _, err := os.Stat(desktopEntry); err == nil {
+			if err := exec.Command("sudo", "rm", "-f", desktopEntry).Run(); err != nil {
+				return fmt.Errorf("failed to remove desktop entry: %w", err)
+			}
+			fmt.Printf("Removed desktop entry at %s\n", desktopEntry)
+		} else {
+			fmt.Println("Desktop entry was not found.")
 		}
 
 		return nil
