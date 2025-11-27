@@ -535,11 +535,41 @@ if (isset($_GET["download"])) {
                 header('X-File-Flagged-Note: ' . ($fileMeta['flagged_note'] ?? ''));
             }
 
+            // Support HTTP Range requests so browsers can seek within the file
+            $filesize = strlen($fileContent);
+            header('Accept-Ranges: bytes');
+
+            $start = 0;
+            $end = $filesize - 1;
+            $length = $filesize;
+
+            if (isset($_SERVER['HTTP_RANGE'])) {
+                // Example: "Range: bytes=0-499"
+                if (preg_match('/bytes\s*=\s*(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $matches)) {
+                    if ($matches[1] !== '') $start = intval($matches[1]);
+                    if ($matches[2] !== '') $end = intval($matches[2]);
+                    if ($start > $end || $start < 0 || $end >= $filesize) {
+                        header('HTTP/1.1 416 Requested Range Not Satisfiable');
+                        header("Content-Range: bytes */$filesize");
+                        exit();
+                    }
+                    $length = $end - $start + 1;
+                    header('HTTP/1.1 206 Partial Content');
+                    header("Content-Range: bytes $start-$end/$filesize");
+                }
+            }
+
             header('Content-Type: application/octet-stream');
             header('Content-Disposition: attachment; filename="' . basename($fileToDownload) . '"');
-            header('Content-Length: ' . strlen($fileContent));
+            header('Content-Length: ' . $length);
             header('Cache-Control: no-cache, no-store, must-revalidate');
-            echo $fileContent;
+
+            // Output the requested byte range (or full content)
+            if ($length === $filesize && $start === 0) {
+                echo $fileContent;
+            } else {
+                echo substr($fileContent, $start, $length);
+            }
             exit();
         }
         // Non-API downloads: handle encrypted files carefully. Only allow decrypted
@@ -578,11 +608,40 @@ if (isset($_GET["download"])) {
         }
 
         // Send file (decrypted if we performed decryption above)
+        // Support HTTP Range requests for seekable playback
+        header('Accept-Ranges: bytes');
+
+        $filesize = strlen($fileContent);
+        $start = 0;
+        $end = $filesize - 1;
+        $length = $filesize;
+
+        if (isset($_SERVER['HTTP_RANGE'])) {
+            if (preg_match('/bytes\s*=\s*(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $matches)) {
+                if ($matches[1] !== '') $start = intval($matches[1]);
+                if ($matches[2] !== '') $end = intval($matches[2]);
+                if ($start > $end || $start < 0 || $end >= $filesize) {
+                    header('HTTP/1.1 416 Requested Range Not Satisfiable');
+                    header("Content-Range: bytes */$filesize");
+                    exit();
+                }
+                $length = $end - $start + 1;
+                header('HTTP/1.1 206 Partial Content');
+                header("Content-Range: bytes $start-$end/$filesize");
+            }
+        }
+
         header("Content-Type: $mime_type");
         header("Content-Disposition: attachment; filename=\"" . basename($fileToDownload) . "\"");
-        header("Content-Length: $fileSize");
+        header("Content-Length: $length");
         header("Cache-Control: no-cache, no-store, must-revalidate");
-        echo $fileContent;
+
+        if ($length === $filesize && $start === 0) {
+            echo $fileContent;
+        } else {
+            echo substr($fileContent, $start, $length);
+        }
+        exit();
         exit();
     } else {
         http_response_code(404);
@@ -839,12 +898,36 @@ if (isset($_GET["preview"])) {
                         "<div style='display:flex; align-items:center; gap:12px; max-width:90%;'>" .
                         "<button id='{$audioId}_play' class='select small'>Play</button>" .
                         "<div style='flex:1; display:flex; align-items:center; gap:8px;'>" .
-                        "<input id='{$audioId}_seek' type='range' min='0' max='100' value='0' style='width:100%;'/>" .
+                        "<input id='{$audioId}_seek' type='range' min='0' value='0' max='100' style='width:100%;'/>" .
                         "<span id='{$audioId}_time' style='min-width:80px; font-size:12pt; color:#ddd;'>0:00 / 0:00</span>" .
                         "</div>" .
                         "</div>" .
                         "<audio id='$audioId' preload='metadata' style='display:none;'><source src='$mediaUrl' type='$mime_type'></audio>" .
-                        "<script> (function() { var a=document.getElementById('{$audioId}'); var btn=document.getElementById('{$audioId}_play'); var seek=document.getElementById('{$audioId}_seek'); var time=document.getElementById('{$audioId}_time'); btn.addEventListener('click', function(){ if(a.paused){ a.play(); btn.textContent='Pause'; } else { a.pause(); btn.textContent='Play'; } }); a.addEventListener('timeupdate', function(){ if(a.duration){ var pct=(a.currentTime/a.duration)*100; seek.value=Math.round(pct); time.textContent = Math.floor(a.currentTime/60)+':' + ('0'+Math.floor(a.currentTime%60)).slice(-2) + ' / ' + Math.floor(a.duration/60) + ':' + ('0'+Math.floor(a.duration%60)).slice(-2); } }); seek.addEventListener('input', function(){ if(a.duration){ a.currentTime = (seek.value/100)*a.duration; } }); a.addEventListener('ended', function(){ btn.textContent='Play'; seek.value=0; }); })(); </script>";
+                        "<script> (function() {\n" .
+                        "  var ctxTag = '[repo.php audio]';\n" .
+                        "  var a = document.getElementById('{$audioId}');\n" .
+                        "  var btn = document.getElementById('{$audioId}_play');\n" .
+                        "  var seek = document.getElementById('{$audioId}_seek');\n" .
+                        "  var time = document.getElementById('{$audioId}_time');\n" .
+                        "  var seeking = false;\n" .
+                        "  function formatTime(t) { if (!isFinite(t) || t < 0) return '0:00'; return Math.floor(t/60) + ':' + ('0'+Math.floor(t%60)).slice(-2); }\n" .
+                        "  console.log(ctxTag, 'init', {audioId: '{$audioId}', src: '{$mediaUrl}'});\n" .
+                        "  btn.addEventListener('click', function(){ console.log(ctxTag, 'play-btn-click', {paused: a.paused, currentTime: a.currentTime, duration: a.duration}); if (a.paused) { a.play(); btn.textContent = 'Pause'; } else { a.pause(); btn.textContent = 'Play'; } });\n" .
+                        "  a.addEventListener('loadedmetadata', function(){ console.log(ctxTag, 'loadedmetadata', {duration: a.duration}); });\n" .
+                        "  a.addEventListener('timeupdate', function(){ console.log(ctxTag, 'timeupdate', {seeking: seeking, currentTime: a.currentTime, duration: a.duration}); if (!seeking && a.duration && isFinite(a.duration) && a.duration > 0) { seek.value = (a.currentTime / a.duration) * 100; time.textContent = formatTime(a.currentTime) + ' / ' + formatTime(a.duration); } });\n" .
+                        "  // Use pointer/touch/mouse handlers for broad compatibility and log events\n" .
+                        "  seek.addEventListener('pointerdown', function(e){ seeking = true; console.log(ctxTag, 'pointerdown', {value: seek.value, event: e.type}); });\n" .
+                        "  seek.addEventListener('touchstart', function(e){ seeking = true; console.log(ctxTag, 'touchstart', {value: seek.value, event: e.type}); }, { passive: true });\n" .
+                        "  seek.addEventListener('mousedown', function(e){ seeking = true; console.log(ctxTag, 'mousedown', {value: seek.value, event: e.type}); });\n" .
+                        "  function applySeekValue() { console.log(ctxTag, 'applySeekValue', {value: seek.value, duration: a.duration, currentTimeBefore: a.currentTime}); if (!a || !isFinite(a.duration) || a.duration <= 0) { console.log(ctxTag, 'applySeekValue-abort', {duration: a.duration}); return; } var val = parseFloat(seek.value); if (isNaN(val)) { console.log(ctxTag, 'applySeekValue-invalid', {val: seek.value}); return; } a.currentTime = (val/100) * a.duration; console.log(ctxTag, 'applied', {newCurrentTime: a.currentTime}); }\n" .
+                        "  seek.addEventListener('input', function(e){ console.log(ctxTag, 'input', {value: seek.value}); if (a.duration && isFinite(a.duration) && a.duration > 0) { var newTime = (seek.value/100) * a.duration; time.textContent = formatTime(newTime) + ' / ' + formatTime(a.duration); } });\n" .
+                        "  // Apply seek on pointerup/touchend/mouseup/change and clear seeking flag\n" .
+                        "  seek.addEventListener('pointerup', function(e){ console.log(ctxTag, 'pointerup', {value: seek.value}); applySeekValue(); seeking = false; });\n" .
+                        "  seek.addEventListener('mouseup', function(e){ console.log(ctxTag, 'mouseup', {value: seek.value}); applySeekValue(); seeking = false; });\n" .
+                        "  seek.addEventListener('touchend', function(e){ console.log(ctxTag, 'touchend', {value: seek.value}); applySeekValue(); seeking = false; });\n" .
+                        "  seek.addEventListener('change', function(e){ console.log(ctxTag, 'change', {value: seek.value}); applySeekValue(); seeking = false; });\n" .
+                        "  a.addEventListener('ended', function(){ console.log(ctxTag, 'ended'); btn.textContent = 'Play'; seek.value = 0; });\n" .
+                        "})(); </script>";
                     break;
                 case "image":
                     $previewContent =
