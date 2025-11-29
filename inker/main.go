@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -18,8 +19,8 @@ import (
 
 const (
 	appName   = "FtR Inker"
-	appWidth  = 1200
-	appHeight = 900
+	appWidth  = 800
+	appHeight = 600
 )
 
 func main() {
@@ -28,7 +29,13 @@ func main() {
 
 	a := app.New()
 
-	w := a.NewWindow(appName)
+	var w fyne.Window
+
+	if drv, ok := a.Driver().(desktop.Driver); ok {
+		w = drv.CreateSplashWindow()
+	} else {
+		w = a.NewWindow(appName)
+	}
 
 	ftrClient, err := api.NewClient()
 	if err != nil {
