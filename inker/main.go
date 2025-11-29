@@ -211,7 +211,6 @@ func main() {
 			if err := ftrClient.Logout(); err != nil {
 				uiQueue <- func() {
 					dialog.ShowError(err, w)
-					return
 				}
 			}
 			uiQueue <- func() {
