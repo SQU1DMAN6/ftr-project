@@ -5,14 +5,12 @@ import (
 	"image/color"
 	"inker/api"
 	"log"
-	"path/filepath"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -20,78 +18,41 @@ import (
 
 const (
 	appName   = "FtR Inker"
-	appWidth  = 800
-	appHeight = 600
+	appWidth  = 1200
+	appHeight = 900
 )
 
 func main() {
+	// Channel to queue UI updates from brackground goroutines
+	uiQueue := make(chan func(), 100)
+
 	a := app.New()
 
-	// --- Create a borderless splash window ---
-	drv := a.Driver()
-	var w fyne.Window
-	if drv, ok := drv.(desktop.Driver); ok {
-		w = drv.CreateSplashWindow()
-	} else {
-		// Fallback for mobile or other non-desktop drivers
-		w = a.NewWindow(appName)
-	}
+	w := a.NewWindow(appName)
 
-	// --- API Client ---
 	ftrClient, err := api.NewClient()
 	if err != nil {
-		log.Fatalf("Failed to create API client: %v", err)
+		dialog.ShowError(fmt.Errorf("failed to establish connection with InkDrop server: %w", err), w)
 	}
 
-	// --- Get Logic ---
-	getFunc := func(user, repo string) {
-		files, err := ftrClient.ListRepoFiles(user, repo)
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
-		if len(files) == 0 {
-			dialog.ShowInformation("Empty Repository", "This repository contains no files.", w)
-			return
-		}
+	var updateUI func()
 
-		// For simplicity, we'll just handle the first file. A real implementation might show a list.
-		fileToGet, ok := files[0]["name"].(string)
-		if !ok {
-			dialog.ShowError(fmt.Errorf("invalid file data in repository"), w)
-			return
-		}
-
-		destPath := filepath.Join("/usr/local/bin", fileToGet) // Example path that may require sudo
-		message := fmt.Sprintf("This will download '%s' from '%s/%s' to '%s'.\nThis may require elevated privileges.", fileToGet, user, repo, destPath)
-
-		dialog.ShowConfirm("Confirm Get", message, func(confirm bool) {
-			if !confirm {
-				return
-			}
-			log.Printf("Getting %s/%s -> %s", user, repo, fileToGet)
-			// Here you would execute the download.
-			// The polkit part is complex and platform-specific.
-			// A common approach is to use `pkexec` to run a helper script/command.
-			// For now, we just log it.
-			dialog.ShowInformation("Get", "Download would start here.\n(Sudo/Polkit prompt would appear if needed)", w)
-		}, w)
-	}
-
-	// --- Main Content Area ---
 	var searchResults []map[string]string
 	resultsList := widget.NewList(
 		func() int {
 			return len(searchResults)
 		},
 		func() fyne.CanvasObject {
+			buttonBox := container.NewHBox(
+				widget.NewButton("Install", nil),
+				widget.NewButton("Down", nil),
+			)
+			labelBox := container.NewVBox(
+				widget.NewLabel("user/repo"),
+				widget.NewLabel("description"),
+			)
 			return container.NewBorder(
-				nil, nil, nil,
-				widget.NewButton("Get", nil), // right
-				container.NewVBox(
-					widget.NewLabel("template/repo"),
-					widget.NewLabel("description"),
-				),
+				nil, nil, nil, buttonBox, labelBox,
 			)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
@@ -106,98 +67,193 @@ func main() {
 				desc = "(no description)"
 			}
 
-			border := o.(*fyne.Container)
-			getBtn := border.Objects[0].(*widget.Button)
-			contentBox := border.Objects[1].(*fyne.Container)
-			contentBox.Objects[0].(*widget.Label).SetText(repoPath)
-			contentBox.Objects[1].(*widget.Label).SetText(desc)
-
-			getBtn.OnTapped = func() {
-				getFunc(user, repo)
+			borderContainer := o.(*fyne.Container)
+			for _, obj := range borderContainer.Objects {
+				switch v := obj.(type) {
+				case *fyne.Container:
+					if len(v.Objects) == 2 {
+						if _, ok := v.Objects[0].(*widget.Button); ok {
+							getBtn := v.Objects[0].(*widget.Button)
+							downBtn := v.Objects[1].(*widget.Button)
+							getBtn.OnTapped = func() {
+								dialog.ShowInformation("Get", "Get functionality is soon to come.", w)
+							}
+							downBtn.OnTapped = func() {
+								dialog.ShowInformation("Down", "Down functionality is soon to come.", w)
+							}
+						} else {
+							v.Objects[0].(*widget.Label).SetText(repoPath)
+							v.Objects[1].(*widget.Label).SetText(desc)
+						}
+					}
+				}
 			}
 		},
 	)
 
 	// Placeholder content
-	placeholder := widget.NewLabel("Use the 'Search' menu to find repositories.")
+	placeholder := widget.NewLabel("Use the search bar above to find repositories.")
 	placeholder.Alignment = fyne.TextAlignCenter
 	content := container.NewMax(placeholder, resultsList)
 
-	// --- Search Logic ---
+	// Search Logic
 	searchEntry := widget.NewEntry()
-	searchEntry.SetPlaceHolder("Search for repositories...")
+	searchEntry.SetPlaceHolder("Search for repositories")
+
 	searchEntry.OnSubmitted = func(query string) {
 		if query != "" {
-			matches, err := ftrClient.SearchRepos(query)
-			if err != nil {
-				dialog.ShowError(err, w)
-				return
-			}
+			go func() {
+				log.Printf("Searching for %s", query)
+				matches, err := ftrClient.SearchRepos(query)
+				if err != nil {
+					uiQueue <- func() { dialog.ShowError(err, w) }
+					return
+				}
 
-			searchResults = matches
-			if len(searchResults) > 0 {
-				placeholder.Hide()
-			} else {
-				placeholder.SetText("No matches found.")
-				placeholder.Show()
-			}
-			resultsList.Refresh()
+				uiQueue <- func() {
+					log.Printf("Search returned %d matches.", len(matches))
+					searchResults = matches
+					if len(searchResults) > 0 {
+						placeholder.Hide()
+					} else {
+						placeholder.SetText("No matches found.")
+						placeholder.Show()
+					}
+					resultsList.Refresh()
+				}
+			}()
 		}
 	}
 
-	// --- Menu Bar ---
-	mainMenu := fyne.NewMainMenu(
-		fyne.NewMenu("File",
-			fyne.NewMenuItem("Quit", func() { a.Quit() }),
-		),
-		fyne.NewMenu("Actions",
-			fyne.NewMenuItem("Get", func() { log.Println("Tapped Get") }),
-			fyne.NewMenuItem("Sync", func() { log.Println("Tapped Sync") }),
-		),
+	// Defining App Tabs
+
+	// Search tab
+
+	searchTabContent := container.NewBorder(
+		container.NewVBox(searchEntry),
+		nil, nil, nil,
+		content,
 	)
-	w.SetMainMenu(mainMenu)
 
-	// --- Custom Title Bar with Buttons ---
-	title := widget.NewLabel(appName)
-	title.TextStyle.Bold = true
+	// Login tab
 
-	// minimizeBtn := widget.NewButtonWithIcon("", theme.WindowMinimizeIcon(), func() {
-	// 	w.
-	// })
+	loginStatusLabel := widget.NewLabel("You are not logged in.")
+	emailEntry := widget.NewEntry()
+	emailEntry.SetPlaceHolder("Email")
+	passwordEntry := widget.NewPasswordEntry()
+	passwordEntry.SetPlaceHolder("Password")
+	loginButton := widget.NewButton("Login", nil)
+	loginForm := container.NewVBox(
+		loginStatusLabel,
+		emailEntry,
+		passwordEntry,
+		loginButton,
+	)
+
+	// Account tab
+
+	accountStatusLabel := widget.NewLabel("Not logged in.")
+	logoutButton := widget.NewButton("Logout", nil)
+	accountTabContent := container.NewVBox(
+		accountStatusLabel,
+		logoutButton,
+	)
+
+	// Rendering App tabs
+
+	tabs := container.NewAppTabs(
+		container.NewTabItem("Search", searchTabContent),
+		container.NewTabItem("Login", loginForm),
+		container.NewTabItem("Account", accountTabContent),
+	)
+	tabs.SetTabLocation(container.TabLocationLeading)
+
+	// UI Update Logic
+	updateUI = func() {
+		log.Println("Updating UI based on login state...")
+		if ftrClient.IsLoggedIn() {
+			email, username := ftrClient.GetSessionInfo()
+			loggedInMsg := fmt.Sprintf("Logged in as %s (%s)", username, email)
+			loginStatusLabel.SetText(loggedInMsg)
+			accountStatusLabel.SetText(loggedInMsg)
+			loginForm.Hide()
+			tabs.Items[3].Content = accountTabContent
+		} else {
+			loginStatusLabel.SetText("Enter your InkDrop credentials to log in.")
+			accountStatusLabel.SetText("You are not logged in.")
+			loginForm.Show()
+			tabs.Items[3].Content = container.NewMax()
+		}
+		tabs.Refresh()
+	}
+
+	loginButton.OnTapped = func() {
+		go func() {
+			log.Printf("Login button clicked. Attempting login for user: %s", emailEntry.Text)
+			err := ftrClient.Login(emailEntry.Text, passwordEntry.Text)
+			if err != nil {
+				uiQueue <- func() {
+					dialog.ShowError(err, w)
+				}
+				return
+			}
+			uiQueue <- func() {
+				dialog.ShowInformation("Success", "Successfully logged in.", w)
+				updateUI()
+				tabs.SelectIndex(3)
+			}
+		}()
+	}
+
+	logoutButton.OnTapped = func() {
+		go func() {
+			log.Println("Logout button clicked.")
+			if err := ftrClient.Logout(); err != nil {
+				uiQueue <- func() {
+					dialog.ShowError(err, w)
+					return
+				}
+			}
+			uiQueue <- func() {
+				updateUI()
+				tabs.SelectIndex(1)
+			}
+		}()
+	}
+
+	w.Resize(fyne.NewSize(float32(appWidth), float32(appHeight)))
+
 	closeBtn := widget.NewButtonWithIcon("", theme.WindowCloseIcon(), func() {
 		w.Close()
 	})
 
-	titleBar := container.NewBorder(
-		nil, nil, // top, bottom
-		nil,                         // left
-		container.NewHBox(closeBtn), // right
-		container.New(
-			layout.NewCenterLayout(),
-			title,
-		),
+	title := widget.NewLabel(appName)
+	title.TextStyle.Bold = true
+
+	titleBar := container.NewGridWithColumns(3,
+		// Left side: spacer
+		widget.NewLabel(""),
+		// Center: Title
+		container.NewCenter(title),
+		// Right side: window controls
+		container.NewHBox(layout.NewSpacer(), closeBtn),
 	)
 
 	// Custom drag handler for the title bar
 	dragArea := canvas.NewRectangle(color.Transparent)
-	dragArea.SetMinSize(titleBar.MinSize())
 	draggableTitleBar := container.NewStack(titleBar, dragArea)
 
 	// --- Window Layout ---
 	mainLayout := container.NewBorder(
-		container.NewVBox(draggableTitleBar, searchEntry, widget.NewSeparator()),
+		draggableTitleBar,
 		nil, nil, nil, // bottom, left, right
-		content,
+		tabs,
 	)
 
-	// Set up the window
 	w.SetMaster()
-	w.SetPadded(false) // Remove internal padding
 	w.SetContent(mainLayout)
-	w.Resize(fyne.NewSize(appWidth, appHeight))
 	w.CenterOnScreen()
-	w.SetFixedSize(false) // Allow resizing
-
-	// Run the app
+	w.SetFixedSize(false)
+	w.SetPadded(false)
 	w.ShowAndRun()
 }
