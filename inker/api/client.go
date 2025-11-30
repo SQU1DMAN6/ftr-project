@@ -2,7 +2,12 @@ package api
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -176,11 +181,7 @@ func (c *Client) SearchRepos(query string) ([]map[string]string, error) {
 	// If server returned HTML (likely the login page), return a helpful error
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) > 0 && trimmed[0] == '<' {
-		snippet := string(trimmed)
-		if len(snippet) > 512 {
-			snippet = snippet[:512]
-		}
-		return nil, fmt.Errorf("search API not available: server returned HTML (likely login page). Try logging in or upgrade the server. Response snippet: %s", snippet)
+		return nil, fmt.Errorf("search API not available: server returned HTML (likely login page). Try logging in.")
 	}
 
 	if err := json.Unmarshal(body, &apiResp); err != nil {
@@ -415,4 +416,262 @@ func (c *Client) clearSession() error {
 func (c *Client) Logout() error {
 	log.Println("Logging out.")
 	return c.clearSession()
+}
+
+func (c *Client) getFileMeta(user, repo, fileName string) (map[string]string, error) {
+	metaURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&filemeta=1&file=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+	req, err := http.NewRequest("GET", metaURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metadata request: %w", err)
+	}
+
+	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch file metadata: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		var apiResp map[string]interface{}
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			if msg, ok := apiResp["message"].(string); ok {
+				return nil, fmt.Errorf("server error: %s", msg)
+			}
+		}
+		return nil, fmt.Errorf("metadata request failed: %s", resp.Status)
+	}
+
+	var apiResp map[string]interface{}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read metadata response: %w", err)
+	}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, nil
+	}
+
+	out := make(map[string]string)
+	if h, ok := apiResp["hash"].(string); ok {
+		out["hash"] = h
+	}
+	if s, ok := apiResp["signature"].(string); ok {
+		out["signature"] = s
+	}
+	if f, ok := apiResp["flagged"]; ok {
+		switch v := f.(type) {
+		case bool:
+			if v {
+				out["flagged"] = "1"
+			} else {
+				out["flagged"] = "0"
+			}
+		case string:
+			out["flagged"] = v
+		}
+	}
+	if fn, ok := apiResp["flagged_note"].(string); ok {
+		out["flagged_note"] = fn
+	}
+	if e, ok := apiResp["encrypted"]; ok {
+		switch v := e.(type) {
+		case bool:
+			if v {
+				out["encrypted"] = "1"
+			} else {
+				out["encrypted"] = "0"
+			}
+		case string:
+			out["encrypted"] = v
+		case float64:
+			if v != 0 {
+				out["encrypted"] = "1"
+			} else {
+				out["encrypted"] = "0"
+			}
+		}
+	}
+	if ek, ok := apiResp["encryption_key"].(string); ok {
+		out["encryption_key"] = ek
+	}
+	return out, nil
+}
+
+func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath string) error {
+	parts := strings.Split(repoPath, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid repository path.")
+	}
+	user, repo := parts[0], parts[1]
+
+	meta, _ := c.getFileMeta(user, repo, fileName)
+	expectedHash := ""
+	if meta != nil {
+		expectedHash = meta["hash"]
+	}
+
+	downloadURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&download=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+	// If metadata indicates the file was flagged during upload, warn the user.
+	if meta != nil {
+		if note, ok := meta["flagged_note"]; ok && note != "" {
+			fmt.Errorf("the file %s was flagged on upload. This means it is potentially malicious. Consider using the FtR CLI client if you truly want to download it. File was flagged: %s", fileName, note)
+		}
+	}
+
+	req, err := http.NewRequest("POST", downloadURL, nil)
+	if err != nil {
+		return fmt.Errorf("download request failed: %w", err)
+	}
+	req.Header.Set("X-FTR-Client", "FtR-CLI")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("download request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		var apiResp map[string]interface{}
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			if msg, ok := apiResp["message"].(string); ok {
+				if strings.Contains(msg, "Suspicious") || strings.Contains(msg, "Malicious") {
+					fmt.Errorf("the file %s contains potentially malicious code. Consider using the FtR CLI client if you truly want to download it", fileName)
+				} else {
+					fmt.Errorf("server error: %s", msg)
+				}
+			}
+		}
+		return fmt.Errorf("download failed: %s", resp.Status)
+	}
+
+	tmpPath := destPath + ".part"
+	outFile, err := os.Create(tmpPath)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	if _, err := io.Copy(outFile, nil); err != nil {
+		outFile.Close()
+		return fmt.Errorf("failed to save downloaded file: %w", err)
+	}
+	outFile.Close()
+
+	encrypted := false
+	if meta != nil {
+		if val, ok := meta["encrypted"]; ok && val == "1" {
+			encrypted = true
+		}
+	}
+
+	if encrypted {
+		keysDir := filepath.Join(c.configDir, "keys")
+		// Try per-file key first, then repo-level key
+		perFileKey := filepath.Join(keysDir, fmt.Sprintf("%s_%s_%s.key", user, repo, fileName))
+		repoKey := filepath.Join(keysDir, fmt.Sprintf("%s_%s.key", user, repo))
+		keyHex := ""
+		if data, err := os.ReadFile(perFileKey); err == nil {
+			keyHex = strings.TrimSpace(string(data))
+		} else if data, err := os.ReadFile(repoKey); err == nil {
+			keyHex = strings.TrimSpace(string(data))
+		} else {
+			// If server provided an encryption_key in metadata, persist it locally for next time
+			if meta != nil {
+				if ek, ok := meta["encryption_key"]; ok && ek != "" {
+					keyHex = ek
+					// write to perFileKey path
+					_ = os.MkdirAll(keysDir, 0700)
+					_ = os.WriteFile(perFileKey, []byte(keyHex), 0600)
+				}
+			}
+		}
+		if keyHex == "" {
+			return fmt.Errorf("repository content is encrypted; no decryption key found at %s or %s. Ask the repo owner to provide the key or place it there", perFileKey, repoKey)
+		}
+
+		encData, err := os.ReadFile(tmpPath)
+		if err != nil {
+			return fmt.Errorf("failed to read downloaded encrypted file: %w", err)
+		}
+
+		plaintext, err := c.decryptHexPayload(string(encData), keyHex)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt payload: %w", err)
+		}
+
+		if expectedHash != "" {
+			computed := fmt.Sprintf("%x", sha256.Sum256(plaintext))
+			if !strings.EqualFold(expectedHash, computed) {
+				return fmt.Errorf("integrity check failed after decryption: expected %s computed %s", expectedHash, computed)
+			}
+		}
+
+		if err := os.WriteFile(destPath, plaintext, 0644); err != nil {
+			return fmt.Errorf("failed to write decrypted file: %w", err)
+		}
+		os.Remove(tmpPath)
+		return nil
+	}
+
+	// If not encrypted, verify hash if available
+	if expectedHash != "" {
+		data, err := os.ReadFile(tmpPath)
+		if err != nil {
+			return fmt.Errorf("failed to read downloaded file for integrity check: %w", err)
+		}
+		computed := fmt.Sprintf("%x", sha256.Sum256(data))
+		if !strings.EqualFold(expectedHash, computed) {
+			return fmt.Errorf("integrity check failed: expected %s computed %s", expectedHash, computed)
+		}
+	}
+
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return fmt.Errorf("failed to finalise downloaded file: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Client) decryptHexPayload(s string, keyHex string) ([]byte, error) {
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return nil, errors.New("invalid encrypted payload format")
+	}
+	ivHex := parts[0]
+	encHex := parts[1]
+
+	iv, err := hex.DecodeString(ivHex)
+	if err != nil {
+		return nil, fmt.Errorf("invalid iv hex: %w", err)
+	}
+	encrypted, err := hex.DecodeString(encHex)
+	if err != nil {
+		return nil, fmt.Errorf("invalid encrypted hex: %w", err)
+	}
+
+	key, err := hex.DecodeString(strings.TrimSpace(keyHex))
+	if err != nil {
+		return nil, fmt.Errorf("invalid key hex: %w", err)
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+	if len(encrypted)%aes.BlockSize != 0 {
+		return nil, fmt.Errorf("ciphertext is not a multiple of block size")
+	}
+	mode := cipher.NewCBCDecrypter(block, iv)
+	out := make([]byte, len(encrypted))
+	mode.CryptBlocks(out, encrypted)
+
+	// PKCS7 unpad
+	if len(out) == 0 {
+		return nil, errors.New("decryption resulted in empty payload")
+	}
+	pad := int(out[len(out)-1])
+	if pad <= 0 || pad > aes.BlockSize {
+		return nil, errors.New("invalid padding")
+	}
+	return out[:len(out)-pad], nil
 }

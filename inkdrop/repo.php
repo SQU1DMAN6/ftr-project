@@ -1209,14 +1209,6 @@ function include_repo_creation_form($repo, $user) {
                             <div id="progressStatus">0%</div>
                         </div>
                     </form>
-
-                    <form action="repo.php?name=<?= urlencode($repo) ?>" method="POST" style="width:260px; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px;">
-                        <input type="hidden" name="action" value="mkdir" />
-                        <label style="display:block; margin-bottom:8px;"><b>Create Directory</b></label>
-                        <input type="text" name="dir" placeholder="subdir/name" required style="width:100%; margin-bottom:8px; padding:6px;" />
-                        <button type="submit" class="select">Create</button>
-                        <p style="font-size:11px; color:#bbb; margin-top:8px;">Directory names cannot start or end with a dot and cannot contain <code>..</code>.</p>
-                    </form>
                 </div>
                 <?php if (isset($message)): ?>
                     <p><?php echo $message; ?></p>

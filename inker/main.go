@@ -39,6 +39,8 @@ func main() {
 		w = a.NewWindow(appName)
 	}
 
+	// w = a.NewWindow(appName)
+
 	ftrClient, err := api.NewClient()
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("failed to establish connection with InkDrop server: %w", err), w)
@@ -51,8 +53,8 @@ func main() {
 		},
 		func() fyne.CanvasObject {
 			buttonBox := container.NewHBox(
-				widget.NewButton("Install", nil),
-				widget.NewButton("Down", nil),
+				widget.NewButtonWithIcon("Install", theme.DownloadIcon(), nil),
+				widget.NewButtonWithIcon("Download", theme.DownloadIcon(), nil),
 			)
 			labelBox := container.NewVBox(
 				widget.NewLabel("user/repo"),
@@ -261,8 +263,8 @@ func main() {
 
 	w.SetMaster()
 	w.SetContent(mainLayout)
-	w.CenterOnScreen()
 	w.SetFixedSize(false)
+	w.CenterOnScreen()
 	w.SetPadded(false)
 	w.ShowAndRun()
 }
