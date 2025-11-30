@@ -25,55 +25,6 @@ const (
 
 var updateUI func()
 
-// --- DragBar widget for window dragging ---
-type DragBar struct {
-	widget.BaseWidget
-	w fyne.Window
-
-	dragging  bool
-	dragStart fyne.Position
-	winStart  fyne.Position
-}
-
-func NewDragBar(w fyne.Window) *DragBar {
-	d := &DragBar{w: w}
-	d.ExtendBaseWidget(d)
-	return d
-}
-
-func (d *DragBar) CreateRenderer() fyne.WidgetRenderer {
-	rect := canvas.NewRectangle(color.Transparent)
-	return widget.NewSimpleRenderer(rect)
-}
-
-func (d *DragBar) MouseDown(ev *desktop.MouseEvent) {
-	if dw, ok := d.w.(desktop.Window); ok {
-		d.dragging = true
-		d.dragStart = ev.Position
-		d.winStart = dw.Position()
-	}
-}
-
-func (d *DragBar) MouseUp(*desktop.MouseEvent) {
-	d.dragging = false
-}
-
-func (d *DragBar) MouseMoved(ev *desktop.MouseEvent) {
-	if !d.dragging {
-		return
-	}
-
-	if dw, ok := d.w.(desktop.Window); ok {
-		dx := ev.Position.X - d.dragStart.X
-		dy := ev.Position.Y - d.dragStart.Y
-
-		dw.SetPosition(fyne.NewPos(
-			d.winStart.X+dx,
-			d.winStart.Y+dy,
-		))
-	}
-}
-
 func main() {
 	// Channel to queue UI updates from brackground goroutines
 	uiQueue := make(chan func(), 100)
@@ -296,40 +247,7 @@ func main() {
 		container.NewHBox(layout.NewSpacer(), closeBtn),
 	)
 
-	// Custom drag handler for the title bar
 	dragArea := canvas.NewRectangle(color.Transparent)
-
-	// --- BEGIN: Window drag logic ---
-	if deskWin, ok := w.(desktop.Window); ok {
-		var dragging bool
-		var dragStart fyne.Position
-		var winStart fyne.Position
-
-		dragArea.MouseDown = func(ev *desktop.MouseEvent) {
-			dragging = true
-			dragStart = fyne.NewPos(ev.Position.X, ev.Position.Y)
-			winStart = deskWin.Position()
-		}
-
-		dragArea.MouseUp = func(_ *desktop.MouseEvent) {
-			dragging = false
-		}
-
-		dragArea.MouseMoved = func(ev *desktop.MouseEvent) {
-			if !dragging {
-				return
-			}
-
-			dx := ev.Position.X - dragStart.X
-			dy := ev.Position.Y - dragStart.Y
-
-			deskWin.SetPosition(fyne.NewPos(
-				winStart.X+dx,
-				winStart.Y+dy,
-			))
-		}
-	}
-
 	draggableTitleBar := container.NewStack(titleBar, dragArea)
 
 	// --- Window Layout ---
