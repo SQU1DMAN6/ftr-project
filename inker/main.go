@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"image/color"
 	"inker/api"
+	"inker/fsdl"
 	"log"
+	"os"
+	"path/filepath"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -32,6 +35,10 @@ func main() {
 	a := app.New()
 
 	var w fyne.Window
+
+	// Destination directory
+	var dest string
+	var downDest string
 
 	if drv, ok := a.Driver().(desktop.Driver); ok {
 		w = drv.CreateSplashWindow()
@@ -85,10 +92,154 @@ func main() {
 							getBtn := v.Objects[0].(*widget.Button)
 							downBtn := v.Objects[1].(*widget.Button)
 							getBtn.OnTapped = func() {
-								dialog.ShowInformation("Get", "Get functionality is soon to come.", w)
+								info := fmt.Sprintf("User: %s, Repository: %s", user, repo)
+								log.Printf("Install button clicked for: %s", info)
+
+								go func(user, repo string) {
+									// dialog.ShowInformation("Install", info, w)
+									repoPath := fmt.Sprintf("%s/%s", user, repo)
+									tmpDir := "/tmp/fsdl"
+									if err := os.MkdirAll(tmpDir, 0755); err != nil {
+										log.Fatalf("failed to create temp directory: %v", err)
+									}
+
+									fsdlFile := filepath.Join(tmpDir, repo+".fsdl")
+
+									// Download from server
+									log.Printf("Fetching repo %s", repoPath)
+
+									// Note API client already created with ftrClient
+									// Try to fetch repository description to show the user
+									if matches, err := ftrClient.SearchRepos(repo); err == nil {
+										for _, m := range matches {
+											if m["user"] == user && m["repo"] == repo {
+												desc := m["description"]
+												if desc == "" {
+													desc = "(no description)"
+												}
+												log.Printf("Description: %s", desc)
+												break
+											}
+										}
+									}
+
+									log.Println("Fetching package via API...")
+									// Use repo.php API to download and verify
+									if err := ftrClient.DownloadAndVerify(user, repo, repo+".fsdl", fsdlFile); err != nil {
+										log.Fatalf("download failed: %v", err)
+										return
+									}
+
+									if err := fsdl.Extract(fsdlFile, tmpDir); err != nil {
+										log.Fatalf("failed to extract package: %v", err)
+										return
+									}
+								}(user, repo)
 							}
 							downBtn.OnTapped = func() {
-								dialog.ShowInformation("Down", "Down functionality is soon to come.", w)
+								info := fmt.Sprintf("User: %s, Repository: %s", user, repo)
+								log.Printf("Download button clicked for: %s", info)
+
+								go func(user, repo string) {
+									// Check if the client is valid before proceeding
+									if ftrClient == nil {
+										log.Println("Download failed: client is not initialized.")
+										uiQueue <- func() {
+											dialog.ShowError(fmt.Errorf("client is not initialized, cannot download files"), w)
+										}
+										return
+									}
+
+									progressLabel := widget.NewLabel("Preparing to download...")
+									progressBar := widget.NewProgressBar()
+									progressDialog := dialog.NewCustomWithoutButtons("Downloading...", container.NewVBox(progressLabel, progressBar), w)
+
+									uiQueue <- func() { progressDialog.Show() }
+
+									if downDest != "" {
+										dest = downDest
+									} else {
+										home, err := os.UserHomeDir()
+										if err != nil {
+											log.Printf("failed to determine home directory: %v", err)
+											uiQueue <- func() {
+												dialog.ShowError(fmt.Errorf("failed to determine user's home directory: %v", err), w)
+											}
+											return
+										}
+										dest = filepath.Join(home, "FtRSync", user, repo)
+									}
+
+									if err := os.MkdirAll(dest, 0755); err != nil {
+										log.Printf("failed to create destination directory: %v", err)
+										uiQueue <- func() {
+											dialog.ShowError(fmt.Errorf("failed to create destination directory: %v", err), w)
+										}
+										return
+									}
+
+									log.Printf("Listing files in %s/%s...", user, repo)
+									files, err := ftrClient.ListRepoFiles(user, repo)
+									if err != nil {
+										log.Printf("failed to list repository files: %v", err)
+										uiQueue <- func() {
+											dialog.ShowError(fmt.Errorf("failed to list repository files: %w", err), w)
+										}
+										return
+									}
+
+									if len(files) == 0 {
+										log.Println("No files were found in the repository.")
+										uiQueue <- func() {
+											dialog.ShowInformation("Empty Repository", "No files were found in the repository.", w)
+										}
+										return
+									}
+
+									errorsList := []string{}
+
+									totalFiles := len(files)
+									for i, f := range files {
+										pathRel, _ := f["path"].(string)
+										if pathRel == "" {
+											continue
+										}
+
+										uiQueue <- func() {
+											progressLabel.SetText(fmt.Sprintf("Downloading: %s", pathRel))
+											progressBar.SetValue(float64(i) / float64(totalFiles))
+										}
+
+										fullPath := filepath.Join(dest, filepath.FromSlash(pathRel))
+										if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+											errorsList = append(errorsList, fmt.Sprintf("failed to create dir for %s: %v", fullPath, err))
+											continue
+										}
+
+										// Start download
+										if ftrClient == nil {
+											log.Println("Download cancelled: client is no longer valid.")
+											uiQueue <- func() {
+												dialog.ShowError(fmt.Errorf("client became invalid during download, possibly due to logout"), w)
+											}
+											return
+										}
+										if err := ftrClient.DownloadAndVerify(user, repo, pathRel, fullPath); err != nil {
+											errorsList = append(errorsList, fmt.Sprintf("failed to download %s: %v", pathRel, err))
+											continue
+										}
+									}
+
+									uiQueue <- func() {
+										progressDialog.Hide()
+										if len(errorsList) > 0 {
+											log.Printf("Errors encountered during download for %s/%s:\n%v", user, repo, errorsList)
+											dialog.ShowInformation("Encountered errors trying to download %s/%s", fmt.Sprintf("Errors: %v", errorsList), w)
+										}
+										dialog.ShowInformation("Download Complete", fmt.Sprintf("Finished downloading %s/%s", user, repo), w)
+										log.Println("All files processed.")
+									}
+								}(user, repo)
 							}
 						} else {
 							v.Objects[0].(*widget.Label).SetText(repoPath)

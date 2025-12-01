@@ -499,13 +499,7 @@ func (c *Client) getFileMeta(user, repo, fileName string) (map[string]string, er
 	return out, nil
 }
 
-func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath string) error {
-	parts := strings.Split(repoPath, "/")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid repository path.")
-	}
-	user, repo := parts[0], parts[1]
-
+func (c *Client) DownloadAndVerify(user string, repo string, fileName string, destPath string) error {
 	meta, _ := c.getFileMeta(user, repo, fileName)
 	expectedHash := ""
 	if meta != nil {
@@ -537,9 +531,9 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 		if err := json.Unmarshal(body, &apiResp); err == nil {
 			if msg, ok := apiResp["message"].(string); ok {
 				if strings.Contains(msg, "Suspicious") || strings.Contains(msg, "Malicious") {
-					fmt.Errorf("the file %s contains potentially malicious code. Consider using the FtR CLI client if you truly want to download it", fileName)
+					return fmt.Errorf("the file %s contains potentially malicious code. Consider using the FtR CLI client if you truly want to download it", fileName)
 				} else {
-					fmt.Errorf("server error: %s", msg)
+					log.Fatalf("server error: %s", msg)
 				}
 			}
 		}
@@ -551,11 +545,14 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	if _, err := io.Copy(outFile, nil); err != nil {
-		outFile.Close()
+	// Ensure response body is non-nil and copy its contents to the temp file.
+	defer outFile.Close()
+	if resp.Body == nil {
+		return fmt.Errorf("download failed: empty response body")
+	}
+	if _, err := io.Copy(outFile, resp.Body); err != nil {
 		return fmt.Errorf("failed to save downloaded file: %w", err)
 	}
-	outFile.Close()
 
 	encrypted := false
 	if meta != nil {
@@ -674,4 +671,47 @@ func (c *Client) decryptHexPayload(s string, keyHex string) ([]byte, error) {
 		return nil, errors.New("invalid padding")
 	}
 	return out[:len(out)-pad], nil
+}
+
+// ListRepoFiles returns a recursive list of files in a repository via the API
+func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, error) {
+	listURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&list=1&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user))
+	req, err := http.NewRequest("GET", listURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create list request: %w", err)
+	}
+	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list failed: %s - %s", resp.Status, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read list response: %w", err)
+	}
+
+	var apiResp map[string]interface{}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse list response: %w", err)
+	}
+
+	out := []map[string]interface{}{}
+	if ok, _ := apiResp["success"].(bool); !ok {
+		return out, nil
+	}
+	if fl, ok := apiResp["files"].([]interface{}); ok {
+		for _, f := range fl {
+			if fm, ok := f.(map[string]interface{}); ok {
+				out = append(out, fm)
+			}
+		}
+	}
+	return out, nil
 }
