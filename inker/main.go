@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"inker/api"
+	"inker/builder"
 	"inker/fsdl"
 	"log"
 	"os"
@@ -91,6 +92,8 @@ func main() {
 						if _, ok := v.Objects[0].(*widget.Button); ok {
 							getBtn := v.Objects[0].(*widget.Button)
 							downBtn := v.Objects[1].(*widget.Button)
+
+							// Get button event handling - download .fsdl file in a repository and install it to the user's system
 							getBtn.OnTapped = func() {
 								info := fmt.Sprintf("User: %s, Repository: %s", user, repo)
 								log.Printf("Install button clicked for: %s", info)
@@ -108,7 +111,6 @@ func main() {
 									// Download from server
 									log.Printf("Fetching repo %s", repoPath)
 
-									// Note API client already created with ftrClient
 									// Try to fetch repository description to show the user
 									if matches, err := ftrClient.SearchRepos(repo); err == nil {
 										for _, m := range matches {
@@ -134,8 +136,29 @@ func main() {
 										log.Fatalf("failed to extract package: %v", err)
 										return
 									}
+
+									b := builder.New(repo, tmpDir)
+
+									binaryPath, err := b.DetectAndBuild()
+									if err != nil {
+										log.Fatalf("build failed: %v", err)
+										dialog.ShowError(fmt.Errorf("build failed: %w", err), w)
+									}
+
+									if binaryPath != "" {
+										if err := b.InstallBinary(binaryPath); err != nil {
+											log.Fatalf("installation failed: %v", err)
+											dialog.ShowError(fmt.Errorf("installation failed: %w", err), w)
+										}
+									}
+
+									uiQueue <- func() {
+										dialog.ShowInformation("Install complete", fmt.Sprintf("Finished installing %s/%s", user, repo), w)
+									}
 								}(user, repo)
 							}
+
+							// Download button event handling - download all files in a repository
 							downBtn.OnTapped = func() {
 								info := fmt.Sprintf("User: %s, Repository: %s", user, repo)
 								log.Printf("Download button clicked for: %s", info)
