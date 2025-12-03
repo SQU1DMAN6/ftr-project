@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -181,7 +183,7 @@ func (c *Client) SearchRepos(query string) ([]map[string]string, error) {
 	// If server returned HTML (likely the login page), return a helpful error
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) > 0 && trimmed[0] == '<' {
-		return nil, fmt.Errorf("search API not available: server returned HTML (likely login page). Try logging in.")
+		return nil, fmt.Errorf("search API not available: server returned HTML (likely login page). Try logging in")
 	}
 
 	if err := json.Unmarshal(body, &apiResp); err != nil {
@@ -510,7 +512,7 @@ func (c *Client) DownloadAndVerify(user string, repo string, fileName string, de
 	// If metadata indicates the file was flagged during upload, warn the user.
 	if meta != nil {
 		if note, ok := meta["flagged_note"]; ok && note != "" {
-			fmt.Errorf("the file %s was flagged on upload. This means it is potentially malicious. Consider using the FtR CLI client if you truly want to download it. File was flagged: %s", fileName, note)
+			return fmt.Errorf("the file %s was flagged on upload. This means it is potentially malicious. Consider using the FtR CLI client if you truly want to download it. File was flagged: %s", fileName, note)
 		}
 	}
 
@@ -673,6 +675,205 @@ func (c *Client) decryptHexPayload(s string, keyHex string) ([]byte, error) {
 	return out[:len(out)-pad], nil
 }
 
+// ProgressReader is a wrapper for io.Reader that reports progress.
+type ProgressReader struct {
+	io.Reader
+	total    int64
+	read     int64
+	progress func(float64)
+}
+
+func (pr *ProgressReader) Read(p []byte) (n int, err error) {
+	n, err = pr.Reader.Read(p)
+	pr.read += int64(n)
+	if pr.progress != nil && pr.total > 0 {
+		pr.progress(float64(pr.read) / float64(pr.total))
+	}
+	return
+}
+
+func NewProgressReader(r io.Reader, size int64, progress func(float64)) *ProgressReader {
+	return &ProgressReader{Reader: r, total: size, progress: progress}
+}
+
+// UploadFile uploads a file to a repository, with optional encryption and progress reporting.
+func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, size int64, encrypt bool, progress func(float64)) error {
+	if c.sessionID == "" {
+		return fmt.Errorf("not logged in")
+	}
+
+	parts := strings.Split(repoPath, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid repository path. Must be in format user/repo")
+	}
+	user, repoName := parts[0], parts[1]
+
+	// First verify our session is still valid
+	req, err := http.NewRequest("GET", BaseURL+InkDropPath+"/index.php", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create verification request: %w", err)
+	}
+	if c.sessionID != "" {
+		req.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("session verification failed: %w", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if bytes.Contains(body, []byte("Login with an existing InkDrop account")) {
+		return fmt.Errorf("session expired - please login again")
+	}
+
+	// Build multipart form
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+
+	progressReader := NewProgressReader(reader, size, progress)
+
+	var computed string
+
+	if encrypt {
+		// Read full plaintext from the original reader, compute hash, encrypt, save key locally, and upload encrypted payload
+		data, err := io.ReadAll(progressReader)
+		if err != nil {
+			return fmt.Errorf("failed to read file for encryption: %w", err)
+		}
+
+		// Compute plaintext hash
+		h := sha256.Sum256(data)
+		plaintextHash := fmt.Sprintf("%x", h)
+		computed = plaintextHash
+
+		// Generate AES-256 key
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			return fmt.Errorf("failed to generate encryption key: %w", err)
+		}
+		keyHex := hex.EncodeToString(key)
+
+		// Encrypt with AES-256-CBC + PKCS7
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return fmt.Errorf("failed to create cipher: %w", err)
+		}
+		iv := make([]byte, aes.BlockSize)
+		if _, err := rand.Read(iv); err != nil {
+			return fmt.Errorf("failed to create iv: %w", err)
+		}
+
+		pad := aes.BlockSize - (len(data) % aes.BlockSize)
+		padded := append(data, bytes.Repeat([]byte{byte(pad)}, pad)...)
+		encrypted := make([]byte, len(padded))
+		mode := cipher.NewCBCEncrypter(block, iv)
+		mode.CryptBlocks(encrypted, padded)
+
+		encPayload := hex.EncodeToString(iv) + ":" + hex.EncodeToString(encrypted)
+
+		// Save per-file key locally
+		keysDir := filepath.Join(c.configDir, "keys")
+		_ = os.MkdirAll(keysDir, 0700)
+		keyFile := filepath.Join(keysDir, fmt.Sprintf("%s_%s_%s.key", user, repoName, fileName))
+		if err := os.WriteFile(keyFile, []byte(keyHex), 0600); err != nil {
+			return fmt.Errorf("failed to save encryption key: %w", err)
+		}
+
+		// Write encrypted payload to form
+		fw, err := w.CreateFormFile("upload", fileName)
+		if err != nil {
+			return fmt.Errorf("failed to create form file: %w", err)
+		}
+		// Create a new reader for the encrypted payload to be copied to the form.
+		// The original reader has already been consumed.
+		encryptedReader := strings.NewReader(encPayload)
+
+		if _, err := io.Copy(fw, encryptedReader); err != nil {
+			return fmt.Errorf("failed to copy encrypted file data: %w", err)
+		}
+
+		_ = w.WriteField("encrypt", "1")
+		_ = w.WriteField("pre_encrypted", "1")
+		_ = w.WriteField("plain_hash", plaintextHash)
+		_ = w.WriteField("file_key", keyHex)
+
+	} else {
+		fw, err := w.CreateFormFile("upload", fileName)
+		if err != nil {
+			return fmt.Errorf("failed to create form file: %w", err)
+		}
+
+		hasher := sha256.New()
+		teeReader := io.TeeReader(progressReader, hasher)
+
+		if _, err := io.Copy(fw, teeReader); err != nil {
+			return fmt.Errorf("failed to copy file data: %w", err)
+		}
+
+		computed = fmt.Sprintf("%x", hasher.Sum(nil))
+	}
+
+	w.Close()
+
+	uploadURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repoName), url.QueryEscape(user))
+	uploadReq, err := http.NewRequest("POST", uploadURL, &b)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	uploadReq.Header.Set("Content-Type", w.FormDataContentType())
+	if c.sessionID != "" {
+		uploadReq.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+	}
+	uploadReq.Header.Set("X-FTR-CLIENT", "FtR-GUI") // Identify as GUI client
+
+	resp, err = c.http.Do(uploadReq)
+	if err != nil {
+		return fmt.Errorf("upload request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var apiResp map[string]interface{}
+	if err := json.Unmarshal(body, &apiResp); err == nil {
+		if success, ok := apiResp["success"].(bool); ok {
+			if success {
+				serverHash := ""
+				if h, ok := apiResp["hash"].(string); ok {
+					serverHash = h
+				}
+				if serverHash != "" && computed != "" && !strings.EqualFold(serverHash, computed) {
+					return fmt.Errorf("upload succeeded but integrity mismatch: server=%s local=%s", serverHash, computed)
+				}
+				return nil
+			}
+			errMsg := "upload failed - server error"
+			if msg, ok := apiResp["message"].(string); ok {
+				errMsg = msg
+			}
+			return fmt.Errorf("%s", errMsg)
+		}
+	}
+
+	if bytes.Contains(body, []byte("color: #0f0")) && bytes.Contains(body, []byte("Uploaded")) {
+		return nil
+	}
+
+	if bytes.Contains(body, []byte("Failed to create repository")) {
+		return fmt.Errorf("failed to create repository - permission denied")
+	}
+
+	if bytes.Contains(body, []byte("Upload failed")) || bytes.Contains(body, []byte("color: red")) {
+		return fmt.Errorf("upload failed - server rejected the file")
+	}
+
+	return fmt.Errorf("upload failed - unexpected response from server")
+}
+
 // ListRepoFiles returns a recursive list of files in a repository via the API
 func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, error) {
 	listURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&list=1&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user))
@@ -714,4 +915,112 @@ func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, err
 		}
 	}
 	return out, nil
+}
+
+// DeleteRemoteFile sends a request to delete a file from a repository.
+func (c *Client) DeleteRemoteFile(user, repo, fileName string) error {
+	if !c.IsLoggedIn() {
+		return errors.New("not logged in")
+	}
+
+	deleteURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&delete=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+
+	req, err := http.NewRequest("GET", deleteURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete request: %w", err)
+	}
+	// Identify as a GUI client
+	req.Header.Set("X-FTR-CLIENT", "FtR-GUI")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("server returned error: %s - %s", resp.Status, string(body))
+	}
+
+	return nil
+}
+
+// DownloadFileContent downloads a file's content into memory, handling decryption.
+func (c *Client) DownloadFileContent(user, repo, fileName string) ([]byte, error) {
+	if !c.IsLoggedIn() {
+		return nil, errors.New("not logged in")
+	}
+
+	meta, err := c.getFileMeta(user, repo, fileName)
+	if err != nil {
+		// This is not fatal, but we should log it. We can still attempt the download.
+		log.Printf("Warning: could not get file metadata for %s/%s/%s: %v", user, repo, fileName, err)
+	}
+
+	downloadURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&download=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+
+	req, err := http.NewRequest("POST", downloadURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create download request: %w", err)
+	}
+	// The server expects this header for API downloads to differentiate from web requests.
+	req.Header.Set("X-FTR-CLIENT", "FtR-GUI")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("download failed with status %s: %s", resp.Status, string(body))
+	}
+
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read download content: %w", err)
+	}
+
+	// Check if the file is encrypted and decrypt if necessary
+	encrypted := false
+	if meta != nil {
+		if val, ok := meta["encrypted"]; ok && val == "1" {
+			encrypted = true
+		}
+	}
+
+	if encrypted {
+		var keyHex string
+		// If server provided an encryption_key in metadata, use it.
+		if meta != nil {
+			if ek, ok := meta["encryption_key"]; ok && ek != "" {
+				keyHex = ek
+			}
+		}
+
+		if keyHex == "" {
+			// Fallback to local keys if server didn't provide one
+			keysDir := filepath.Join(c.configDir, "keys")
+			perFileKey := filepath.Join(keysDir, fmt.Sprintf("%s_%s_%s.key", user, repo, fileName))
+			if data, err := os.ReadFile(perFileKey); err == nil {
+				keyHex = strings.TrimSpace(string(data))
+			}
+		}
+
+		if keyHex == "" {
+			return nil, fmt.Errorf("file is encrypted, but no decryption key was found on the server or locally")
+		}
+
+		// The downloaded content is the raw encrypted blob, which is hex-encoded.
+		plaintext, err := c.decryptHexPayload(string(content), keyHex)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt file content: %w", err)
+		}
+		return plaintext, nil
+	}
+
+	// If not encrypted, return the content directly.
+	return content, nil
 }
