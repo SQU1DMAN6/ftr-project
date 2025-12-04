@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"inker/api"
@@ -27,18 +28,30 @@ const (
 	appHeight = 600
 )
 
+type AppSettings struct {
+	Theme         string `json:"theme"`
+	DownloadPath  string `json:"download_path"`
+	DownloadAsk   bool   `json:"download_ask"`
+	downloadPathM string // in-memory version of download path
+}
+
+var (
+	appSettings AppSettings
+	ftrClient   *api.Client
+	uiQueue     chan func()
+	w           fyne.Window
+)
+
 var updateUI func()
 
 func main() {
 	// Channel to queue UI updates from brackground goroutines
-	uiQueue := make(chan func(), 100)
+	uiQueue = make(chan func(), 100)
 
 	a := app.NewWithID("0")
-
-	var w fyne.Window
+	loadSettings(a)
 
 	// Destination directory
-	var dest string
 	var downDest string
 
 	if drv, ok := a.Driver().(desktop.Driver); ok {
@@ -49,7 +62,8 @@ func main() {
 
 	// w = a.NewWindow(appName)
 
-	ftrClient, err := api.NewClient()
+	var err error
+	ftrClient, err = api.NewClient()
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("failed to establish connection with InkDrop server: %w", err), w)
 	}
@@ -101,10 +115,12 @@ func main() {
 								log.Printf("Install button clicked for: %s", info)
 
 								go func(u, r string) {
-									progressLabel := widget.NewLabel("Preparing to install...")
-									progressOverall := widget.NewProgressBar()
-									progressFile := widget.NewProgressBarInfinite()
-									progressDialog := dialog.NewCustomWithoutButtons("Installing...", container.NewVBox(progressLabel, progressOverall, progressFile), w)
+									statusLabel := widget.NewLabel("Preparing to install...")
+									fileProgressLabel := widget.NewLabel("")
+									overallProgress := widget.NewProgressBar()
+									fileProgress := widget.NewProgressBar()
+
+									progressDialog := dialog.NewCustomWithoutButtons("Installing...", container.NewVBox(statusLabel, overallProgress, fileProgressLabel, fileProgress), w)
 									uiQueue <- func() { progressDialog.Show() }
 									defer func() { uiQueue <- func() { progressDialog.Hide() } }()
 
@@ -120,22 +136,26 @@ func main() {
 
 									// Download from server
 									log.Printf("Fetching repo %s", repoPath)
-									uiQueue <- func() {
-										progressLabel.SetText(fmt.Sprintf("Downloading metadata for %s", repoPath))
-										progressOverall.SetValue(0.1)
-									}
+									uiQueue <- func() { statusLabel.SetText(fmt.Sprintf("Downloading metadata for %s", repoPath)) }
 
 									log.Println("Fetching package via API...")
 									// Use repo.php API to download and verify
-									if err := ftrClient.DownloadAndVerify(user, repo, repo+".fsdl", fsdlFile); err != nil {
+									if err := ftrClient.DownloadAndVerify(user, repo, repo+".fsdl", fsdlFile, func(p float64) {
+										uiQueue <- func() {
+											if overallProgress.Value < 0.3 {
+												overallProgress.SetValue(0.1 + p*0.2) // Download is 10-30% of overall
+											}
+											fileProgress.SetValue(p)
+										}
+									}); err != nil {
 										log.Printf("download failed: %v", err)
 										uiQueue <- func() { dialog.ShowError(fmt.Errorf("metadata download failed: %w", err), w) }
 										return
 									}
 
 									uiQueue <- func() {
-										progressLabel.SetText("Extracting package...")
-										progressOverall.SetValue(0.3)
+										statusLabel.SetText("Extracting package...")
+										overallProgress.SetValue(0.3)
 									}
 									if err := fsdl.Extract(fsdlFile, tmpDir); err != nil {
 										log.Printf("failed to extract package: %v", err)
@@ -154,8 +174,8 @@ func main() {
 
 									if binaryPath != "" {
 										uiQueue <- func() {
-											progressLabel.SetText("Installing binary (requires privileges)...")
-											progressOverall.SetValue(0.8)
+											statusLabel.SetText("Installing binary (requires privileges)...")
+											overallProgress.SetValue(0.8)
 										}
 										if err := b.InstallBinary(binaryPath); err != nil {
 											log.Printf("installation failed: %v", err)
@@ -165,8 +185,8 @@ func main() {
 									}
 
 									uiQueue <- func() {
-										progressOverall.SetValue(1.0)
-										progressFile.Hide()
+										overallProgress.SetValue(1.0)
+										progressDialog.Hide()
 										dialog.ShowInformation("Install complete", fmt.Sprintf("Finished installing %s/%s", user, repo), w)
 									}
 								}(user, repo)
@@ -187,35 +207,14 @@ func main() {
 										return
 									}
 
-									progressLabel := widget.NewLabel("Preparing to download...")
-									progressOverall := widget.NewProgressBar()
-									progressFile := widget.NewProgressBarInfinite()
-									progressDialog := dialog.NewCustomWithoutButtons("Downloading...", container.NewVBox(progressLabel, progressOverall, progressFile), w)
+									statusLabel := widget.NewLabel("Preparing to download...")
+									fileProgressLabel := widget.NewLabel("")
+									overallProgress := widget.NewProgressBar()
+									fileProgress := widget.NewProgressBar()
+									progressDialog := dialog.NewCustomWithoutButtons("Downloading...", container.NewVBox(statusLabel, overallProgress, fileProgressLabel, fileProgress), w)
 
 									uiQueue <- func() { progressDialog.Show() }
 									defer func() { uiQueue <- func() { progressDialog.Hide() } }()
-
-									if downDest != "" {
-										dest = downDest
-									} else {
-										home, err := os.UserHomeDir()
-										if err != nil {
-											log.Printf("failed to determine home directory: %v", err)
-											uiQueue <- func() {
-												dialog.ShowError(fmt.Errorf("failed to determine user's home directory: %v", err), w)
-											}
-											return
-										}
-										dest = filepath.Join(home, "FtRSync", user, repo)
-									}
-
-									if err := os.MkdirAll(dest, 0755); err != nil {
-										log.Printf("failed to create destination directory: %v", err)
-										uiQueue <- func() {
-											dialog.ShowError(fmt.Errorf("failed to create destination directory: %v", err), w)
-										}
-										return
-									}
 
 									log.Printf("Listing files in %s/%s...", user, repo)
 									files, err := ftrClient.ListRepoFiles(user, repo)
@@ -235,18 +234,41 @@ func main() {
 										return
 									}
 
-									errorsList := []string{}
+									var totalSize int64
+									for _, f := range files {
+										if size, ok := f["size"].(float64); ok {
+											totalSize += int64(size)
+										}
+									}
 
+									home, _ := os.UserHomeDir()
+									dest := filepath.Join(home, "FtRSync", user, repo)
+									if downDest != "" {
+										dest = downDest
+									}
+
+									if err := os.MkdirAll(dest, 0755); err != nil {
+										log.Printf("failed to create destination directory: %v", err)
+										uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to create destination directory: %v", err), w) }
+										return
+									}
+
+									errorsList := []string{}
+									var downloadedSize int64
 									totalFiles := len(files)
+
 									for i, f := range files {
 										pathRel, _ := f["path"].(string)
 										if pathRel == "" {
 											continue
 										}
+										fileSize, _ := f["size"].(float64)
+										currentFileStartBytes := downloadedSize
 
 										uiQueue <- func() {
-											progressLabel.SetText(fmt.Sprintf("Downloading: %s", pathRel))
-											progressOverall.SetValue(float64(i) / float64(totalFiles))
+											statusLabel.SetText(fmt.Sprintf("Overall Progress (%d/%d)", i+1, totalFiles))
+											fileProgressLabel.SetText(fmt.Sprintf("Downloading: %s", pathRel))
+											fileProgress.SetValue(0)
 										}
 
 										fullPath := filepath.Join(dest, filepath.FromSlash(pathRel))
@@ -255,7 +277,6 @@ func main() {
 											continue
 										}
 
-										// Start download
 										if ftrClient == nil {
 											log.Println("Download cancelled: client is no longer valid.")
 											uiQueue <- func() {
@@ -263,16 +284,25 @@ func main() {
 											}
 											return
 										}
-										if err := ftrClient.DownloadAndVerify(user, repo, pathRel, fullPath); err != nil {
+										err := ftrClient.DownloadAndVerify(user, repo, pathRel, fullPath, func(p float64) {
+											uiQueue <- func() {
+												fileProgress.SetValue(p)
+												if totalSize > 0 {
+													currentFileBytes := int64(p * fileSize)
+													overallProgress.SetValue(float64(currentFileStartBytes+currentFileBytes) / float64(totalSize))
+												}
+											}
+										})
+										if err != nil {
 											errorsList = append(errorsList, fmt.Sprintf("failed to download %s: %v", pathRel, err))
 											continue
 										}
+										downloadedSize += int64(fileSize)
 									}
 
 									uiQueue <- func() {
-										progressOverall.SetValue(1.0)
-										progressFile.Hide()
 										if len(errorsList) > 0 {
+											progressDialog.Hide()
 											log.Printf("Errors encountered during download for %s/%s:\n%v", user, repo, errorsList)
 											dialog.ShowInformation("Encountered errors trying to download %s/%s", fmt.Sprintf("Errors: %v", errorsList), w)
 										}
@@ -280,6 +310,7 @@ func main() {
 										log.Println("All files processed.")
 									}
 								}(user, repo)
+								log.Printf("Download process for %s/%s initiated.", user, repo)
 							}
 
 							// Sync button does the same as Download for now.
@@ -361,6 +392,58 @@ func main() {
 	accountTabContent := container.NewVBox(
 		accountStatusLabel,
 		logoutButton,
+	)
+
+	// --- Settings Tab ---
+	themeRadio := widget.NewRadioGroup([]string{"System", "Light", "Dark"}, func(s string) {
+		appSettings.Theme = s
+		applyTheme(a)
+		saveSettings()
+	})
+	themeRadio.Horizontal = true
+
+	downloadPathEntry := widget.NewEntry()
+	downloadPathEntry.SetText(appSettings.downloadPathM)
+	downloadPathEntry.OnChanged = func(s string) {
+		appSettings.downloadPathM = s
+		saveSettings()
+	}
+
+	downloadPathSelectBtn := widget.NewButton("Select Path", func() {
+		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
+			if uri == nil {
+				return
+			}
+			appSettings.downloadPathM = uri.Path()
+			downloadPathEntry.SetText(appSettings.downloadPathM)
+			saveSettings()
+		}, w)
+	})
+
+	downloadAskCheck := widget.NewCheck("Always ask where to save", func(b bool) {
+		appSettings.DownloadAsk = b
+		if b {
+			downloadPathEntry.Disable()
+			downloadPathSelectBtn.Disable()
+		} else {
+			downloadPathEntry.Enable()
+			downloadPathSelectBtn.Enable()
+		}
+		saveSettings()
+	})
+	downloadAskCheck.SetChecked(appSettings.DownloadAsk)
+
+	settingsTabContent := container.NewVBox(
+		widget.NewLabelWithStyle("Theme", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		themeRadio,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Browser Download Path", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		downloadAskCheck,
+		container.NewBorder(nil, nil, nil, downloadPathSelectBtn, downloadPathEntry),
 	)
 
 	// --- Upload Tab ---
@@ -450,30 +533,30 @@ func main() {
 					}, w)
 			}
 
-			downloadBtn := box.Objects[2].(*widget.Button)
-			downloadBtn.OnTapped = func() {
-				dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
-					if err != nil {
-						dialog.ShowError(err, w)
-						return
-					}
-					if writer == nil {
-						return // User cancelled
-					}
-					defer writer.Close()
-					go func() {
-						progress := dialog.NewProgressInfinite("Downloading", fmt.Sprintf("Downloading %s...", fileName), w)
-						progress.Show()
-						defer progress.Hide()
-
-						err := ftrClient.DownloadAndVerify(selectedRepoUser, selectedRepo, fileName, writer.URI().Path())
+			downloadBtnn := box.Objects[2].(*widget.Button)
+			downloadBtnn.OnTapped = func() {
+				log.Println("Download button clicked.")
+				if appSettings.DownloadAsk {
+					dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
 						if err != nil {
-							uiQueue <- func() { dialog.ShowError(fmt.Errorf("download failed: %w", err), w) }
+							dialog.ShowError(err, w)
 							return
 						}
-						uiQueue <- func() { dialog.ShowInformation("Success", "File downloaded successfully.", w) }
-					}()
-				}, w)
+						if writer == nil {
+							return
+						}
+						defer writer.Close()
+						startDownload(selectedRepoUser, selectedRepo, fileName, writer.URI().Path())
+					}, w)
+				} else {
+					destDir := appSettings.downloadPathM
+					if destDir == "" {
+						home, _ := os.UserHomeDir()
+						destDir = filepath.Join(home, "Downloads")
+					}
+					destPath := filepath.Join(destDir, fileName)
+					startDownload(selectedRepoUser, selectedRepo, fileName, destPath)
+				}
 			}
 
 			deleteBtn := box.Objects[3].(*widget.Button)
@@ -630,6 +713,7 @@ func main() {
 			container.NewBorder(repoListLabel, nil, nil, nil, repoList),
 			browserRightPane,
 		)),
+		container.NewTabItem("Settings", settingsTabContent),
 	)
 	tabs.SetTabLocation(container.TabLocationLeading)
 
@@ -688,7 +772,7 @@ func main() {
 			uiQueue <- func() { loggingInMsg.Show() }
 			err := ftrClient.Login(emailEntry.Text, passwordEntry.Text)
 			if err != nil {
-				loggingInMsg.Hide()
+				uiQueue <- loggingInMsg.Hide
 				uiQueue <- func() { dialog.ShowError(err, w) }
 				return
 			}
@@ -755,6 +839,31 @@ func main() {
 	w.ShowAndRun()
 }
 
+func startDownload(user, repo, fileName, destPath string) {
+	go func() {
+		progress := widget.NewProgressBar()
+		progressDialog := dialog.NewCustomWithoutButtons(
+			"Downloading...",
+			container.NewVBox(
+				widget.NewLabel(fmt.Sprintf("Downloading %s...", fileName)),
+				progress,
+			),
+			w,
+		)
+		uiQueue <- func() { progressDialog.Show() }
+		defer func() { uiQueue <- func() { progressDialog.Hide() } }()
+
+		err := ftrClient.DownloadAndVerify(user, repo, fileName, destPath, func(p float64) {
+			uiQueue <- func() { progress.SetValue(p) }
+		})
+		if err != nil {
+			uiQueue <- func() { dialog.ShowError(fmt.Errorf("download failed: %w", err), w) }
+			return
+		}
+		uiQueue <- func() { dialog.ShowInformation("Success", "File downloaded successfully.", w) }
+	}()
+}
+
 func showDeleteConfirm(fileName, user, repo string, w fyne.Window, client *api.Client, uiQueue chan func(), onComplete func()) {
 	dialog.ShowConfirm("Delete File?", fmt.Sprintf("Are you sure you want to delete '%s' from the repository?", fileName), func(confirm bool) {
 		if !confirm {
@@ -775,4 +884,66 @@ func showDeleteConfirm(fileName, user, repo string, w fyne.Window, client *api.C
 			}
 		}()
 	}, w)
+}
+
+func configPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "inker", "settings.json")
+}
+
+func loadSettings(a fyne.App) {
+	// Set defaults
+	home, _ := os.UserHomeDir()
+	appSettings.Theme = "System"
+	appSettings.DownloadAsk = true
+	appSettings.downloadPathM = filepath.Join(home, "Downloads")
+
+	path := configPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Error reading settings file: %v", err)
+		}
+		return
+	}
+
+	if err := json.Unmarshal(data, &appSettings); err != nil {
+		log.Printf("Error parsing settings file: %v", err)
+	}
+
+	// Post-load adjustments
+	if appSettings.downloadPathM == "" {
+		appSettings.downloadPathM = filepath.Join(home, "Downloads")
+	}
+
+	applyTheme(a)
+}
+
+func saveSettings() {
+	path := configPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		log.Printf("Error creating settings directory: %v", err)
+		return
+	}
+
+	data, err := json.MarshalIndent(appSettings, "", "  ")
+	if err != nil {
+		log.Printf("Error marshalling settings: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		log.Printf("Error writing settings file: %v", err)
+	}
+}
+
+func applyTheme(a fyne.App) {
+	switch appSettings.Theme {
+	case "Light":
+		a.Settings().SetTheme(theme.LightTheme())
+	case "Dark":
+		a.Settings().SetTheme(theme.DarkTheme())
+	default:
+		a.Settings().SetTheme(theme.DefaultTheme())
+	}
 }

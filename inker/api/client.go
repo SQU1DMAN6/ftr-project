@@ -501,7 +501,7 @@ func (c *Client) getFileMeta(user, repo, fileName string) (map[string]string, er
 	return out, nil
 }
 
-func (c *Client) DownloadAndVerify(user string, repo string, fileName string, destPath string) error {
+func (c *Client) DownloadAndVerify(user string, repo string, fileName string, destPath string, progress func(float64)) error {
 	meta, _ := c.getFileMeta(user, repo, fileName)
 	expectedHash := ""
 	if meta != nil {
@@ -547,12 +547,16 @@ func (c *Client) DownloadAndVerify(user string, repo string, fileName string, de
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	// Ensure response body is non-nil and copy its contents to the temp file.
 	defer outFile.Close()
+
 	if resp.Body == nil {
 		return fmt.Errorf("download failed: empty response body")
 	}
-	if _, err := io.Copy(outFile, resp.Body); err != nil {
+
+	size := resp.ContentLength
+	progressReader := NewProgressReader(resp.Body, size, progress)
+
+	if _, err := io.Copy(outFile, progressReader); err != nil {
 		return fmt.Errorf("failed to save downloaded file: %w", err)
 	}
 
