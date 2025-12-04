@@ -535,7 +535,10 @@ func (c *Client) DownloadAndVerify(user string, repo string, fileName string, de
 				if strings.Contains(msg, "Suspicious") || strings.Contains(msg, "Malicious") {
 					return fmt.Errorf("the file %s contains potentially malicious code. Consider using the FtR CLI client if you truly want to download it", fileName)
 				} else {
-					log.Fatalf("server error: %s", msg)
+					if strings.Contains(msg, "File not found") {
+						return fmt.Errorf("file not found: %s", fileName)
+					}
+					return fmt.Errorf("server error: %s", msg)
 				}
 			}
 		}

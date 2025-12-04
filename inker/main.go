@@ -128,7 +128,10 @@ func main() {
 									tmpDir := "/tmp/fsdl"
 									if err := os.MkdirAll(tmpDir, 0755); err != nil {
 										log.Printf("failed to create temp directory: %v", err)
-										uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to create temp directory: %w", err), w) }
+										uiQueue <- func() {
+											progressDialog.Hide()
+											dialog.ShowError(fmt.Errorf("failed to create temp directory: %w", err), w)
+										}
 										return
 									}
 
@@ -147,9 +150,18 @@ func main() {
 											}
 											fileProgress.SetValue(p)
 										}
-									}); err != nil {
-										log.Printf("download failed: %v", err)
-										uiQueue <- func() { dialog.ShowError(fmt.Errorf("metadata download failed: %w", err), w) }
+									}); err != nil { // Check for the specific "file not found" error for the FSDL file.
+										if err.Error() == fmt.Sprintf("file not found: %s", repo+".fsdl") {
+											uiQueue <- func() {
+												dialog.ShowInformation("Not Found", fmt.Sprintf("The required installer file (%s.fsdl) was not found in this repository.", repo), w)
+											}
+										} else {
+											log.Printf("download failed: %v", err)
+											uiQueue <- func() {
+												progressDialog.Hide()
+												dialog.ShowError(fmt.Errorf("metadata download failed: %w", err), w)
+											}
+										}
 										return
 									}
 
@@ -159,7 +171,10 @@ func main() {
 									}
 									if err := fsdl.Extract(fsdlFile, tmpDir); err != nil {
 										log.Printf("failed to extract package: %v", err)
-										uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to extract package: %w", err), w) }
+										uiQueue <- func() {
+											progressDialog.Hide()
+											dialog.ShowError(fmt.Errorf("failed to extract package: %w", err), w)
+										}
 										return
 									}
 
@@ -168,7 +183,10 @@ func main() {
 									binaryPath, err := b.DetectAndBuild()
 									if err != nil {
 										log.Printf("build failed: %v", err)
-										uiQueue <- func() { dialog.ShowError(fmt.Errorf("build failed: %w", err), w) }
+										uiQueue <- func() {
+											progressDialog.Hide()
+											dialog.ShowError(fmt.Errorf("build failed: %w", err), w)
+										}
 										return
 									}
 
@@ -179,26 +197,30 @@ func main() {
 										}
 										if err := b.InstallBinary(binaryPath); err != nil {
 											log.Printf("installation failed: %v", err)
-											uiQueue <- func() { dialog.ShowError(fmt.Errorf("installation failed: %w", err), w) }
+											uiQueue <- func() {
+												progressDialog.Hide()
+												dialog.ShowError(fmt.Errorf("installation failed: %w", err), w)
+											}
 											return
 										}
 									}
 
 									uiQueue <- func() {
+										done := make(chan struct{})
 										overallProgress.SetValue(1.0)
 										progressDialog.Hide()
-										dialog.ShowInformation("Install complete", fmt.Sprintf("Finished installing %s/%s", user, repo), w)
+										infoDialog := dialog.NewInformation("Install complete", fmt.Sprintf("Finished installing %s/%s", user, repo), w)
+										infoDialog.SetOnClosed(func() { close(done) })
+										infoDialog.Show()
 									}
 								}(user, repo)
 							}
 
-							// Download button event handling - download all files in a repository
 							downBtn.OnTapped = func() {
 								info := fmt.Sprintf("User: %s, Repository: %s", user, repo)
 								log.Printf("Download button clicked for: %s", info)
 
 								go func(user, repo string) {
-									// Check if the client is valid before proceeding
 									if ftrClient == nil {
 										log.Println("Download failed: client is not initialized.")
 										uiQueue <- func() {
@@ -213,8 +235,7 @@ func main() {
 									fileProgress := widget.NewProgressBar()
 									progressDialog := dialog.NewCustomWithoutButtons("Downloading...", container.NewVBox(statusLabel, overallProgress, fileProgressLabel, fileProgress), w)
 
-									uiQueue <- func() { progressDialog.Show() }
-									defer func() { uiQueue <- func() { progressDialog.Hide() } }()
+									uiQueue <- func() { progressDialog.Show() } // Show it first
 
 									log.Printf("Listing files in %s/%s...", user, repo)
 									files, err := ftrClient.ListRepoFiles(user, repo)
@@ -222,12 +243,15 @@ func main() {
 										log.Printf("failed to list repository files: %v", err)
 										uiQueue <- func() {
 											dialog.ShowError(fmt.Errorf("failed to list repository files: %w", err), w)
+											progressDialog.Hide()
 										}
 										return
 									}
+									defer func() { uiQueue <- func() { progressDialog.Hide() } }() // Defer hide after we know there's no early return
 
 									if len(files) == 0 {
 										log.Println("No files were found in the repository.")
+										progressDialog.Hide()
 										uiQueue <- func() {
 											dialog.ShowInformation("Empty Repository", "No files were found in the repository.", w)
 										}
@@ -249,7 +273,10 @@ func main() {
 
 									if err := os.MkdirAll(dest, 0755); err != nil {
 										log.Printf("failed to create destination directory: %v", err)
-										uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to create destination directory: %v", err), w) }
+										uiQueue <- func() {
+											progressDialog.Hide()
+											dialog.ShowError(fmt.Errorf("failed to create destination directory: %w", err), w)
+										}
 										return
 									}
 
@@ -280,7 +307,8 @@ func main() {
 										if ftrClient == nil {
 											log.Println("Download cancelled: client is no longer valid.")
 											uiQueue <- func() {
-												dialog.ShowError(fmt.Errorf("client became invalid during download, possibly due to logout"), w)
+												progressDialog.Hide()
+												dialog.ShowError(fmt.Errorf("session expired during download, please log in again"), w)
 											}
 											return
 										}
@@ -300,21 +328,30 @@ func main() {
 										downloadedSize += int64(fileSize)
 									}
 
+									done := make(chan struct{})
 									uiQueue <- func() {
 										if len(errorsList) > 0 {
 											progressDialog.Hide()
 											log.Printf("Errors encountered during download for %s/%s:\n%v", user, repo, errorsList)
-											dialog.ShowInformation("Encountered errors trying to download %s/%s", fmt.Sprintf("Errors: %v", errorsList), w)
+											errorDialog := dialog.NewInformation("Encountered errors", fmt.Sprintf("Encountered errors trying to download %s/%s:\n%v", user, repo, errorsList), w)
+											errorDialog.SetOnClosed(func() { close(done) })
+											errorDialog.Show()
+										} else {
+											progressDialog.Hide()
+											successDialog := dialog.NewInformation("Download Complete", fmt.Sprintf("Finished downloading %s/%s", user, repo), w)
+											successDialog.SetOnClosed(func() { close(done) })
+											successDialog.Show()
 										}
-										dialog.ShowInformation("Download Complete", fmt.Sprintf("Finished downloading %s/%s", user, repo), w)
 										log.Println("All files processed.")
 									}
+									<-done
 								}(user, repo)
 								log.Printf("Download process for %s/%s initiated.", user, repo)
 							}
 
-							// Sync button does the same as Download for now.
-							syncBtn.OnTapped = downBtn.OnTapped
+							syncBtn.OnTapped = func() {
+								log.Printf("Sync button tapped. Specified repository was %s/%s", user, repo)
+							}
 
 						} else {
 							v.Objects[0].(*widget.Label).SetText(repoPath)
@@ -585,7 +622,7 @@ func main() {
 			repo := userRepos[id]
 			selectedRepoUser = repo["user"]
 			selectedRepoName := repo["repo"]
-			selectedRepo = selectedRepoName // The repo name, not the full path
+			selectedRepo = selectedRepoName
 			selectedRepoLabel.SetText(fmt.Sprintf("Selected Repo: %s", selectedRepoName))
 			updateUploadButtonState()
 
@@ -629,7 +666,6 @@ func main() {
 
 	uploadButton.OnTapped = func() {
 		go func() {
-			// Capture state for the goroutine
 			repoToUpload := fmt.Sprintf("%s/%s", selectedRepoUser, selectedRepo)
 			fileToUpload := selectedFile[0]
 			fileName := filepath.Base(fileToUpload.Path())
@@ -669,24 +705,26 @@ func main() {
 			), w)
 
 			uiQueue <- func() { progressDialog.Show() }
-			defer func() { uiQueue <- func() { progressDialog.Hide() } }()
 
 			uploadErr := ftrClient.UploadFile(repoToUpload, fileName, fileReader, fileSize, encryptUpload, func(progress float64) {
 				uiQueue <- func() { uploadProgress.SetValue(progress) }
 			})
-			if uploadErr != nil {
-				log.Printf("Upload failed: %v", err)
-				uiQueue <- func() { dialog.ShowError(fmt.Errorf("upload failed: %w", uploadErr), w) }
-				return
-			} else {
-				if repoList != nil {
-					repoList.OnSelected(selectedRepoID) // Refresh file list
-				}
-			}
 
+			done := make(chan struct{})
 			uiQueue <- func() {
-				dialog.ShowInformation("Success", fmt.Sprintf("Successfully uploaded %s to %s", fileName, selectedRepo), w)
+				progressDialog.Hide()
+				if uploadErr != nil {
+					log.Printf("Upload failed: %v", uploadErr)
+					dialog.ShowError(fmt.Errorf("upload failed: %w", uploadErr), w)
+				} else {
+					dialog.ShowInformation("Success", fmt.Sprintf("Successfully uploaded %s to %s", fileName, selectedRepo), w)
+					if repoList != nil {
+						repoList.OnSelected(selectedRepoID)
+					}
+				}
+				close(done)
 			}
+			<-done
 		}()
 	}
 
@@ -731,8 +769,6 @@ func main() {
 				tabs.SelectIndex(2)
 			}
 			tabs.SelectIndex(2)
-
-			// Fetch user's repos
 			go func(u string) {
 				log.Printf("Fetching repositories for user: %s", u)
 				matches, err := ftrClient.SearchRepos(u)
@@ -740,7 +776,6 @@ func main() {
 					uiQueue <- func() { dialog.ShowError(err, w) }
 					return
 				}
-				// Filter to only show repos owned by the user
 				repos := []map[string]string{}
 				for _, m := range matches {
 					if m["user"] == u {
@@ -851,16 +886,22 @@ func startDownload(user, repo, fileName, destPath string) {
 			w,
 		)
 		uiQueue <- func() { progressDialog.Show() }
-		defer func() { uiQueue <- func() { progressDialog.Hide() } }()
 
 		err := ftrClient.DownloadAndVerify(user, repo, fileName, destPath, func(p float64) {
 			uiQueue <- func() { progress.SetValue(p) }
 		})
-		if err != nil {
-			uiQueue <- func() { dialog.ShowError(fmt.Errorf("download failed: %w", err), w) }
-			return
+
+		done := make(chan struct{})
+		uiQueue <- func() {
+			progressDialog.Hide()
+			if err != nil {
+				dialog.ShowError(fmt.Errorf("download failed: %w", err), w)
+			} else {
+				dialog.ShowInformation("Success", "File downloaded successfully.", w)
+			}
+			close(done)
 		}
-		uiQueue <- func() { dialog.ShowInformation("Success", "File downloaded successfully.", w) }
+		<-done
 	}()
 }
 
