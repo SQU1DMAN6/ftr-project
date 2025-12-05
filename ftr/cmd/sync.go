@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"fmt"
 	"ftr/pkg/api"
 	"ftr/pkg/screen"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,12 @@ import (
 )
 
 var defaultSyncDir string
+var targetDirectory string
+
+type LocalFileInfo struct {
+	Info os.FileInfo
+	Hash string
+}
 
 var syncCmd = &cobra.Command{
 	Use:   "sync <user>/<repo> [flags]",
@@ -30,15 +38,10 @@ Files are compared by name and timestamp to detect conflicts.`,
 		}
 		user, repo := parts[0], parts[1]
 
-		defaultSyncDir = filepath.Join(os.Getenv("HOME"), "FtRSync", user, repo)
-
-		// Parse flags
-
 		encrypt, _ := cmd.Flags().GetBool("encrypt")
 		workers, _ := cmd.Flags().GetInt("workers")
 		autoChoice, _ := cmd.Flags().GetString("auto")
 		askConflicts, _ := cmd.Flags().GetBool("ask")
-		targetDirectory, _ := cmd.Flags().GetString("target")
 
 		client, err := api.NewClient()
 		if err != nil {
@@ -48,7 +51,11 @@ Files are compared by name and timestamp to detect conflicts.`,
 		// Get sync directory
 		syncDir := targetDirectory
 		if syncDir == "" {
-			syncDir = defaultSyncDir
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to determine home directory: %w", err)
+			}
+			syncDir = filepath.Join(home, "FtRSync", user, repo)
 		}
 		if err := os.MkdirAll(syncDir, 0755); err != nil {
 			return fmt.Errorf("failed to create sync directory: %w", err)
@@ -66,25 +73,37 @@ Files are compared by name and timestamp to detect conflicts.`,
 		}
 
 		// List local files
-		localFiles := make(map[string]os.FileInfo)
+		localFiles := make(map[string]LocalFileInfo)
 		if err := filepath.Walk(syncDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
-			if info.IsDir() {
-				return nil
+			if !info.IsDir() {
+				rel, _ := filepath.Rel(syncDir, path)
+				rel = filepath.ToSlash(rel)
+
+				f, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+
+				h := sha256.New()
+				if _, err := io.Copy(h, f); err != nil {
+					return err
+				}
+
+				localFiles[rel] = LocalFileInfo{Info: info, Hash: fmt.Sprintf("%x", h.Sum(nil))}
 			}
-			rel, _ := filepath.Rel(syncDir, path)
-			localFiles[rel] = info
 			return nil
 		}); err != nil {
-			return fmt.Errorf("failed to scan local files: %w", err)
+			return fmt.Errorf("failed to scan and hash local files: %w", err)
 		}
 
 		// Build task lists: uploads, downloads, conflicts
 		uploads := []string{}   // local only or newer
 		downloads := []string{} // remote only or newer
-		conflicts := []string{} // both exist with different times
+		conflicts := []string{} // both exist with different content
 
 		remoteMap := make(map[string]map[string]interface{})
 		for _, rf := range remoteFiles {
@@ -94,13 +113,12 @@ Files are compared by name and timestamp to detect conflicts.`,
 		}
 
 		// Find uploads and conflicts
-		for localPath := range localFiles {
-			if _, exists := remoteMap[localPath]; exists {
-				// File exists both sides - check timestamps
-				localTime := localFiles[localPath].ModTime().Unix()
-				if modified, ok := remoteMap[localPath]["modified"].(float64); ok {
-					// Compare Unix timestamps
-					if int64(modified) != localTime {
+		for localPath, localFile := range localFiles {
+			remoteFile, exists := remoteMap[localPath]
+			if exists {
+				// File exists on both sides - check hashes
+				if remoteHash, ok := remoteFile["hash"].(string); ok {
+					if !strings.EqualFold(remoteHash, localFile.Hash) {
 						conflicts = append(conflicts, localPath)
 					}
 				}
@@ -145,9 +163,9 @@ Files are compared by name and timestamp to detect conflicts.`,
 				// Show helpful info about the conflicting files
 				fmt.Printf("Conflict: %s\n", conflict)
 				// local info
-				if lf, ok := localFiles[conflict]; ok {
-					fmt.Printf("  Local: %s (modified: %s, size: %d)\n", conflict, lf.ModTime().Format("2006-01-02 15:04:05"), lf.Size())
-				}
+				lf := localFiles[conflict]
+				fmt.Printf("  Local:  %s (modified: %s, size: %d)\n", conflict, lf.Info.ModTime().Format("2006-01-02 15:04:05"), lf.Info.Size())
+
 				// remote info
 				if rf, ok := remoteMap[conflict]; ok {
 					if m, ok := rf["modified"].(float64); ok {
@@ -157,23 +175,25 @@ Files are compared by name and timestamp to detect conflicts.`,
 							sz = int64(s)
 						}
 						fmt.Printf("  Remote: %s (modified: %s, size: %d)\n", conflict, t, sz)
+					} else {
+						fmt.Printf("  Remote: %s (modified: unknown)\n", conflict)
 					}
 				}
 
-				// Suggest a default based on which side is newer
-				defaultChoice := "u"
-				if lf, ok := localFiles[conflict]; ok {
-					if rf, ok := remoteMap[conflict]; ok {
-						if m, ok := rf["modified"].(float64); ok {
-							localTime := lf.ModTime().Unix()
-							remoteTime := int64(m)
-							if remoteTime > localTime {
-								defaultChoice = "d"
-							} else {
-								defaultChoice = "u"
-							}
-						}
+				// Suggest a default based on modification time
+				defaultChoice := "s" // skip
+				localTime := lf.Info.ModTime().Unix()
+				remoteTime := int64(0)
+				if rf, ok := remoteMap[conflict]; ok {
+					if m, ok := rf["modified"].(float64); ok {
+						remoteTime = int64(m)
 					}
+				}
+				if localTime > remoteTime {
+					defaultChoice = "u"
+				}
+				if remoteTime > localTime {
+					defaultChoice = "d"
 				}
 
 				fmt.Printf("  Choose: [u]pload local, [d]ownload remote, [s]kip, [b]oth (keep both) (default: %s): ", defaultChoice)
@@ -232,7 +252,7 @@ Files are compared by name and timestamp to detect conflicts.`,
 					localTime := int64(0)
 					remoteTime := int64(0)
 					if lok {
-						localTime = lf.ModTime().Unix()
+						localTime = lf.Info.ModTime().Unix()
 					}
 					if rok {
 						if m, ok := rf["modified"].(float64); ok {
@@ -265,7 +285,8 @@ Files are compared by name and timestamp to detect conflicts.`,
 				for localPath := range uploadChan {
 					fullPath := filepath.Join(syncDir, localPath)
 					if file, err := os.Open(fullPath); err == nil {
-						err = client.UploadFile(repoPath, localPath, file, encrypt)
+						info, _ := file.Stat()
+						err = client.UploadFile(repoPath, localPath, file, info.Size(), encrypt)
 						file.Close()
 						if err != nil {
 							msg := fmt.Sprintf("Upload failed: %s: %v", localPath, err)
@@ -339,5 +360,5 @@ func init() {
 	syncCmd.Flags().IntP("workers", "w", 100, "Number of parallel workers")
 	syncCmd.Flags().String("auto", "ask", "Auto-resolve conflicts: ask|local|remote|skip|both")
 	syncCmd.Flags().BoolP("ask", "A", false, "Ask interactively about conflicts")
-	syncCmd.Flags().StringVarP(&downDest, "target", "T", defaultSyncDir, "Target directory to sync remote repository with")
+	syncCmd.Flags().StringVarP(&targetDirectory, "target", "T", "", "Target directory to sync remote repository with (defaults to ~/FtRSync/user/repo)")
 }

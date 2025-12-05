@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"image/color"
 	"inker/api"
 	"inker/builder"
 	"inker/fsdl"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -32,7 +34,15 @@ type AppSettings struct {
 	Theme         string `json:"theme"`
 	DownloadPath  string `json:"download_path"`
 	DownloadAsk   bool   `json:"download_ask"`
+	SyncPath      string `json:"sync_path"`
+	SyncAsk       bool   `json:"sync_ask"`
 	downloadPathM string // in-memory version of download path
+	syncPathM     string // in-memory version of sync path
+}
+
+type LocalFileInfo struct {
+	Info os.FileInfo
+	Hash string
 }
 
 var (
@@ -222,9 +232,9 @@ func main() {
 
 								go func(user, repo string) {
 									if ftrClient == nil {
-										log.Println("Download failed: client is not initialized.")
+										log.Println("Download failed: client is not initialised.")
 										uiQueue <- func() {
-											dialog.ShowError(fmt.Errorf("client is not initialized, cannot download files"), w)
+											dialog.ShowError(fmt.Errorf("client is not initialised, cannot download files"), w)
 										}
 										return
 									}
@@ -350,7 +360,167 @@ func main() {
 							}
 
 							syncBtn.OnTapped = func() {
-								log.Printf("Sync button tapped. Specified repository was %s/%s", user, repo)
+								log.Printf("Sync button tapped for %s/%s", user, repo)
+								go func(user, repo string) {
+									var syncDir string
+									var err error
+
+									askDone := make(chan struct{})
+
+									uiQueue <- func() {
+										if appSettings.SyncAsk {
+											dialog.ShowFolderOpen(func(uri fyne.ListableURI, errDialog error) {
+												if errDialog != nil {
+													err = fmt.Errorf("dialog error: %w", errDialog)
+												} else if uri == nil {
+													err = fmt.Errorf("sync cancelled by user")
+												} else {
+													syncDir = uri.Path()
+												}
+												close(askDone)
+											}, w)
+										} else {
+											baseSyncPath := appSettings.syncPathM
+											if baseSyncPath == "" {
+												home, _ := os.UserHomeDir()
+												baseSyncPath = filepath.Join(home, "FtRSync")
+											}
+											syncDir = filepath.Join(baseSyncPath, user, repo)
+											close(askDone)
+										}
+									}
+
+									<-askDone
+
+									if err != nil {
+										log.Println(err)
+										return
+									}
+									if syncDir == "" {
+										log.Println("Sync directory not specified.")
+										return
+									}
+
+									// --- Start Sync Logic ---
+									statusLabel := widget.NewLabel("Starting sync...")
+									progressDialog := dialog.NewCustomWithoutButtons("Synchronising...", container.NewVBox(statusLabel), w)
+									uiQueue <- func() { progressDialog.Show() }
+									defer func() { uiQueue <- func() { progressDialog.Hide() } }()
+
+									uiQueue <- func() { statusLabel.SetText(fmt.Sprintf("Syncing with %s", syncDir)) }
+									if err := os.MkdirAll(syncDir, 0755); err != nil {
+										uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to create sync directory: %w", err), w) }
+										return
+									}
+
+									// 1. List remote files
+									uiQueue <- func() { statusLabel.SetText("Listing remote files...") }
+									remoteFiles, err := ftrClient.ListRepoFiles(user, repo)
+									if err != nil {
+										uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to list remote files: %w", err), w) }
+										return
+									}
+
+									// 2. List local files
+									uiQueue <- func() { statusLabel.SetText("Scanning local files...") }
+									localFiles := make(map[string]LocalFileInfo)
+									err = filepath.Walk(syncDir, func(path string, info os.FileInfo, err error) error {
+										if err != nil {
+											return err
+										}
+										if !info.IsDir() {
+											rel, _ := filepath.Rel(syncDir, path)
+											rel = filepath.ToSlash(rel)
+
+											f, err := os.Open(path)
+											if err != nil {
+												return err
+											}
+											defer f.Close()
+
+											h := sha256.New()
+											if _, err := io.Copy(h, f); err != nil {
+												return err
+											}
+											localFiles[rel] = LocalFileInfo{Info: info, Hash: fmt.Sprintf("%x", h.Sum(nil))}
+										}
+										return nil
+									})
+									if err != nil {
+										uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to scan and hash local files: %w", err), w) }
+										return
+									}
+
+									// 3. Compare and build task lists (basic implementation)
+									uiQueue <- func() { statusLabel.SetText("Comparing files...") }
+									uploads := []string{}
+									downloads := []string{}
+									conflicts := []string{}
+
+									remoteMap := make(map[string]map[string]interface{})
+									for _, rf := range remoteFiles {
+										if path, ok := rf["path"].(string); ok {
+											remoteMap[path] = rf
+										}
+									}
+
+									for localPath, localFile := range localFiles {
+										remoteFile, exists := remoteMap[localPath]
+										if !exists {
+											uploads = append(uploads, localPath)
+										} else {
+											if remoteHash, ok := remoteFile["hash"].(string); ok {
+												if remoteHash != localFile.Hash {
+													conflicts = append(conflicts, localPath)
+												}
+											}
+										}
+									}
+
+									for remotePath := range remoteMap {
+										if _, exists := localFiles[remotePath]; !exists {
+											downloads = append(downloads, remotePath)
+										}
+									}
+
+									uiQueue <- func() {
+										statusLabel.SetText(fmt.Sprintf("Found %d files to upload and %d files to download.", len(uploads), len(downloads)))
+									}
+									// For now, we will treat conflicts as files to be downloaded, overwriting local changes.
+									// A future update could add a conflict resolution dialog.
+									downloads = append(downloads, conflicts...)
+
+									// 4. Execute tasks (sequentially for simplicity)
+									for i, path := range downloads {
+										uiQueue <- func() { statusLabel.SetText(fmt.Sprintf("Downloading (%d/%d): %s", i+1, len(downloads), path)) }
+										destPath := filepath.Join(syncDir, filepath.FromSlash(path))
+										os.MkdirAll(filepath.Dir(destPath), 0755)
+										if err := ftrClient.DownloadAndVerify(user, repo, path, destPath, nil); err != nil {
+											log.Printf("Sync: failed to download %s: %v", path, err)
+										}
+									}
+
+									for i, path := range uploads {
+										uiQueue <- func() { statusLabel.SetText(fmt.Sprintf("Uploading (%d/%d): %s", i+1, len(uploads), path)) }
+										localPath := filepath.Join(syncDir, filepath.FromSlash(path))
+										file, err := os.Open(localPath)
+										if err == nil {
+											info, _ := file.Stat()
+											ftrClient.UploadFile(repoPath, path, file, info.Size(), false, nil) // Assuming no encryption for sync uploads for now
+											file.Close()
+										}
+									}
+
+									done := make(chan struct{})
+									uiQueue <- func() {
+										progressDialog.Hide()
+										infoDialog := dialog.NewInformation("Sync Complete", fmt.Sprintf("Finished syncing %s/%s.", user, repo), w)
+										infoDialog.SetOnClosed(func() { close(done) })
+										infoDialog.Show()
+									}
+									<-done
+
+								}(user, repo)
 							}
 
 						} else {
@@ -498,7 +668,7 @@ func main() {
 	uploadButton := widget.NewButton("Upload", nil)
 	uploadButton.Disable()
 
-	var repoList *widget.List // Declare repoList early
+	var repoList *widget.List
 
 	updateUploadButtonState := func() {
 		if selectedRepo != "" && len(selectedFile) > 0 {
@@ -626,7 +796,6 @@ func main() {
 			selectedRepoLabel.SetText(fmt.Sprintf("Selected Repo: %s", selectedRepoName))
 			updateUploadButtonState()
 
-			// Fetch and display files for the selected repo
 			go func(user, repoName string) {
 				files, err := ftrClient.ListRepoFiles(user, repoName)
 				if err != nil {
@@ -938,6 +1107,8 @@ func loadSettings(a fyne.App) {
 	appSettings.Theme = "System"
 	appSettings.DownloadAsk = true
 	appSettings.downloadPathM = filepath.Join(home, "Downloads")
+	appSettings.SyncAsk = true
+	appSettings.syncPathM = filepath.Join(home, "FtRSync")
 
 	path := configPath()
 	data, err := os.ReadFile(path)
@@ -955,6 +1126,9 @@ func loadSettings(a fyne.App) {
 	// Post-load adjustments
 	if appSettings.downloadPathM == "" {
 		appSettings.downloadPathM = filepath.Join(home, "Downloads")
+	}
+	if appSettings.syncPathM == "" {
+		appSettings.syncPathM = filepath.Join(home, "FtRSync")
 	}
 
 	applyTheme(a)

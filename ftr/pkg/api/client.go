@@ -340,7 +340,7 @@ func (c *Client) CreateRepo(user, repoName string) error {
 	return nil
 }
 
-func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, encrypt bool) error {
+func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, fileSize int64, encrypt bool) error {
 	if c.sessionID == "" {
 		return fmt.Errorf("not logged in")
 	}
@@ -363,19 +363,6 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 			Secure:   true,
 			HttpOnly: true,
 		}})
-	}
-
-	// If reader is seekable, read content to scan for suspicious patterns
-	var fileSize int64
-	var rs io.ReadSeeker
-	if rse, ok := reader.(io.ReadSeeker); ok {
-		rs = rse
-		cur, _ := rs.Seek(0, io.SeekCurrent)
-		end, _ := rs.Seek(0, io.SeekEnd)
-		fileSize = end - cur
-		rs.Seek(cur, io.SeekStart)
-
-		// Client-side scan removed to allow uploads; server will flag files if necessary.
 	}
 
 	// First verify our session is still valid
