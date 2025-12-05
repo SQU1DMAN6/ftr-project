@@ -245,7 +245,7 @@ func main() {
 									fileProgress := widget.NewProgressBar()
 									progressDialog := dialog.NewCustomWithoutButtons("Downloading...", container.NewVBox(statusLabel, overallProgress, fileProgressLabel, fileProgress), w)
 
-									uiQueue <- func() { progressDialog.Show() } // Show it first
+									uiQueue <- func() { progressDialog.Show() }
 
 									log.Printf("Listing files in %s/%s...", user, repo)
 									files, err := ftrClient.ListRepoFiles(user, repo)
@@ -403,7 +403,10 @@ func main() {
 
 									// --- Start Sync Logic ---
 									statusLabel := widget.NewLabel("Starting sync...")
-									progressDialog := dialog.NewCustomWithoutButtons("Synchronising...", container.NewVBox(statusLabel), w)
+									fileProgressLabel := widget.NewLabel("")
+									overallProgress := widget.NewProgressBar()
+									fileProgress := widget.NewProgressBar()
+									progressDialog := dialog.NewCustomWithoutButtons("Synchronising...", container.NewVBox(statusLabel, overallProgress, fileProgressLabel, fileProgress), w)
 									uiQueue <- func() { progressDialog.Show() }
 									defer func() { uiQueue <- func() { progressDialog.Hide() } }()
 
@@ -490,29 +493,83 @@ func main() {
 									// A future update could add a conflict resolution dialog.
 									downloads = append(downloads, conflicts...)
 
-									// 4. Execute tasks (sequentially for simplicity)
-									for i, path := range downloads {
-										uiQueue <- func() { statusLabel.SetText(fmt.Sprintf("Downloading (%d/%d): %s", i+1, len(downloads), path)) }
-										destPath := filepath.Join(syncDir, filepath.FromSlash(path))
-										os.MkdirAll(filepath.Dir(destPath), 0755)
-										if err := ftrClient.DownloadAndVerify(user, repo, path, destPath, nil); err != nil {
-											log.Printf("Sync: failed to download %s: %v", path, err)
+									var totalDownloadSize int64
+									for _, path := range downloads {
+										if remoteFile, ok := remoteMap[path]; ok {
+											if size, ok := remoteFile["size"].(float64); ok {
+												totalDownloadSize += int64(size)
+											}
 										}
 									}
 
+									var totalUploadSize int64
+									for _, path := range uploads {
+										if localFile, ok := localFiles[path]; ok {
+											totalUploadSize += localFile.Info.Size()
+										}
+									}
+
+									totalSyncSize := totalDownloadSize + totalUploadSize
+									var syncedSize int64
+
+									// 4. Execute tasks (sequentially for simplicity)
+									for i, path := range downloads {
+										fileSize := 0.0
+										if rf, ok := remoteMap[path]; ok {
+											fileSize, _ = rf["size"].(float64)
+										}
+										currentFileSyncStartBytes := syncedSize
+
+										uiQueue <- func() {
+											statusLabel.SetText(fmt.Sprintf("Downloading (%d/%d)", i+1, len(downloads)+len(uploads)))
+											fileProgressLabel.SetText(path)
+											fileProgress.SetValue(0)
+										}
+										destPath := filepath.Join(syncDir, filepath.FromSlash(path))
+										os.MkdirAll(filepath.Dir(destPath), 0755)
+										err := ftrClient.DownloadAndVerify(user, repo, path, destPath, func(p float64) {
+											uiQueue <- func() {
+												fileProgress.SetValue(p)
+												if totalSyncSize > 0 {
+													currentFileBytes := int64(p * fileSize)
+													overallProgress.SetValue(float64(currentFileSyncStartBytes+currentFileBytes) / float64(totalSyncSize))
+												}
+											}
+										})
+										if err != nil {
+											log.Printf("Sync: failed to download %s: %v", path, err)
+										}
+										syncedSize += int64(fileSize)
+									}
+
 									for i, path := range uploads {
-										uiQueue <- func() { statusLabel.SetText(fmt.Sprintf("Uploading (%d/%d): %s", i+1, len(uploads), path)) }
+										currentFileSyncStartBytes := syncedSize
+										uiQueue <- func() {
+											statusLabel.SetText(fmt.Sprintf("Uploading (%d/%d)", i+1+len(downloads), len(downloads)+len(uploads)))
+											fileProgressLabel.SetText(path)
+											fileProgress.SetValue(0)
+										}
 										localPath := filepath.Join(syncDir, filepath.FromSlash(path))
 										file, err := os.Open(localPath)
 										if err == nil {
 											info, _ := file.Stat()
-											ftrClient.UploadFile(repoPath, path, file, info.Size(), false, nil) // Assuming no encryption for sync uploads for now
+											ftrClient.UploadFile(repoPath, path, file, info.Size(), false, func(p float64) {
+												uiQueue <- func() {
+													fileProgress.SetValue(p)
+													if totalSyncSize > 0 {
+														currentFileBytes := int64(p * float64(info.Size()))
+														overallProgress.SetValue(float64(currentFileSyncStartBytes+currentFileBytes) / float64(totalSyncSize))
+													}
+												}
+											})
 											file.Close()
+											syncedSize += info.Size()
 										}
 									}
 
 									done := make(chan struct{})
 									uiQueue <- func() {
+										overallProgress.SetValue(1.0)
 										progressDialog.Hide()
 										infoDialog := dialog.NewInformation("Sync Complete", fmt.Sprintf("Finished syncing %s/%s.", user, repo), w)
 										infoDialog.SetOnClosed(func() { close(done) })
