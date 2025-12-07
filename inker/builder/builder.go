@@ -55,14 +55,12 @@ func (pr *PrivilegedRunner) Execute() error {
 
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
-	case "darwin": // macOS
-		// On macOS, use osascript to show a graphical password prompt.
-		// We need to escape the script for AppleScript's "do shell script".
+	case "darwin":
 		escapedScript := strings.ReplaceAll(script, "\\", "\\\\")
 		escapedScript = strings.ReplaceAll(escapedScript, "\"", "\\\"")
 		appleScript := fmt.Sprintf("do shell script \"%s\" with administrator privileges", escapedScript)
 		cmd = exec.Command("osascript", "-e", appleScript)
-	default: // Assume Linux/BSD with polkit
+	default:
 		cmd = exec.Command("pkexec", "sh", "-c", script)
 	}
 
@@ -83,27 +81,56 @@ func New(repoName, workDir string) *Builder {
 	}
 }
 
-// run executes a command, using pkexec for privilege escalation if needed.
 func (b *Builder) run(command string, args ...string) error {
-	// Check if we are already root. If so, no need for pkexec.
 	currentUser, err := user.Current()
 	if err != nil {
 		return fmt.Errorf("could not get current user: %w", err)
 	}
 
 	if currentUser.Uid == "0" {
-		// If already root, just run the command directly.
 		cmd := exec.Command(command, args...)
 		cmd.Dir = b.WorkDir
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
-	} else if command == "sudo" { // Replace sudo with pkexec
+	}
+
+	if command == "sudo" {
+		if len(args) == 0 {
+			return fmt.Errorf("sudo used with no command")
+		}
 		b.privilegedRunner.Add(args[0], args[1:]...)
 		return nil
 	}
 
-	// For non-sudo commands as a non-root user
+	privileged := map[string]bool{
+		"cp":       true,
+		"mv":       true,
+		"rm":       true,
+		"mkdir":    true,
+		"chmod":    true,
+		"chown":    true,
+		"xattr":    true,
+		"codesign": true,
+		"echo":     true,
+		"touch":    true,
+		"chflags":  true,
+	}
+
+	requiresPriv := privileged[command]
+
+	if runtime.GOOS == "darwin" && requiresPriv {
+		b.privilegedRunner.Add(command, args...)
+		return nil
+	}
+
+	if requiresPriv {
+		return fmt.Errorf(
+			"attempted privileged operation without sudo: %s %v",
+			command, args,
+		)
+	}
+
 	cmd := exec.Command(command, args...)
 	cmd.Dir = b.WorkDir
 	cmd.Stdout = os.Stdout

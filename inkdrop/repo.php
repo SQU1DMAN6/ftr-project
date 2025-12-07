@@ -642,7 +642,6 @@ if (isset($_GET["download"])) {
             echo substr($fileContent, $start, $length);
         }
         exit();
-        exit();
     } else {
         http_response_code(404);
         if ($isAPIRequest) {
