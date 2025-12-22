@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var defaultSyncDir string
+// var defaultSyncDir string
 var targetDirectory string
 
 type LocalFileInfo struct {
@@ -271,73 +271,62 @@ Files are compared by name and timestamp to detect conflicts.`,
 		// Execute parallel transfers with worker pool
 		var errsMu sync.Mutex
 		errorsList := []string{}
-		uploadChan := make(chan string, len(uploads))
-		downloadChan := make(chan string, len(downloads))
+		type syncTask struct {
+			isUpload bool
+			path     string
+		}
+		tasksChan := make(chan syncTask, len(uploads)+len(downloads))
 		var wg sync.WaitGroup
 
 		// Spawn workers
 		for i := 0; i < workers; i++ {
-			wg.Add(2)
-
-			// Upload worker
+			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				for localPath := range uploadChan {
-					fullPath := filepath.Join(syncDir, localPath)
-					if file, err := os.Open(fullPath); err == nil {
-						info, _ := file.Stat()
-						err = client.UploadFile(repoPath, localPath, file, info.Size(), encrypt)
-						file.Close()
-						if err != nil {
-							msg := fmt.Sprintf("Upload failed: %s: %v", localPath, err)
+				for task := range tasksChan {
+					if task.isUpload {
+						localPath := task.path
+						fullPath := filepath.Join(syncDir, localPath)
+						if file, err := os.Open(fullPath); err == nil {
+							info, _ := file.Stat()
+							err = client.UploadFile(repoPath, localPath, file, info.Size(), encrypt, nil)
+							file.Close()
+							if err != nil {
+								msg := fmt.Sprintf("Upload failed: %s: %v", localPath, err)
+								errsMu.Lock()
+								errorsList = append(errorsList, msg)
+								errsMu.Unlock()
+							}
+						} else {
+							msg := fmt.Sprintf("Cannot open local file: %s: %v", localPath, err)
 							errsMu.Lock()
 							errorsList = append(errorsList, msg)
 							errsMu.Unlock()
-						} else {
-							fmt.Printf("Uploaded: %s\n", localPath)
 						}
-					} else {
-						msg := fmt.Sprintf("Cannot open local file: %s: %v", localPath, err)
-						errsMu.Lock()
-						errorsList = append(errorsList, msg)
-						errsMu.Unlock()
-					}
-				}
-			}()
-
-			// Download worker
-			go func() {
-				defer wg.Done()
-				for remoteName := range downloadChan {
-					destPath := filepath.Join(syncDir, remoteName)
-					os.MkdirAll(filepath.Dir(destPath), 0755)
-					err := client.DownloadAndVerify(repoPath, remoteName, destPath)
-					if err != nil {
-						msg := fmt.Sprintf("Download failed: %s: %v", remoteName, err)
-						errsMu.Lock()
-						errorsList = append(errorsList, msg)
-						errsMu.Unlock()
-					} else {
-						fmt.Printf("Downloaded: %s\n", remoteName)
+					} else { // isDownload
+						remoteName := task.path
+						destPath := filepath.Join(syncDir, remoteName)
+						os.MkdirAll(filepath.Dir(destPath), 0755)
+						err = client.DownloadAndVerify(user, repo, remoteName, destPath, nil)
+						if err != nil {
+							msg := fmt.Sprintf("Download failed: %s: %v", remoteName, err)
+							errsMu.Lock()
+							errorsList = append(errorsList, msg)
+							errsMu.Unlock()
+						}
 					}
 				}
 			}()
 		}
 
 		// Queue tasks
-		go func() {
-			for _, path := range uploads {
-				uploadChan <- path
-			}
-			close(uploadChan)
-		}()
-
-		go func() {
-			for _, path := range downloads {
-				downloadChan <- path
-			}
-			close(downloadChan)
-		}()
+		for _, path := range uploads {
+			tasksChan <- syncTask{isUpload: true, path: path}
+		}
+		for _, path := range downloads {
+			tasksChan <- syncTask{isUpload: false, path: path}
+		}
+		close(tasksChan)
 
 		// Wait for completion
 		wg.Wait()
@@ -357,7 +346,7 @@ Files are compared by name and timestamp to detect conflicts.`,
 
 func init() {
 	syncCmd.Flags().BoolP("encrypt", "E", false, "Encrypt uploaded files")
-	syncCmd.Flags().IntP("workers", "w", 100, "Number of parallel workers")
+	syncCmd.Flags().IntP("workers", "w", 10, "Number of parallel workers")
 	syncCmd.Flags().String("auto", "ask", "Auto-resolve conflicts: ask|local|remote|skip|both")
 	syncCmd.Flags().BoolP("ask", "A", false, "Ask interactively about conflicts")
 	syncCmd.Flags().StringVarP(&targetDirectory, "target", "T", "", "Target directory to sync remote repository with (defaults to ~/FtRSync/user/repo)")

@@ -6,14 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 )
 
 var downDest string
+var downWorkers int
 
 func init() {
 	downCmd.Flags().StringVarP(&downDest, "dest", "D", "", "Destination directory (defaults to ~/FtRSync)")
+	downCmd.Flags().IntVarP(&downWorkers, "workers", "w", 10, "Number of parallel workers")
 }
 
 var downCmd = &cobra.Command{
@@ -63,7 +66,31 @@ var downCmd = &cobra.Command{
 		}
 
 		errorsList := []string{}
+		var errMu sync.Mutex
 
+		type downloadTask struct {
+			pathRel  string
+			fullPath string
+		}
+		tasks := make(chan downloadTask, len(files))
+		var wg sync.WaitGroup
+
+		// Start workers
+		for i := 0; i < downWorkers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for task := range tasks {
+					if err := client.DownloadAndVerify(user, repo, task.pathRel, task.fullPath, nil); err != nil {
+						errMu.Lock()
+						errorsList = append(errorsList, fmt.Sprintf("failed to download %s: %v", task.pathRel, err))
+						errMu.Unlock()
+					}
+				}
+			}()
+		}
+
+		// Queue tasks
 		for _, f := range files {
 			pathRel, _ := f["path"].(string)
 			if pathRel == "" {
@@ -75,13 +102,11 @@ var downCmd = &cobra.Command{
 				return fmt.Errorf("failed to create dir for %s: %w", fullPath, err)
 			}
 
-			// Start download; progress manager will render a per-file progress line
-			if err := client.DownloadAndVerify(repoPath, pathRel, fullPath); err != nil {
-				errorsList = append(errorsList, fmt.Sprintf("failed to download %s: %v", pathRel, err))
-				// continue downloading remaining files
-				continue
-			}
+			tasks <- downloadTask{pathRel: pathRel, fullPath: fullPath}
 		}
+		close(tasks)
+
+		wg.Wait()
 
 		if len(errorsList) > 0 {
 			fmt.Printf("\nErrors encountered during download:\n")

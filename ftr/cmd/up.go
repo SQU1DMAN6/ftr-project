@@ -49,7 +49,7 @@ Example: ftr up myfile.txt user/repo`,
 		}
 		defer f.Close()
 
-		if err := client.UploadFile(repoPath, filepath.Base(sourcePath), f, info.Size(), upEncrypt); err != nil {
+		if err := client.UploadFile(repoPath, filepath.Base(sourcePath), f, info.Size(), upEncrypt, nil); err != nil {
 			return fmt.Errorf("upload failed: %w", err)
 		}
 

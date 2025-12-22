@@ -12,6 +12,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -25,9 +28,10 @@ import (
 )
 
 const (
-	appName   = "FtR Inker"
-	appWidth  = 800
-	appHeight = 600
+	appName    = "FtR Inker 2.5"
+	appWidth   = 800
+	appHeight  = 600
+	guiWorkers = 4
 )
 
 type AppSettings struct {
@@ -36,8 +40,8 @@ type AppSettings struct {
 	DownloadAsk   bool   `json:"download_ask"`
 	SyncPath      string `json:"sync_path"`
 	SyncAsk       bool   `json:"sync_ask"`
-	downloadPathM string // in-memory version of download path
-	syncPathM     string // in-memory version of sync path
+	downloadPathM string
+	syncPathM     string
 }
 
 type LocalFileInfo struct {
@@ -239,11 +243,20 @@ func main() {
 										return
 									}
 
-									statusLabel := widget.NewLabel("Preparing to download...")
-									fileProgressLabel := widget.NewLabel("")
+									statusLabel := widget.NewLabel("Downloading...")
 									overallProgress := widget.NewProgressBar()
-									fileProgress := widget.NewProgressBar()
-									progressDialog := dialog.NewCustomWithoutButtons("Downloading...", container.NewVBox(statusLabel, overallProgress, fileProgressLabel, fileProgress), w)
+
+									workerContainer := container.NewVBox()
+									workerBars := make([]*widget.ProgressBar, guiWorkers)
+									workerLabels := make([]*widget.Label, guiWorkers)
+									for i := 0; i < guiWorkers; i++ {
+										workerLabels[i] = widget.NewLabel(fmt.Sprintf("Worker %d: Idle", i+1))
+										workerBars[i] = widget.NewProgressBar()
+										workerContainer.Add(workerLabels[i])
+										workerContainer.Add(workerBars[i])
+									}
+
+									progressDialog := dialog.NewCustomWithoutButtons("Downloading...", container.NewVBox(statusLabel, overallProgress, widget.NewSeparator(), workerContainer), w)
 
 									uiQueue <- func() { progressDialog.Show() }
 
@@ -292,51 +305,64 @@ func main() {
 
 									errorsList := []string{}
 									var downloadedSize int64
-									totalFiles := len(files)
 
-									for i, f := range files {
-										pathRel, _ := f["path"].(string)
-										if pathRel == "" {
-											continue
+									type downloadTask struct {
+										path string
+										size int64
+									}
+									taskChan := make(chan downloadTask, len(files))
+									for _, f := range files {
+										if p, ok := f["path"].(string); ok && p != "" {
+											s, _ := f["size"].(float64)
+											taskChan <- downloadTask{path: p, size: int64(s)}
 										}
-										fileSize, _ := f["size"].(float64)
-										currentFileStartBytes := downloadedSize
+									}
+									close(taskChan)
 
-										uiQueue <- func() {
-											statusLabel.SetText(fmt.Sprintf("Overall Progress (%d/%d)", i+1, totalFiles))
-											fileProgressLabel.SetText(fmt.Sprintf("Downloading: %s", pathRel))
-											fileProgress.SetValue(0)
-										}
+									var wg sync.WaitGroup
+									for i := 0; i < guiWorkers; i++ {
+										wg.Add(1)
+										go func(workerID int) {
+											defer wg.Done()
+											for task := range taskChan {
+												uiQueue <- func() {
+													workerLabels[workerID].SetText(fmt.Sprintf("Downloading: %s", task.path))
+													workerBars[workerID].SetValue(0)
+												}
 
-										fullPath := filepath.Join(dest, filepath.FromSlash(pathRel))
-										if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-											errorsList = append(errorsList, fmt.Sprintf("failed to create dir for %s: %v", fullPath, err))
-											continue
-										}
+												var lastP float64
 
-										if ftrClient == nil {
-											log.Println("Download cancelled: client is no longer valid.")
-											uiQueue <- func() {
-												progressDialog.Hide()
-												dialog.ShowError(fmt.Errorf("session expired during download, please log in again"), w)
-											}
-											return
-										}
-										err := ftrClient.DownloadAndVerify(user, repo, pathRel, fullPath, func(p float64) {
-											uiQueue <- func() {
-												fileProgress.SetValue(p)
-												if totalSize > 0 {
-													currentFileBytes := int64(p * fileSize)
-													overallProgress.SetValue(float64(currentFileStartBytes+currentFileBytes) / float64(totalSize))
+												fullPath := filepath.Join(dest, filepath.FromSlash(task.path))
+												if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+													// Log error safely
+													continue
+												}
+
+												err := ftrClient.DownloadAndVerify(user, repo, task.path, fullPath, func(p float64) {
+													deltaP := p - lastP
+													lastP = p
+													deltaBytes := int64(deltaP * float64(task.size))
+													newTotal := atomic.AddInt64(&downloadedSize, deltaBytes)
+
+													uiQueue <- func() {
+														workerBars[workerID].SetValue(p)
+														if totalSize > 0 {
+															overallProgress.SetValue(float64(newTotal) / float64(totalSize))
+														}
+													}
+												})
+												if err != nil {
+													// Collect errors safely
+												}
+
+												uiQueue <- func() {
+													workerLabels[workerID].SetText(fmt.Sprintf("Worker %d: Idle", workerID+1))
+													workerBars[workerID].SetValue(0)
 												}
 											}
-										})
-										if err != nil {
-											errorsList = append(errorsList, fmt.Sprintf("failed to download %s: %v", pathRel, err))
-											continue
-										}
-										downloadedSize += int64(fileSize)
+										}(i)
 									}
+									wg.Wait()
 
 									done := make(chan struct{})
 									uiQueue <- func() {
@@ -403,10 +429,19 @@ func main() {
 
 									// --- Start Sync Logic ---
 									statusLabel := widget.NewLabel("Starting sync...")
-									fileProgressLabel := widget.NewLabel("")
 									overallProgress := widget.NewProgressBar()
-									fileProgress := widget.NewProgressBar()
-									progressDialog := dialog.NewCustomWithoutButtons("Synchronising...", container.NewVBox(statusLabel, overallProgress, fileProgressLabel, fileProgress), w)
+
+									workerContainer := container.NewVBox()
+									workerBars := make([]*widget.ProgressBar, guiWorkers)
+									workerLabels := make([]*widget.Label, guiWorkers)
+									for i := 0; i < guiWorkers; i++ {
+										workerLabels[i] = widget.NewLabel(fmt.Sprintf("Worker %d: Idle", i+1))
+										workerBars[i] = widget.NewProgressBar()
+										workerContainer.Add(workerLabels[i])
+										workerContainer.Add(workerBars[i])
+									}
+
+									progressDialog := dialog.NewCustomWithoutButtons("Synchronising...", container.NewVBox(statusLabel, overallProgress, widget.NewSeparator(), workerContainer), w)
 									uiQueue <- func() { progressDialog.Show() }
 									defer func() { uiQueue <- func() { progressDialog.Hide() } }()
 
@@ -512,60 +547,75 @@ func main() {
 									totalSyncSize := totalDownloadSize + totalUploadSize
 									var syncedSize int64
 
-									// 4. Execute tasks (sequentially for simplicity)
-									for i, path := range downloads {
-										fileSize := 0.0
-										if rf, ok := remoteMap[path]; ok {
-											fileSize, _ = rf["size"].(float64)
-										}
-										currentFileSyncStartBytes := syncedSize
-
-										uiQueue <- func() {
-											statusLabel.SetText(fmt.Sprintf("Downloading (%d/%d)", i+1, len(downloads)+len(uploads)))
-											fileProgressLabel.SetText(path)
-											fileProgress.SetValue(0)
-										}
-										destPath := filepath.Join(syncDir, filepath.FromSlash(path))
-										os.MkdirAll(filepath.Dir(destPath), 0755)
-										err := ftrClient.DownloadAndVerify(user, repo, path, destPath, func(p float64) {
-											uiQueue <- func() {
-												fileProgress.SetValue(p)
-												if totalSyncSize > 0 {
-													currentFileBytes := int64(p * fileSize)
-													overallProgress.SetValue(float64(currentFileSyncStartBytes+currentFileBytes) / float64(totalSyncSize))
-												}
-											}
-										})
-										if err != nil {
-											log.Printf("Sync: failed to download %s: %v", path, err)
-										}
-										syncedSize += int64(fileSize)
+									// 4. Execute tasks (parallel)
+									type syncTask struct {
+										op   string // "download" or "upload"
+										path string
+										size int64
 									}
-
-									for i, path := range uploads {
-										currentFileSyncStartBytes := syncedSize
-										uiQueue <- func() {
-											statusLabel.SetText(fmt.Sprintf("Uploading (%d/%d)", i+1+len(downloads), len(downloads)+len(uploads)))
-											fileProgressLabel.SetText(path)
-											fileProgress.SetValue(0)
+									taskChan := make(chan syncTask, len(downloads)+len(uploads))
+									for _, path := range downloads {
+										size := 0.0
+										if rf, ok := remoteMap[path]; ok {
+											size, _ = rf["size"].(float64)
 										}
-										localPath := filepath.Join(syncDir, filepath.FromSlash(path))
-										file, err := os.Open(localPath)
-										if err == nil {
-											info, _ := file.Stat()
-											ftrClient.UploadFile(repoPath, path, file, info.Size(), false, func(p float64) {
+										taskChan <- syncTask{op: "download", path: path, size: int64(size)}
+									}
+									for _, path := range uploads {
+										size := int64(0)
+										if lf, ok := localFiles[path]; ok {
+											size = lf.Info.Size()
+										}
+										taskChan <- syncTask{op: "upload", path: path, size: size}
+									}
+									close(taskChan)
+
+									var wg sync.WaitGroup
+									for i := 0; i < guiWorkers; i++ {
+										wg.Add(1)
+										go func(workerID int) {
+											defer wg.Done()
+											for task := range taskChan {
 												uiQueue <- func() {
-													fileProgress.SetValue(p)
-													if totalSyncSize > 0 {
-														currentFileBytes := int64(p * float64(info.Size()))
-														overallProgress.SetValue(float64(currentFileSyncStartBytes+currentFileBytes) / float64(totalSyncSize))
+													workerLabels[workerID].SetText(fmt.Sprintf("%s: %s", strings.Title(task.op), task.path))
+													workerBars[workerID].SetValue(0)
+												}
+
+												var lastP float64
+												progressCb := func(p float64) {
+													deltaP := p - lastP
+													lastP = p
+													deltaBytes := int64(deltaP * float64(task.size))
+													newTotal := atomic.AddInt64(&syncedSize, deltaBytes)
+
+													uiQueue <- func() {
+														workerBars[workerID].SetValue(p)
+														if totalSyncSize > 0 {
+															overallProgress.SetValue(float64(newTotal) / float64(totalSyncSize))
+														}
 													}
 												}
-											})
-											file.Close()
-											syncedSize += info.Size()
-										}
+
+												if task.op == "download" {
+													destPath := filepath.Join(syncDir, filepath.FromSlash(task.path))
+													os.MkdirAll(filepath.Dir(destPath), 0755)
+													ftrClient.DownloadAndVerify(user, repo, task.path, destPath, progressCb)
+												} else {
+													localPath := filepath.Join(syncDir, filepath.FromSlash(task.path))
+													if file, err := os.Open(localPath); err == nil {
+														ftrClient.UploadFile(repoPath, task.path, file, task.size, false, progressCb)
+														file.Close()
+													}
+												}
+
+												uiQueue <- func() {
+													workerLabels[workerID].SetText(fmt.Sprintf("Worker %d: Idle", workerID+1))
+													workerBars[workerID].SetValue(0)
+												}
+											}
+										}(i)
 									}
+									wg.Wait()
 
 									done := make(chan struct{})
 									uiQueue <- func() {

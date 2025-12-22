@@ -72,7 +72,7 @@ var remoteDownCmd = &cobra.Command{
 		destPath := filepath.Base(filePath)
 		fmt.Printf("Downloading '%s' from %s to '%s'...\n", filePath, repoPath, destPath)
 
-		if err := client.DownloadAndVerify(repoPath, filePath, destPath); err != nil {
+		if err := client.DownloadAndVerify(user, repo, filePath, destPath, nil); err != nil {
 			return fmt.Errorf("failed to download file: %w", err)
 		}
 

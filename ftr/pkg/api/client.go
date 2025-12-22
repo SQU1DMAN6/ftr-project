@@ -83,6 +83,7 @@ func NewClient() (*Client, error) {
 
 		// Session loaded
 
+		expiration := time.Now().Add(90 * 24 * time.Hour)
 		jar.SetCookies(baseURLParsed, []*http.Cookie{{
 			Name:     "PHPSESSID",
 			Value:    client.sessionID,
@@ -90,6 +91,7 @@ func NewClient() (*Client, error) {
 			Domain:   baseURLParsed.Hostname(),
 			Secure:   true,
 			HttpOnly: true,
+			Expires:  expiration,
 		}})
 
 		// Also load user info if available
@@ -340,7 +342,28 @@ func (c *Client) CreateRepo(user, repoName string) error {
 	return nil
 }
 
-func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, fileSize int64, encrypt bool) error {
+// ProgressReader is a wrapper for io.Reader that reports progress.
+type ProgressReader struct {
+	io.Reader
+	total    int64
+	read     int64
+	progress func(float64)
+}
+
+func (pr *ProgressReader) Read(p []byte) (n int, err error) {
+	n, err = pr.Reader.Read(p)
+	pr.read += int64(n)
+	if pr.progress != nil && pr.total > 0 {
+		pr.progress(float64(pr.read) / float64(pr.total))
+	}
+	return
+}
+
+func NewProgressReader(r io.Reader, size int64, progress func(float64)) *ProgressReader {
+	return &ProgressReader{Reader: r, total: size, progress: progress}
+}
+
+func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, fileSize int64, encrypt bool, progress func(float64)) error {
 	if c.sessionID == "" {
 		return fmt.Errorf("not logged in")
 	}
@@ -477,13 +500,21 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 		if err != nil {
 			return fmt.Errorf("failed to create form file: %w", err)
 		}
-		pr := &screen.ProgressReader{R: strings.NewReader(encPayload), Total: int64(len(encPayload)), Start: time.Now(), Label: fmt.Sprintf("Uploading %s", fileName)}
+		var pr io.Reader
+		if progress != nil {
+			pr = NewProgressReader(strings.NewReader(encPayload), int64(len(encPayload)), progress)
+		} else {
+			pr = &screen.ProgressReader{R: strings.NewReader(encPayload), Total: int64(len(encPayload)), Start: time.Now(), Label: fmt.Sprintf("Uploading %s", fileName)}
+		}
 		if _, err := io.Copy(fw, pr); err != nil {
 			return fmt.Errorf("failed to copy encrypted file data: %w", err)
 		}
 
-		// Ensure final progress render is shown
-		screen.FinishProgress(pr.Label)
+		if progress == nil {
+			if spr, ok := pr.(*screen.ProgressReader); ok {
+				spr.Finish()
+			}
+		}
 		// Inform server that this upload is pre-encrypted and provide plaintext hash
 		_ = w.WriteField("encrypt", "1")
 		_ = w.WriteField("pre_encrypted", "1")
@@ -498,11 +529,16 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 			return fmt.Errorf("failed to create form file: %w", err)
 		}
 
-		pr := &screen.ProgressReader{
-			R:     reader,
-			Total: fileSize,
-			Start: time.Now(),
-			Label: fmt.Sprintf("Uploading %s", fileName),
+		var pr io.Reader
+		if progress != nil {
+			pr = NewProgressReader(reader, fileSize, progress)
+		} else {
+			pr = &screen.ProgressReader{
+				R:     reader,
+				Total: fileSize,
+				Start: time.Now(),
+				Label: fmt.Sprintf("Uploading %s", fileName),
+			}
 		}
 
 		hasher := sha256.New()
@@ -513,7 +549,11 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 		}
 
 		// Ensure final progress render is shown
-		screen.FinishProgress(pr.Label)
+		if progress == nil {
+			if spr, ok := pr.(*screen.ProgressReader); ok {
+				spr.Finish()
+			}
+		}
 
 		computed = fmt.Sprintf("%x", hasher.Sum(nil))
 	}
@@ -816,12 +856,7 @@ func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, err
 	return out, nil
 }
 
-func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath string) error {
-	parts := strings.Split(repoPath, "/")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid repository path. Must be in format user/repo")
-	}
-	user, repo := parts[0], parts[1]
+func (c *Client) DownloadAndVerify(user string, repo string, fileName string, destPath string, progress func(float64)) error {
 
 	meta, _ := c.GetFileMeta(user, repo, fileName)
 	expectedHash := ""
@@ -885,17 +920,24 @@ func (c *Client) DownloadAndVerify(repoPath string, fileName string, destPath st
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
+	defer outFile.Close()
+
 	size := resp.ContentLength
-	pr := &screen.ProgressReader{R: resp.Body, Total: size, Start: time.Now(), Label: fmt.Sprintf("Downloading %s", fileName)}
 
-	if _, err := io.Copy(outFile, pr); err != nil {
-		outFile.Close()
-		return fmt.Errorf("failed to save downloaded file: %w", err)
+	if progress != nil {
+		// Use the provided callback (or no-op)
+		pr := NewProgressReader(resp.Body, size, progress)
+		if _, err := io.Copy(outFile, pr); err != nil {
+			return fmt.Errorf("failed to save downloaded file: %w", err)
+		}
+	} else {
+		// Use default console progress bar
+		pr := &screen.ProgressReader{R: resp.Body, Total: size, Start: time.Now(), Label: fmt.Sprintf("Downloading %s", fileName)}
+		if _, err := io.Copy(outFile, pr); err != nil {
+			return fmt.Errorf("failed to save downloaded file: %w", err)
+		}
+		pr.Finish()
 	}
-	outFile.Close()
-
-	// Ensure final progress render is shown
-	screen.FinishProgress(pr.Label)
 
 	encrypted := false
 	if meta != nil {

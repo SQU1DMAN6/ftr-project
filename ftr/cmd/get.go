@@ -67,7 +67,7 @@ Example: ftr get user/myapp`,
 
 		fmt.Printf("Fetching package via API...\n")
 		// Use repo.php API to download and verify
-		if err := client.DownloadAndVerify(repoPath, repoName+".fsdl", fsdlFile); err != nil {
+		if err := client.DownloadAndVerify(parts[0], repoName, repoName+".fsdl", fsdlFile, nil); err != nil {
 			return fmt.Errorf("download failed: %w", err)
 		}
 
