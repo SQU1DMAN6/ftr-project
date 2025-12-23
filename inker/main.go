@@ -35,13 +35,12 @@ const (
 )
 
 type AppSettings struct {
-	Theme         string `json:"theme"`
-	DownloadPath  string `json:"download_path"`
-	DownloadAsk   bool   `json:"download_ask"`
-	SyncPath      string `json:"sync_path"`
-	SyncAsk       bool   `json:"sync_ask"`
-	downloadPathM string
-	syncPathM     string
+	Theme          string `json:"theme"`
+	DownloadPath   string `json:"download_path"`
+	DownloadAsk    bool   `json:"download_ask"`
+	SyncMode       string `json:"sync_mode"` // "Default", "Custom", "Ask"
+	SyncCustomPath string `json:"sync_custom_path"`
+	downloadPathM  string
 }
 
 type LocalFileInfo struct {
@@ -394,7 +393,8 @@ func main() {
 									askDone := make(chan struct{})
 
 									uiQueue <- func() {
-										if appSettings.SyncAsk {
+										switch appSettings.SyncMode {
+										case "Ask":
 											dialog.ShowFolderOpen(func(uri fyne.ListableURI, errDialog error) {
 												if errDialog != nil {
 													err = fmt.Errorf("dialog error: %w", errDialog)
@@ -405,13 +405,19 @@ func main() {
 												}
 												close(askDone)
 											}, w)
-										} else {
-											baseSyncPath := appSettings.syncPathM
-											if baseSyncPath == "" {
-												home, _ := os.UserHomeDir()
-												baseSyncPath = filepath.Join(home, "FtRSync")
+										case "Custom":
+											syncDir = appSettings.SyncCustomPath
+											if syncDir == "" {
+												err = fmt.Errorf("custom sync path is not set. Please set it in Settings")
 											}
-											syncDir = filepath.Join(baseSyncPath, user, repo)
+											close(askDone)
+										default: // "Default"
+											home, homeErr := os.UserHomeDir()
+											if homeErr != nil {
+												err = fmt.Errorf("failed to determine home directory: %w", homeErr)
+											} else {
+												syncDir = filepath.Join(home, "FtRSync", user, repo)
+											}
 											close(askDone)
 										}
 									}
@@ -420,6 +426,9 @@ func main() {
 
 									if err != nil {
 										log.Println(err)
+										if err.Error() != "sync cancelled by user" {
+											uiQueue <- func() { dialog.ShowError(err, w) }
+										}
 										return
 									}
 									if syncDir == "" {
@@ -759,6 +768,65 @@ func main() {
 		downloadAskCheck,
 		container.NewBorder(nil, nil, nil, downloadPathSelectBtn, downloadPathEntry),
 	)
+
+	settingsTabContent.Add(widget.NewSeparator())
+	settingsTabContent.Add(widget.NewLabelWithStyle("Sync Download Path", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+
+	syncPathEntry := widget.NewEntry()
+	syncPathEntry.SetText(appSettings.SyncCustomPath)
+	syncPathEntry.OnChanged = func(s string) {
+		appSettings.SyncCustomPath = s
+		saveSettings()
+	}
+
+	syncPathSelectBtn := widget.NewButton("Select Path", func() {
+		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
+			if uri == nil {
+				return
+			}
+			appSettings.SyncCustomPath = uri.Path()
+			syncPathEntry.SetText(appSettings.SyncCustomPath)
+			saveSettings()
+		}, w)
+	})
+
+	syncModeRadio := widget.NewRadioGroup([]string{"Default (~/FtRSync/user/repo)", "Always Sync To...", "Ask Every Time"}, func(s string) {
+		switch s {
+		case "Always Sync To...":
+			appSettings.SyncMode = "Custom"
+			syncPathEntry.Enable()
+			syncPathSelectBtn.Enable()
+		case "Ask Every Time":
+			appSettings.SyncMode = "Ask"
+			syncPathEntry.Disable()
+			syncPathSelectBtn.Disable()
+		default:
+			appSettings.SyncMode = "Default"
+			syncPathEntry.Disable()
+			syncPathSelectBtn.Disable()
+		}
+		saveSettings()
+	})
+
+	switch appSettings.SyncMode {
+	case "Custom":
+		syncModeRadio.SetSelected("Always Sync To...")
+	case "Ask":
+		syncModeRadio.SetSelected("Ask Every Time")
+		syncPathEntry.Disable()
+		syncPathSelectBtn.Disable()
+	default:
+		syncModeRadio.SetSelected("Default (~/FtRSync/user/repo)")
+		syncPathEntry.Disable()
+		syncPathSelectBtn.Disable()
+	}
+
+	settingsTabContent.Add(syncModeRadio)
+	settingsTabContent.Add(container.NewBorder(nil, nil, nil, syncPathSelectBtn, syncPathEntry))
 
 	// --- Upload Tab ---
 	var userRepos []map[string]string
@@ -1214,8 +1282,8 @@ func loadSettings(a fyne.App) {
 	appSettings.Theme = "System"
 	appSettings.DownloadAsk = true
 	appSettings.downloadPathM = filepath.Join(home, "Downloads")
-	appSettings.SyncAsk = true
-	appSettings.syncPathM = filepath.Join(home, "FtRSync")
+	appSettings.SyncMode = "Default"
+	appSettings.SyncCustomPath = filepath.Join(home, "FtRSync")
 
 	path := configPath()
 	data, err := os.ReadFile(path)
@@ -1234,8 +1302,8 @@ func loadSettings(a fyne.App) {
 	if appSettings.downloadPathM == "" {
 		appSettings.downloadPathM = filepath.Join(home, "Downloads")
 	}
-	if appSettings.syncPathM == "" {
-		appSettings.syncPathM = filepath.Join(home, "FtRSync")
+	if appSettings.SyncMode == "" {
+		appSettings.SyncMode = "Default"
 	}
 
 	applyTheme(a)
