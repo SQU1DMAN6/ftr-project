@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -41,6 +42,10 @@ type AppSettings struct {
 	SyncMode       string `json:"sync_mode"` // "Default", "Custom", "Ask"
 	SyncCustomPath string `json:"sync_custom_path"`
 	downloadPathM  string
+	// Auto sync settings
+	AutoSyncIntervalMinutes int             `json:"auto_sync_interval_minutes"`
+	AutoSyncEntries         []AutoSyncEntry `json:"auto_sync_entries"`
+	AutoSyncIntervalSeconds int             `json:"auto_sync_interval_seconds"`
 }
 
 type LocalFileInfo struct {
@@ -48,11 +53,19 @@ type LocalFileInfo struct {
 	Hash string
 }
 
+type AutoSyncEntry struct {
+	User           string `json:"user"`
+	Repo           string `json:"repo"`
+	SyncMode       string `json:"sync_mode"`
+	SyncCustomPath string `json:"sync_custom_path"`
+}
+
 var (
 	appSettings AppSettings
 	ftrClient   *api.Client
 	uiQueue     chan func()
 	w           fyne.Window
+	autoSyncRemaining int64
 )
 
 var updateUI func()
@@ -91,6 +104,7 @@ func main() {
 				widget.NewButtonWithIcon("Install", theme.DownloadIcon(), nil),
 				widget.NewButtonWithIcon("Download", theme.DownloadIcon(), nil),
 				widget.NewButtonWithIcon("Sync", theme.ViewRefreshIcon(), nil),
+				widget.NewButtonWithIcon("Add", theme.ContentAddIcon(), nil),
 			)
 			labelBox := container.NewVBox(
 				widget.NewLabel("user/repo"),
@@ -121,6 +135,7 @@ func main() {
 							getBtn := v.Objects[0].(*widget.Button)
 							downBtn := v.Objects[1].(*widget.Button)
 							syncBtn := v.Objects[2].(*widget.Button)
+							addBtn := v.Objects[3].(*widget.Button)
 
 							// Get button event handling - download .fsdl file in a repository and install it to the user's system
 							getBtn.OnTapped = func() {
@@ -215,6 +230,17 @@ func main() {
 												dialog.ShowError(fmt.Errorf("installation failed: %w", err), w)
 											}
 											return
+										}
+									}
+
+									// Add to Auto Sync handler
+									addBtn.OnTapped = func() {
+										log.Printf("Add to Auto Sync: %s/%s", user, repo)
+										appSettings.AutoSyncEntries = append(appSettings.AutoSyncEntries, AutoSyncEntry{User: user, Repo: repo, SyncMode: appSettings.SyncMode, SyncCustomPath: appSettings.SyncCustomPath})
+										saveSettings()
+										// refresh Auto Sync list in UI
+										if autoSyncList != nil {
+											autoSyncList.Refresh()
 										}
 									}
 
@@ -828,6 +854,73 @@ func main() {
 	settingsTabContent.Add(syncModeRadio)
 	settingsTabContent.Add(container.NewBorder(nil, nil, nil, syncPathSelectBtn, syncPathEntry))
 
+	// Auto Sync Interval UI (debug-aware)
+	debugMode := os.Getenv("FTR_DEBUG") != ""
+	var sliderMax float64
+	var sliderStep float64
+	if debugMode {
+		// debug: 0..600 seconds, 20s min typical; 0 means disabled
+		sliderMax = 600
+		sliderStep = 5
+	} else {
+		// production: 0..7200 seconds (0..2h), step 600s (10min)
+		sliderMax = 7200
+		sliderStep = 600
+	}
+	settingsTabContent.Add(widget.NewLabelWithStyle("Auto Sync Interval:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+	intervalSlider := widget.NewSlider(0, sliderMax)
+	intervalSlider.Step = sliderStep
+	// initialize from seconds (backwards compatibility)
+	if appSettings.AutoSyncIntervalSeconds > 0 {
+		intervalSlider.SetValue(float64(appSettings.AutoSyncIntervalSeconds))
+	} else {
+		intervalSlider.SetValue(0)
+	}
+
+	valueLabel := widget.NewLabel("")
+	updateValueLabel := func(v float64) {
+		if int(v) == 0 {
+			valueLabel.SetText("Disabled")
+			return
+		}
+		if debugMode {
+			valueLabel.SetText(fmt.Sprintf("%d seconds", int(v)))
+		} else {
+			mins := int(v) / 60
+			valueLabel.SetText(fmt.Sprintf("%d minutes", mins))
+		}
+	}
+	updateValueLabel(intervalSlider.Value)
+
+	intervalSlider.OnChanged = func(v float64) {
+		appSettings.AutoSyncIntervalSeconds = int(v)
+		if !debugMode {
+			appSettings.AutoSyncIntervalMinutes = int(v) / 60
+		} else {
+			appSettings.AutoSyncIntervalMinutes = int(v) / 60
+		}
+		saveSettings()
+		updateValueLabel(v)
+		log.Printf("AutoSync interval set to %d seconds", appSettings.AutoSyncIntervalSeconds)
+		// reset countdown to new value
+		if appSettings.AutoSyncIntervalSeconds > 0 {
+			atomic.StoreInt64(&autoSyncRemaining, int64(appSettings.AutoSyncIntervalSeconds))
+		} else if debugMode {
+			atomic.StoreInt64(&autoSyncRemaining, 20)
+		} else {
+			atomic.StoreInt64(&autoSyncRemaining, 0)
+		}
+		// update countdown label immediately
+		countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(int(atomic.LoadInt64(&autoSyncRemaining)))))
+	}
+
+	settingsTabContent.Add(intervalSlider)
+	settingsTabContent.Add(valueLabel)
+
+	// visible countdown label
+	countdownLabel := widget.NewLabel("Next sync: --:--")
+	settingsTabContent.Add(countdownLabel)
+
 	// --- Upload Tab ---
 	var userRepos []map[string]string
 	var selectedRepo string
@@ -1087,6 +1180,120 @@ func main() {
 
 	// Rendering App tabs
 
+	// --- Auto Sync Tab ---
+	autoSyncLabel := widget.NewLabelWithStyle("Auto Sync", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	var autoSyncSelected widget.ListItemID = -1
+	var autoSyncList *widget.List
+	autoSyncList = widget.NewList(
+		func() int { return len(appSettings.AutoSyncEntries) },
+		func() fyne.CanvasObject {
+			lbl := widget.NewLabel("user/repo (mode)")
+			syncBtn := widget.NewButtonWithIcon("Sync", theme.ViewRefreshIcon(), nil)
+			prefsBtn := widget.NewButton("Sync Preferences", nil)
+			return container.NewHBox(lbl, layout.NewSpacer(), syncBtn, prefsBtn)
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			idx := int(i)
+			if idx < len(appSettings.AutoSyncEntries) {
+				e := appSettings.AutoSyncEntries[idx]
+				box := o.(*fyne.Container)
+				lbl := box.Objects[0].(*widget.Label)
+				lbl.SetText(fmt.Sprintf("%s/%s (%s)", e.User, e.Repo, e.SyncMode))
+
+				u := e.User
+				r := e.Repo
+				syncBtn := box.Objects[2].(*widget.Button)
+				prefsBtn := box.Objects[3].(*widget.Button)
+
+				syncBtn.OnTapped = func() { go performSync(u, r, e.SyncMode, e.SyncCustomPath) }
+				prefsBtn.OnTapped = func() {
+					// Preferences dialog for this auto-sync entry
+					modeOptions := []string{"Default (~/FtRSync/user/repo)", "Always Sync To...", "Ask Every Time"}
+					rg := widget.NewRadioGroup(modeOptions, func(s string) {})
+					switch e.SyncMode {
+					case "Custom":
+						rg.SetSelected("Always Sync To...")
+					case "Ask":
+						rg.SetSelected("Ask Every Time")
+					default:
+						rg.SetSelected("Default (~/FtRSync/user/repo)")
+					}
+					pathEntry := widget.NewEntry()
+					pathEntry.SetText(e.SyncCustomPath)
+					dialog.ShowCustomConfirm("Edit Auto Sync Entry", "Save", "Cancel",
+						container.NewVBox(
+							widget.NewLabel(fmt.Sprintf("Editing: %s/%s", e.User, e.Repo)),
+							rg,
+							container.NewBorder(nil, nil, nil, widget.NewButton("Select", func() {
+								dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+									if err == nil && uri != nil {
+										pathEntry.SetText(uri.Path())
+									}
+								}, w)
+							}), pathEntry),
+						),
+						func(confirm bool) {
+							if confirm {
+								// persist changes
+								newMode := "Default"
+								switch rg.Selected {
+								case "Always Sync To...":
+									newMode = "Custom"
+								case "Ask Every Time":
+									newMode = "Ask"
+								}
+								appSettings.AutoSyncEntries[idx].SyncMode = newMode
+								appSettings.AutoSyncEntries[idx].SyncCustomPath = pathEntry.Text
+								saveSettings()
+								autoSyncList.Refresh()
+							}
+						}, w)
+				}
+			}
+		},
+	)
+	autoSyncList.OnSelected = func(id widget.ListItemID) { autoSyncSelected = id }
+
+	addAutoSyncBtn := widget.NewButton("Add Repo...", func() {
+		userEntry := widget.NewEntry()
+		repoEntry := widget.NewEntry()
+		dialog.ShowForm("Add Auto Sync Repo", "Add", "Cancel",
+			[]*widget.FormItem{widget.NewFormItem("User", userEntry), widget.NewFormItem("Repo", repoEntry)},
+			func(ok bool) {
+				if ok {
+					u := strings.TrimSpace(userEntry.Text)
+					r := strings.TrimSpace(repoEntry.Text)
+					if u != "" && r != "" {
+						appSettings.AutoSyncEntries = append(appSettings.AutoSyncEntries, AutoSyncEntry{User: u, Repo: r, SyncMode: appSettings.SyncMode, SyncCustomPath: appSettings.SyncCustomPath})
+						saveSettings()
+						autoSyncList.Refresh()
+					}
+				}
+			}, w)
+	})
+
+	syncAllBtn := widget.NewButtonWithIcon("Sync All", theme.ViewRefreshIcon(), func() {
+		log.Println("Sync All clicked")
+		go syncAllEntries()
+		// reset countdown
+		if appSettings.AutoSyncIntervalSeconds > 0 {
+			atomic.StoreInt64(&autoSyncRemaining, int64(appSettings.AutoSyncIntervalSeconds))
+		} else if os.Getenv("FTR_DEBUG") != "" {
+			atomic.StoreInt64(&autoSyncRemaining, 20)
+		}
+		// update visible label
+		countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(int(atomic.LoadInt64(&autoSyncRemaining)))))
+	})
+
+	removeAutoSyncBtn := widget.NewButton("Remove Selected", func() {
+		if autoSyncSelected >= 0 && int(autoSyncSelected) < len(appSettings.AutoSyncEntries) {
+			idx := int(autoSyncSelected)
+			appSettings.AutoSyncEntries = append(appSettings.AutoSyncEntries[:idx], appSettings.AutoSyncEntries[idx+1:]...)
+			saveSettings()
+			autoSyncList.Refresh()
+		}
+	})
+
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Search", searchTabContent),
 		container.NewTabItem("Login", loginForm),
@@ -1095,6 +1302,7 @@ func main() {
 			container.NewBorder(repoListLabel, nil, nil, nil, repoList),
 			browserRightPane,
 		)),
+		container.NewTabItem("Auto Sync", container.NewBorder(autoSyncLabel, nil, nil, nil, container.NewVBox(container.NewBorder(nil, nil, nil, addAutoSyncBtn, autoSyncList), container.NewHBox(removeAutoSyncBtn)))),
 		container.NewTabItem("Settings", settingsTabContent),
 	)
 	tabs.SetTabLocation(container.TabLocationLeading)
@@ -1177,6 +1385,54 @@ func main() {
 	go func() {
 		for fn := range uiQueue {
 			fyne.Do(fn)
+		}
+	}()
+
+	// background auto-sync countdown worker
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		debugMode := os.Getenv("FTR_DEBUG") != ""
+		var remaining int
+		if appSettings.AutoSyncIntervalSeconds > 0 {
+			remaining = appSettings.AutoSyncIntervalSeconds
+		} else if debugMode {
+			remaining = 20
+		}
+		for range ticker.C {
+			interval := appSettings.AutoSyncIntervalSeconds
+			if interval <= 0 {
+				if debugMode {
+					// keep a short debug countdown even when interval is 0
+					interval = 20
+				} else {
+					// disabled
+					continue
+				}
+			}
+			if remaining <= 0 {
+				if appSettings.AutoSyncIntervalSeconds > 0 {
+					remaining = appSettings.AutoSyncIntervalSeconds
+				} else if debugMode {
+					remaining = 20
+				} else {
+					continue
+				}
+			}
+			// update visible countdown label
+			uiQueue <- func() {
+				countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(remaining)))
+			}
+			remaining--
+			if remaining <= 0 {
+				log.Printf("Auto-sync: interval reached, triggering Sync All")
+				syncAllEntries()
+				if appSettings.AutoSyncIntervalSeconds > 0 {
+					remaining = appSettings.AutoSyncIntervalSeconds
+				} else if debugMode {
+					remaining = 20
+				}
+			}
 		}
 	}()
 
@@ -1271,6 +1527,218 @@ func showDeleteConfirm(fileName, user, repo string, w fyne.Window, client *api.C
 	}, w)
 }
 
+// performSync performs a sync for a repository with confirmation summary.
+// Minimal stub for initial compilation; will be expanded to list remote/local diffs and perform transfers.
+// performSync performs a sync for a repository with confirmation summary.
+func performSync(user, repo, mode, customPath string) {
+	log.Printf("performSync: %s/%s mode=%s", user, repo, mode)
+
+	var syncDir string
+	var err error
+
+	// Resolve sync directory based on mode
+	switch mode {
+	case "Ask":
+		// Show folder chooser on UI thread and wait
+		ch := make(chan struct{})
+		uiQueue <- func() {
+			dialog.ShowFolderOpen(func(uri fyne.ListableURI, errDialog error) {
+				if errDialog != nil {
+					err = fmt.Errorf("dialog error: %w", errDialog)
+				} else if uri == nil {
+					err = fmt.Errorf("sync cancelled by user")
+				} else {
+					syncDir = uri.Path()
+				}
+				close(ch)
+			}, w)
+		}
+		<-ch
+	case "Custom":
+		syncDir = customPath
+		if syncDir == "" {
+			err = fmt.Errorf("custom sync path is not set")
+		}
+	default:
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			err = fmt.Errorf("failed to determine home directory: %w", homeErr)
+		} else {
+			syncDir = filepath.Join(home, "FtRSync", user, repo)
+		}
+	}
+
+	if err != nil {
+		if err.Error() != "sync cancelled by user" {
+			uiQueue <- func() { dialog.ShowError(err, w) }
+		}
+		return
+	}
+	if syncDir == "" {
+		log.Printf("performSync: no sync directory for %s/%s", user, repo)
+		return
+	}
+
+	// List remote files
+	remoteFiles, err := ftrClient.ListRepoFiles(user, repo)
+	if err != nil {
+		uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to list remote files: %w", err), w) }
+		return
+	}
+
+	// Scan local files
+	localFiles := make(map[string]LocalFileInfo)
+	err = filepath.Walk(syncDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			rel, _ := filepath.Rel(syncDir, path)
+			rel = filepath.ToSlash(rel)
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			h := sha256.New()
+			if _, err := io.Copy(h, f); err != nil {
+				return err
+			}
+			localFiles[rel] = LocalFileInfo{Info: info, Hash: fmt.Sprintf("%x", h.Sum(nil))}
+		}
+		return nil
+	})
+	if err != nil {
+		uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to scan local files: %w", err), w) }
+		return
+	}
+
+	// Compare
+	uploads := []string{}
+	downloads := []string{}
+	conflicts := []string{}
+	remoteMap := make(map[string]map[string]interface{})
+	for _, rf := range remoteFiles {
+		if p, ok := rf["path"].(string); ok {
+			remoteMap[p] = rf
+		}
+	}
+	for lp, lf := range localFiles {
+		if rf, ok := remoteMap[lp]; !ok {
+			uploads = append(uploads, lp)
+		} else {
+			if rh, ok := rf["hash"].(string); ok && rh != lf.Hash {
+				conflicts = append(conflicts, lp)
+			}
+		}
+	}
+	for rp := range remoteMap {
+		if _, ok := localFiles[rp]; !ok {
+			downloads = append(downloads, rp)
+		}
+	}
+	downloads = append(downloads, conflicts...)
+
+	// compute sizes
+	var totalUploadSize, totalDownloadSize int64
+	for _, p := range uploads {
+		if lf, ok := localFiles[p]; ok {
+			totalUploadSize += lf.Info.Size()
+		}
+	}
+	for _, p := range downloads {
+		if rf, ok := remoteMap[p]; ok {
+			if s, ok := rf["size"].(float64); ok {
+				totalDownloadSize += int64(s)
+			}
+		}
+	}
+
+	// detailed confirmation with exact file lists
+	okCh := make(chan bool)
+	uiQueue <- func() {
+		header := widget.NewLabel(fmt.Sprintf("About to sync %s/%s:\nUploads: %d (%.2f MB)  Downloads: %d (%.2f MB)",
+			user, repo, len(uploads), float64(totalUploadSize)/1024.0/1024.0, len(downloads), float64(totalDownloadSize)/1024.0/1024.0))
+
+		uploadText := "(none)"
+		if len(uploads) > 0 {
+			uploadText = strings.Join(uploads, "\n")
+		}
+		downloadText := "(none)"
+		if len(downloads) > 0 {
+			downloadText = strings.Join(downloads, "\n")
+		}
+
+		uploadEntry := widget.NewMultiLineEntry()
+		uploadEntry.SetText(uploadText)
+		uploadEntry.Disable()
+		downloadEntry := widget.NewMultiLineEntry()
+		downloadEntry.SetText(downloadText)
+		downloadEntry.Disable()
+
+		content := container.NewVBox(
+			header,
+			widget.NewLabelWithStyle("Files to Upload:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			container.NewVScroll(uploadEntry),
+			widget.NewLabelWithStyle("Files to Download:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			container.NewVScroll(downloadEntry),
+		)
+
+		dialog.ShowCustomConfirm("Sync Confirmation", "Sync", "Cancel", content, func(ok bool) { okCh <- ok }, w)
+	}
+	if !<-okCh {
+		uiQueue <- func() { dialog.ShowInformation("Cancelled", "Sync cancelled by user.", w) }
+		return
+	}
+
+	// perform downloads/uploads sequentially (simpler)
+	for _, p := range downloads {
+		destPath := filepath.Join(syncDir, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			log.Printf("failed to create dest dir: %v", err)
+			continue
+		}
+		if err := ftrClient.DownloadAndVerify(user, repo, p, destPath, nil); err != nil {
+			log.Printf("download failed: %v", err)
+		}
+	}
+	for _, p := range uploads {
+		localPath := filepath.Join(syncDir, filepath.FromSlash(p))
+		if file, err := os.Open(localPath); err == nil {
+			repoPath := fmt.Sprintf("%s/%s", user, repo)
+			if err := ftrClient.UploadFile(repoPath, p, file, fileInfoSize(file), false, nil); err != nil {
+				log.Printf("upload failed: %v", err)
+			}
+			file.Close()
+		}
+	}
+
+	uiQueue <- func() { dialog.ShowInformation("Sync Complete", fmt.Sprintf("Finished syncing %s/%s.", user, repo), w) }
+}
+
+func fileInfoSize(f *os.File) int64 {
+	if fi, err := f.Stat(); err == nil {
+		return fi.Size()
+	}
+	return 0
+}
+
+func formatTime(seconds int) string {
+	if seconds < 0 {
+		seconds = 0
+	}
+	m := seconds / 60
+	s := seconds % 60
+	return fmt.Sprintf("%02d:%02d", m, s)
+}
+
+func syncAllEntries() {
+	log.Printf("syncAllEntries: running %d entries", len(appSettings.AutoSyncEntries))
+	for _, e := range appSettings.AutoSyncEntries {
+		go performSync(e.User, e.Repo, e.SyncMode, e.SyncCustomPath)
+	}
+}
+
 func configPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "inker", "settings.json")
@@ -1304,6 +1772,14 @@ func loadSettings(a fyne.App) {
 	}
 	if appSettings.SyncMode == "" {
 		appSettings.SyncMode = "Default"
+	}
+
+	// Backwards compatibility: support both minutes and seconds stored in older/newer versions.
+	if appSettings.AutoSyncIntervalSeconds > 0 {
+		// populate minutes for UI convenience
+		appSettings.AutoSyncIntervalMinutes = appSettings.AutoSyncIntervalSeconds / 60
+	} else if appSettings.AutoSyncIntervalMinutes > 0 {
+		appSettings.AutoSyncIntervalSeconds = appSettings.AutoSyncIntervalMinutes * 60
 	}
 
 	applyTheme(a)
