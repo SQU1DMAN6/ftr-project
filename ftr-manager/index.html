@@ -1,372 +1,395 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>FtR — The Next Standard in Package Management</title>
 
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-            rel="stylesheet"
-        />
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FtR — The Next Standard in Package Management</title>
 
-        <style>
-            :root {
-                --bg: #ffffff;
-                --fg: #0a0a0a;
-                --muted: #555;
-                --border: #e5e5e5;
-                --accent: #0071e3;
-            }
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-            * {
-                box-sizing: border-box;
-            }
-            body {
-                margin: 0;
-                font-family:
-                    "Inter",
-                    -apple-system,
-                    BlinkMacSystemFont,
-                    "Segoe UI",
-                    Roboto,
-                    sans-serif;
-                background: var(--bg);
-                color: var(--fg);
-                line-height: 1.6;
-                -webkit-font-smoothing: antialiased;
-                overflow-x: hidden;
-            }
+    <style>
+        :root {
+            --bg: #ffffff;
+            --fg: #0a0a0a;
+            --muted: #555;
+            --border: #e5e5e5;
+            --accent: #0071e3;
+        }
 
-            header {
-                text-align: center;
-                padding: 8rem 1rem 6rem;
+        * {
+            box-sizing: border-box;
+        }
+
+        ::-webkit-scrollbar {
+            height: 0px;
+            width: 10px;
+            border: 2px solid #b5b5b5;
+            border-radius: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            border-radius: 6px;
+            background: #eeeeee;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            border-radius: 6px;
+            background: #a0a0a0;
+        }
+
+        body {
+            margin: 0;
+            font-family:
+                "Inter",
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        header {
+            text-align: center;
+            padding: 8rem 1rem 6rem;
+            opacity: 0;
+            transform: translateY(40px);
+            animation: fadeInUp 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+
+        h1 {
+            font-size: clamp(2.5rem, 6vw, 4.5rem);
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 1rem;
+        }
+
+        p.lead {
+            font-size: 1.25rem;
+            color: var(--muted);
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        section {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 5rem 1.5rem;
+            border-top: 1px solid var(--border);
+            opacity: 0;
+            transform: translateY(40px);
+            transition:
+                opacity 1s ease,
+                transform 1s ease;
+        }
+
+        section.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        h2 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            letter-spacing: -0.02em;
+        }
+
+        p {
+            color: var(--muted);
+            font-size: 1.05rem;
+            max-width: 700px;
+        }
+
+        .code-block {
+            position: relative;
+            margin: 2rem 0;
+        }
+
+        pre {
+            background: #f8f8f8;
+            padding: 1.25rem 1.5rem;
+            border-radius: 12px;
+            font-family: "SFMono-Regular", "Source Code Pro", monospace;
+            font-size: 0.95rem;
+            overflow-x: auto;
+            border: 1px solid #eee;
+            transition:
+                transform 0.3s ease,
+                box-shadow 0.3s ease;
+        }
+
+        pre:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 0.6rem;
+            right: 0.8rem;
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 0.25rem 0.6rem;
+            font-size: 0.8rem;
+            color: #444;
+            opacity: 0;
+            cursor: pointer;
+            transition:
+                opacity 0.3s ease,
+                background 0.3s ease;
+        }
+
+        .code-block:hover .copy-btn {
+            opacity: 1;
+        }
+
+        .copy-btn:hover {
+            background: var(--accent);
+            color: white;
+        }
+
+        .copy-btn.copied {
+            background: #2ecc71;
+            border-color: #2ecc71;
+            color: white;
+        }
+
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.9rem;
+            padding: 4rem 1rem 6rem;
+            border-top: 1px solid var(--border);
+            opacity: 0;
+            transform: translateY(40px);
+            animation: fadeInUp 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards 1.2s;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+            position: relative;
+            transition: color 0.2s ease;
+        }
+
+        a::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            bottom: -1px;
+            width: 100%;
+            height: 1px;
+            background: var(--accent);
+            transform: scaleX(0);
+            transform-origin: right;
+            transition: transform 0.3s ease;
+        }
+
+        a:hover::after {
+            transform: scaleX(1);
+            transform-origin: left;
+        }
+
+        @keyframes fadeInUp {
+            from {
                 opacity: 0;
                 transform: translateY(40px);
-                animation: fadeInUp 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
             }
 
-            h1 {
-                font-size: clamp(2.5rem, 6vw, 4.5rem);
-                font-weight: 600;
-                letter-spacing: -0.02em;
-                margin-bottom: 1rem;
-            }
-
-            p.lead {
-                font-size: 1.25rem;
-                color: var(--muted);
-                max-width: 700px;
-                margin: 0 auto;
-            }
-
-            section {
-                max-width: 900px;
-                margin: 0 auto;
-                padding: 5rem 1.5rem;
-                border-top: 1px solid var(--border);
-                opacity: 0;
-                transform: translateY(40px);
-                transition:
-                    opacity 1s ease,
-                    transform 1s ease;
-            }
-
-            section.visible {
+            to {
                 opacity: 1;
                 transform: translateY(0);
             }
+        }
+    </style>
+</head>
 
-            h2 {
-                font-size: 2rem;
-                font-weight: 600;
-                margin-bottom: 1rem;
-                letter-spacing: -0.02em;
-            }
+<body>
+    <header>
+        <h1>FtR</h1>
+        <p class="lead">
+            A new foundation for software distribution. Fast. Minimal.
+            Precise.
+        </p>
+    </header>
 
-            p {
-                color: var(--muted);
-                font-size: 1.05rem;
-                max-width: 700px;
-            }
+    <section>
+        <h2>Performance. Redefined.</h2>
+        <p>
+            FtR is built for developers who demand speed and reliability.
+            Lightweight and fast, it handles repositories and builds without
+            slowing your workflow.
+        </p>
+    </section>
 
-            .code-block {
-                position: relative;
-                margin: 2rem 0;
-            }
-            pre {
-                background: #f8f8f8;
-                padding: 1.25rem 1.5rem;
-                border-radius: 12px;
-                font-family: "SFMono-Regular", "Source Code Pro", monospace;
-                font-size: 0.95rem;
-                overflow-x: auto;
-                border: 1px solid #eee;
-                transition:
-                    transform 0.3s ease,
-                    box-shadow 0.3s ease;
-            }
-            pre:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
-            }
+    <section>
+        <h2>Effortless Setup.</h2>
+        <p>
+            Install FtR in seconds. No dependencies. No complications. Just
+            one command:
+        </p>
+        <div class="code-block">
+            <pre><code>curl -sSL https://quanthai.net/installftr.sh | sh</code></pre>
+            <button class="copy-btn">Copy</button>
+        </div>
+        <p>Check your installation:</p>
+        <div class="code-block">
+            <pre><code>ftr --help</code></pre>
+            <button class="copy-btn">Copy</button>
+        </div>
+    </section>
 
-            .copy-btn {
-                position: absolute;
-                top: 0.6rem;
-                right: 0.8rem;
-                background: rgba(255, 255, 255, 0.8);
-                border: 1px solid #ccc;
-                border-radius: 6px;
-                padding: 0.25rem 0.6rem;
-                font-size: 0.8rem;
-                color: #444;
-                opacity: 0;
-                cursor: pointer;
-                transition:
-                    opacity 0.3s ease,
-                    background 0.3s ease;
-            }
-            .code-block:hover .copy-btn {
-                opacity: 1;
-            }
-            .copy-btn:hover {
-                background: var(--accent);
-                color: white;
-            }
-            .copy-btn.copied {
-                background: #2ecc71;
-                border-color: #2ecc71;
-                color: white;
-            }
-
-            footer {
-                text-align: center;
-                color: var(--muted);
-                font-size: 0.9rem;
-                padding: 4rem 1rem 6rem;
-                border-top: 1px solid var(--border);
-                opacity: 0;
-                transform: translateY(40px);
-                animation: fadeInUp 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards
-                    1.2s;
-            }
-
-            a {
-                color: var(--accent);
-                text-decoration: none;
-                position: relative;
-                transition: color 0.2s ease;
-            }
-            a::after {
-                content: "";
-                position: absolute;
-                left: 0;
-                bottom: -1px;
-                width: 100%;
-                height: 1px;
-                background: var(--accent);
-                transform: scaleX(0);
-                transform-origin: right;
-                transition: transform 0.3s ease;
-            }
-            a:hover::after {
-                transform: scaleX(1);
-                transform-origin: left;
-            }
-
-            @keyframes fadeInUp {
-                from {
-                    opacity: 0;
-                    transform: translateY(40px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
-        </style>
-    </head>
-
-    <body>
-        <header>
-            <h1>FtR</h1>
-            <p class="lead">
-                A new foundation for software distribution. Fast. Minimal.
-                Precise.
-            </p>
-        </header>
-
-        <section>
-            <h2>Performance. Redefined.</h2>
-            <p>
-                FtR is built for developers who demand speed and reliability.
-                Lightweight and fast, it handles repositories and builds without
-                slowing your workflow.
-            </p>
-        </section>
-
-        <section>
-            <h2>Effortless Setup.</h2>
-            <p>
-                Install FtR in seconds. No dependencies. No complications. Just
-                one command:
-            </p>
-            <div class="code-block">
-                <pre><code>curl -sSL https://quanthai.net/installftr.sh | sh</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-            <p>Check your installation:</p>
-            <div class="code-block">
-                <pre><code>ftr --help</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-        </section>
-
-        <section>
-            <h2>Easy to Use.</h2>
-            <p>Installing or removing apps? Fast and intuitive.</p>
-            <div class="code-block">
-                <pre><code>ftr get [user/repo]
+    <section>
+        <h2>Easy to Use.</h2>
+        <p>Installing or removing apps? Fast and intuitive.</p>
+        <div class="code-block">
+            <pre><code>ftr get [user/repo]
 ftr up [file] user/repo
 ftr remove [appname]
 ftr clear</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-        </section>
+            <button class="copy-btn">Copy</button>
+        </div>
+    </section>
 
-        <section>
-            <h2>The FSDL Standard.</h2>
-            <p>
-                Every app lives in a single, lightweight
-                <strong>.fsdl</strong> package. From a tiny game to a full OS,
-                it contains everything your app needs to run.
-            </p>
-            <p>Pack it, upload it, share it — FtR handles the rest.</p>
-            <div class="code-block">
-                <pre><code>ftr pack . myapp</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-            <p>
-                Instantly installable, transparent, and universal. No hidden
-                steps. No setup wizard.
-            </p>
-        </section>
+    <section>
+        <h2>The FSDL Standard.</h2>
+        <p>
+            Every app lives in a single, lightweight
+            <strong>.fsdl</strong> package. From a tiny game to a full OS,
+            it contains everything your app needs to run.
+        </p>
+        <p>Pack it, upload it, share it — FtR handles the rest.</p>
+        <div class="code-block">
+            <pre><code>ftr pack . myapp</code></pre>
+            <button class="copy-btn">Copy</button>
+        </div>
+        <p>
+            Instantly installable, transparent, and universal. No hidden
+            steps. No setup wizard.
+        </p>
+    </section>
 
-        <section>
-            <h2>Build with Confidence.</h2>
-            <p>
-                FtR detects your project type automatically — Go, Python, C++,
-                or shell — and builds it with the right toolchain. No config
-                files, no guesswork.
-            </p>
-            <p>
-                Optional <code>install.sh</code> or
-                <code>Makefile</code> scripts are supported. Otherwise, FtR
-                builds the binary for you and installs it cleanly. All you have
-                to do is:
-            </p>
-            <div class="code-block">
-                <pre><code>ftr get user/repo</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-        </section>
+    <section>
+        <h2>Build with Confidence.</h2>
+        <p>
+            FtR detects your project type automatically — Go, Python, C++,
+            or shell — and builds it with the right toolchain. No config
+            files, no guesswork.
+        </p>
+        <p>
+            Optional <code>install.sh</code> or
+            <code>Makefile</code> scripts are supported. Otherwise, FtR
+            builds the binary for you and installs it cleanly. All you have
+            to do is:
+        </p>
+        <div class="code-block">
+            <pre><code>ftr get user/repo</code></pre>
+            <button class="copy-btn">Copy</button>
+        </div>
+    </section>
 
-        <section>
-            <h2>Build Your App.</h2>
-            <p>
-                Creating and sharing your own FtR app is simple. Follow these
-                steps to package and distribute your application:
-            </p>
+    <section>
+        <h2>Build Your App.</h2>
+        <p>
+            Creating and sharing your own FtR app is simple. Follow these
+            steps to package and distribute your application:
+        </p>
 
-            <h2>1. Structure Your Project</h2>
-            <p>
-                Place all your project files in a directory. FtR automatically
-                detects:
-            </p>
-            <div class="code-block">
-                <pre><code>
+        <h2>1. Structure Your Project</h2>
+        <p>
+            Place all your project files in a directory. FtR automatically
+            detects:
+        </p>
+        <div class="code-block">
+            <pre><code>
 myapp/
 ├── main.go | main.py | main.cpp # Your main application file
 ├── install.sh                   # Optional installation script
 └── Makefile                     # Optional build instructions
                 </code></pre>
-            </div>
+        </div>
 
-            <h2>2. Package Your App</h2>
-            <p>Create an FSDL package from your project directory:</p>
-            <div class="code-block">
-                <pre><code>ftr pack . myapp</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-            <p>
-                Your app is now wrapped in a single
-                <strong>.fsdl</strong> package, ready for distribution.
-            </p>
+        <h2>2. Package Your App</h2>
+        <p>Create an FSDL package from your project directory:</p>
+        <div class="code-block">
+            <pre><code>ftr pack . myapp</code></pre>
+            <button class="copy-btn">Copy</button>
+        </div>
+        <p>
+            Your app is now wrapped in a single
+            <strong>.fsdl</strong> package, ready for distribution.
+        </p>
 
-            <h2>3. Upload to InkDrop</h2>
-            <p>Share your app through your InkDrop repository:</p>
-            <div class="code-block">
-                <pre><code>ftr up myapp.fsdl username/myapp</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-            <p>FtR handles dependencies and distribution automatically.</p>
+        <h2>3. Upload to InkDrop</h2>
+        <p>Share your app through your InkDrop repository:</p>
+        <div class="code-block">
+            <pre><code>ftr up myapp.fsdl username/myapp</code></pre>
+            <button class="copy-btn">Copy</button>
+        </div>
+        <p>FtR handles dependencies and distribution automatically.</p>
 
-            <h2>4. Installation</h2>
-            <p>Users can now install your app with a single command:</p>
-            <div class="code-block">
-                <pre><code>ftr get username/myapp</code></pre>
-                <button class="copy-btn">Copy</button>
-            </div>
-            <p>
-                Your app is now available to everyone in the FtR ecosystem. No
-                complex configuration, no dependency handling; just clean,
-                efficient software distribution.
-            </p>
-        </section>
+        <h2>4. Installation</h2>
+        <p>Users can now install your app with a single command:</p>
+        <div class="code-block">
+            <pre><code>ftr get username/myapp</code></pre>
+            <button class="copy-btn">Copy</button>
+        </div>
+        <p>
+            Your app is now available to everyone in the FtR ecosystem. No
+            complex configuration, no dependency handling; just clean,
+            efficient software distribution.
+        </p>
+    </section>
 
-        <section>
-            <h2>Cross-Platform Power.</h2>
-            <p>
-                FtR works everywhere: Linux, macOS, even ARM devices. Commands
-                stay identical and performance stays consistent, so you can
-                focus on building.
-            </p>
-        </section>
+    <section>
+        <h2>Cross-Platform Power.</h2>
+        <p>
+            FtR works everywhere: Linux, macOS, even ARM devices. Commands
+            stay identical and performance stays consistent, so you can
+            focus on building.
+        </p>
+    </section>
 
-        <footer>© 2025 Quan Thai</footer>
+    <footer>© 2025 Quan Thai</footer>
 
-        <script>
-            // Scroll fade in/out
-            const sections = document.querySelectorAll("section");
-            const observer = new IntersectionObserver(
-                (entries) => {
-                    entries.forEach((entry) => {
-                        entry.target.classList.toggle(
-                            "visible",
-                            entry.isIntersecting,
-                        );
-                    });
-                },
-                { threshold: 0.3 },
-            );
-            sections.forEach((s) => observer.observe(s));
-
-            // Copy buttons
-            document.querySelectorAll(".copy-btn").forEach((btn) => {
-                btn.addEventListener("click", () => {
-                    const code = btn.previousElementSibling.innerText.trim();
-                    navigator.clipboard.writeText(code);
-                    btn.classList.add("copied");
-                    btn.textContent = "Copied";
-                    setTimeout(() => {
-                        btn.classList.remove("copied");
-                        btn.textContent = "Copy";
-                    }, 1600);
+    <script>
+        // Scroll fade in/out
+        const sections = document.querySelectorAll("section");
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    entry.target.classList.toggle(
+                        "visible",
+                        entry.isIntersecting,
+                    );
                 });
+            },
+            { threshold: 0.3 },
+        );
+        sections.forEach((s) => observer.observe(s));
+
+        // Copy buttons
+        document.querySelectorAll(".copy-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const code = btn.previousElementSibling.innerText.trim();
+                navigator.clipboard.writeText(code);
+                btn.classList.add("copied");
+                btn.textContent = "Copied";
+                setTimeout(() => {
+                    btn.classList.remove("copied");
+                    btn.textContent = "Copy";
+                }, 1600);
             });
-        </script>
-    </body>
+        });
+    </script>
+</body>
+
 </html>

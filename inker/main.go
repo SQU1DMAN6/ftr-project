@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -81,7 +82,9 @@ func main() {
 	// Destination directory
 	var downDest string
 
-	if drv, ok := a.Driver().(desktop.Driver); ok {
+	drv, ok := a.Driver().(desktop.Driver)
+
+	if ok && runtime.GOOS != "darwin" {
 		w = drv.CreateSplashWindow()
 	} else {
 		w = a.NewWindow(appName)
@@ -1500,31 +1503,41 @@ func main() {
 
 	w.Resize(fyne.NewSize(float32(appWidth), float32(appHeight)))
 
-	closeBtn := widget.NewButtonWithIcon("", theme.WindowCloseIcon(), func() {
-		w.Close()
-	})
+	var mainLayout *fyne.Container
 
-	title := widget.NewLabel(appName)
-	title.TextStyle.Bold = true
+	if runtime.GOOS != "darwin" {
+		closeBtn := widget.NewButtonWithIcon("", theme.WindowCloseIcon(), func() {
+			w.Close()
+		})
 
-	titleBar := container.NewGridWithColumns(3,
-		// Left side: spacer
-		widget.NewLabel(""),
-		// Center: Title
-		container.NewCenter(title),
-		// Right side: window controls
-		container.NewHBox(layout.NewSpacer(), closeBtn),
-	)
+		title := widget.NewLabel(appName)
+		title.TextStyle.Bold = true
 
-	dragArea := canvas.NewRectangle(color.Transparent)
-	draggableTitleBar := container.NewStack(titleBar, dragArea)
+		titleBar := container.NewGridWithColumns(3,
+			// Left side: spacer
+			widget.NewLabel(""),
+			// Center: Title
+			container.NewCenter(title),
+			// Right side: window controls
+			container.NewHBox(layout.NewSpacer(), closeBtn),
+		)
+
+		dragArea := canvas.NewRectangle(color.Transparent)
+		draggableTitleBar := container.NewStack(titleBar, dragArea)
+		mainLayout = container.NewBorder(
+			draggableTitleBar,
+			nil, nil, nil, // bottom, left, right
+			tabs,
+		)
+	} else {
+		mainLayout = container.NewBorder(
+			nil,
+			nil, nil, nil, // bottom, left, right
+			tabs,
+		)
+	}
 
 	// --- Window Layout ---
-	mainLayout := container.NewBorder(
-		draggableTitleBar,
-		nil, nil, nil, // bottom, left, right
-		tabs,
-	)
 
 	tabs.DisableItem(tabs.Items[3])
 	updateUI()
