@@ -58,6 +58,7 @@ type AutoSyncEntry struct {
 	Repo           string `json:"repo"`
 	SyncMode       string `json:"sync_mode"`
 	SyncCustomPath string `json:"sync_custom_path"`
+	ShowReceipt    bool   `json:"show_receipt"`
 }
 
 var (
@@ -65,7 +66,6 @@ var (
 	ftrClient   *api.Client
 	uiQueue     chan func()
 	w           fyne.Window
-	autoSyncRemaining int64
 )
 
 var updateUI func()
@@ -73,6 +73,7 @@ var updateUI func()
 func main() {
 	// Channel to queue UI updates from brackground goroutines
 	uiQueue = make(chan func(), 100)
+	resetCountdown := make(chan int, 1)
 
 	a := app.NewWithID("0")
 	loadSettings(a)
@@ -219,6 +220,36 @@ func main() {
 									}
 
 									if binaryPath != "" {
+										// Prompt for sudo password
+										pwdChan := make(chan string)
+										cancelChan := make(chan struct{})
+										uiQueue <- func() {
+											pwdEntry := widget.NewPasswordEntry()
+											dialog.ShowCustomConfirm("Authentication Required", "Install", "Cancel",
+												container.NewVBox(
+													widget.NewLabel("Enter your sudo password to install this package:"),
+													pwdEntry,
+												),
+												func(ok bool) {
+													if ok {
+														pwdChan <- pwdEntry.Text
+													} else {
+														close(cancelChan)
+													}
+												}, w)
+										}
+
+										select {
+										case password := <-pwdChan:
+											b.SetPassword(password)
+										case <-cancelChan:
+											uiQueue <- func() {
+												progressDialog.Hide()
+												dialog.ShowInformation("Cancelled", "Installation cancelled.", w)
+											}
+											return
+										}
+
 										uiQueue <- func() {
 											statusLabel.SetText("Installing binary (requires privileges)...")
 											overallProgress.SetValue(0.8)
@@ -230,17 +261,6 @@ func main() {
 												dialog.ShowError(fmt.Errorf("installation failed: %w", err), w)
 											}
 											return
-										}
-									}
-
-									// Add to Auto Sync handler
-									addBtn.OnTapped = func() {
-										log.Printf("Add to Auto Sync: %s/%s", user, repo)
-										appSettings.AutoSyncEntries = append(appSettings.AutoSyncEntries, AutoSyncEntry{User: user, Repo: repo, SyncMode: appSettings.SyncMode, SyncCustomPath: appSettings.SyncCustomPath})
-										saveSettings()
-										// refresh Auto Sync list in UI
-										if autoSyncList != nil {
-											autoSyncList.Refresh()
 										}
 									}
 
@@ -665,6 +685,23 @@ func main() {
 								}(user, repo)
 							}
 
+							addBtn.OnTapped = func() {
+								log.Printf("Add to Auto Sync: %s/%s", user, repo)
+								found := false
+								for _, e := range appSettings.AutoSyncEntries {
+									if e.User == user && e.Repo == repo {
+										found = true
+										break
+									}
+								}
+								if !found {
+									appSettings.AutoSyncEntries = append(appSettings.AutoSyncEntries, AutoSyncEntry{User: user, Repo: repo, SyncMode: appSettings.SyncMode, SyncCustomPath: appSettings.SyncCustomPath, ShowReceipt: false})
+									saveSettings()
+									dialog.ShowInformation("Added", fmt.Sprintf("Added %s/%s to Auto Sync", user, repo), w)
+								} else {
+									dialog.ShowInformation("Info", "Repository is already in Auto Sync list.", w)
+								}
+							}
 						} else {
 							v.Objects[0].(*widget.Label).SetText(repoPath)
 							v.Objects[1].(*widget.Label).SetText(desc)
@@ -902,16 +939,17 @@ func main() {
 		saveSettings()
 		updateValueLabel(v)
 		log.Printf("AutoSync interval set to %d seconds", appSettings.AutoSyncIntervalSeconds)
-		// reset countdown to new value
 		if appSettings.AutoSyncIntervalSeconds > 0 {
-			atomic.StoreInt64(&autoSyncRemaining, int64(appSettings.AutoSyncIntervalSeconds))
-		} else if debugMode {
-			atomic.StoreInt64(&autoSyncRemaining, 20)
-		} else {
-			atomic.StoreInt64(&autoSyncRemaining, 0)
+			select {
+			case resetCountdown <- appSettings.AutoSyncIntervalSeconds:
+			default:
+				select {
+				case <-resetCountdown:
+				default:
+				}
+				resetCountdown <- appSettings.AutoSyncIntervalSeconds
+			}
 		}
-		// update countdown label immediately
-		countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(int(atomic.LoadInt64(&autoSyncRemaining)))))
 	}
 
 	settingsTabContent.Add(intervalSlider)
@@ -1188,9 +1226,10 @@ func main() {
 		func() int { return len(appSettings.AutoSyncEntries) },
 		func() fyne.CanvasObject {
 			lbl := widget.NewLabel("user/repo (mode)")
+			check := widget.NewCheck("Receipt", nil)
 			syncBtn := widget.NewButtonWithIcon("Sync", theme.ViewRefreshIcon(), nil)
 			prefsBtn := widget.NewButton("Sync Preferences", nil)
-			return container.NewHBox(lbl, layout.NewSpacer(), syncBtn, prefsBtn)
+			return container.NewHBox(lbl, layout.NewSpacer(), check, syncBtn, prefsBtn)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
 			idx := int(i)
@@ -1200,12 +1239,22 @@ func main() {
 				lbl := box.Objects[0].(*widget.Label)
 				lbl.SetText(fmt.Sprintf("%s/%s (%s)", e.User, e.Repo, e.SyncMode))
 
+				check := box.Objects[2].(*widget.Check)
+				check.OnChanged = nil // Avoid triggering during binding
+				check.SetChecked(e.ShowReceipt)
+				check.OnChanged = func(b bool) {
+					appSettings.AutoSyncEntries[idx].ShowReceipt = b
+					saveSettings()
+				}
+
 				u := e.User
 				r := e.Repo
-				syncBtn := box.Objects[2].(*widget.Button)
-				prefsBtn := box.Objects[3].(*widget.Button)
+				syncBtn := box.Objects[3].(*widget.Button)
+				prefsBtn := box.Objects[4].(*widget.Button)
 
-				syncBtn.OnTapped = func() { go performSync(u, r, e.SyncMode, e.SyncCustomPath) }
+				syncBtn.OnTapped = func() {
+					go performSync(u, r, appSettings.AutoSyncEntries[idx].SyncMode, appSettings.AutoSyncEntries[idx].SyncCustomPath, appSettings.AutoSyncEntries[idx].ShowReceipt)
+				}
 				prefsBtn.OnTapped = func() {
 					// Preferences dialog for this auto-sync entry
 					modeOptions := []string{"Default (~/FtRSync/user/repo)", "Always Sync To...", "Ask Every Time"}
@@ -1264,25 +1313,12 @@ func main() {
 					u := strings.TrimSpace(userEntry.Text)
 					r := strings.TrimSpace(repoEntry.Text)
 					if u != "" && r != "" {
-						appSettings.AutoSyncEntries = append(appSettings.AutoSyncEntries, AutoSyncEntry{User: u, Repo: r, SyncMode: appSettings.SyncMode, SyncCustomPath: appSettings.SyncCustomPath})
+						appSettings.AutoSyncEntries = append(appSettings.AutoSyncEntries, AutoSyncEntry{User: u, Repo: r, SyncMode: appSettings.SyncMode, SyncCustomPath: appSettings.SyncCustomPath, ShowReceipt: false})
 						saveSettings()
 						autoSyncList.Refresh()
 					}
 				}
 			}, w)
-	})
-
-	syncAllBtn := widget.NewButtonWithIcon("Sync All", theme.ViewRefreshIcon(), func() {
-		log.Println("Sync All clicked")
-		go syncAllEntries()
-		// reset countdown
-		if appSettings.AutoSyncIntervalSeconds > 0 {
-			atomic.StoreInt64(&autoSyncRemaining, int64(appSettings.AutoSyncIntervalSeconds))
-		} else if os.Getenv("FTR_DEBUG") != "" {
-			atomic.StoreInt64(&autoSyncRemaining, 20)
-		}
-		// update visible label
-		countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(int(atomic.LoadInt64(&autoSyncRemaining)))))
 	})
 
 	removeAutoSyncBtn := widget.NewButton("Remove Selected", func() {
@@ -1294,6 +1330,24 @@ func main() {
 		}
 	})
 
+	syncAllBtn := widget.NewButton("Sync All", func() {
+		syncAllEntries()
+		if appSettings.AutoSyncIntervalSeconds > 0 {
+			select {
+			case resetCountdown <- appSettings.AutoSyncIntervalSeconds:
+			default:
+				select {
+				case <-resetCountdown:
+				default:
+				}
+				resetCountdown <- appSettings.AutoSyncIntervalSeconds
+			}
+		}
+		uiQueue <- func() {
+			countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(appSettings.AutoSyncIntervalSeconds)))
+		}
+	})
+
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Search", searchTabContent),
 		container.NewTabItem("Login", loginForm),
@@ -1302,7 +1356,7 @@ func main() {
 			container.NewBorder(repoListLabel, nil, nil, nil, repoList),
 			browserRightPane,
 		)),
-		container.NewTabItem("Auto Sync", container.NewBorder(autoSyncLabel, nil, nil, nil, container.NewVBox(container.NewBorder(nil, nil, nil, addAutoSyncBtn, autoSyncList), container.NewHBox(removeAutoSyncBtn)))),
+		container.NewTabItem("Auto Sync", container.NewBorder(autoSyncLabel, container.NewHBox(addAutoSyncBtn, removeAutoSyncBtn, syncAllBtn), nil, nil, autoSyncList)),
 		container.NewTabItem("Settings", settingsTabContent),
 	)
 	tabs.SetTabLocation(container.TabLocationLeading)
@@ -1399,38 +1453,46 @@ func main() {
 		} else if debugMode {
 			remaining = 20
 		}
-		for range ticker.C {
-			interval := appSettings.AutoSyncIntervalSeconds
-			if interval <= 0 {
-				if debugMode {
-					// keep a short debug countdown even when interval is 0
-					interval = 20
-				} else {
-					// disabled
-					continue
+		for {
+			select {
+			case newInterval := <-resetCountdown:
+				remaining = newInterval
+				uiQueue <- func() {
+					countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(remaining)))
 				}
-			}
-			if remaining <= 0 {
-				if appSettings.AutoSyncIntervalSeconds > 0 {
-					remaining = appSettings.AutoSyncIntervalSeconds
-				} else if debugMode {
-					remaining = 20
-				} else {
-					continue
+			case <-ticker.C:
+				interval := appSettings.AutoSyncIntervalSeconds
+				if interval <= 0 {
+					if debugMode {
+						// keep a short debug countdown even when interval is 0
+						interval = 20
+					} else {
+						// disabled
+						continue
+					}
 				}
-			}
-			// update visible countdown label
-			uiQueue <- func() {
-				countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(remaining)))
-			}
-			remaining--
-			if remaining <= 0 {
-				log.Printf("Auto-sync: interval reached, triggering Sync All")
-				syncAllEntries()
-				if appSettings.AutoSyncIntervalSeconds > 0 {
-					remaining = appSettings.AutoSyncIntervalSeconds
-				} else if debugMode {
-					remaining = 20
+				if remaining <= 0 {
+					if appSettings.AutoSyncIntervalSeconds > 0 {
+						remaining = appSettings.AutoSyncIntervalSeconds
+					} else if debugMode {
+						remaining = 20
+					} else {
+						continue
+					}
+				}
+				// update visible countdown label
+				uiQueue <- func() {
+					countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(remaining)))
+				}
+				remaining--
+				if remaining <= 0 {
+					log.Printf("Auto-sync: interval reached, triggering Sync All")
+					syncAllEntries()
+					if appSettings.AutoSyncIntervalSeconds > 0 {
+						remaining = appSettings.AutoSyncIntervalSeconds
+					} else if debugMode {
+						remaining = 20
+					}
 				}
 			}
 		}
@@ -1530,8 +1592,8 @@ func showDeleteConfirm(fileName, user, repo string, w fyne.Window, client *api.C
 // performSync performs a sync for a repository with confirmation summary.
 // Minimal stub for initial compilation; will be expanded to list remote/local diffs and perform transfers.
 // performSync performs a sync for a repository with confirmation summary.
-func performSync(user, repo, mode, customPath string) {
-	log.Printf("performSync: %s/%s mode=%s", user, repo, mode)
+func performSync(user, repo, mode, customPath string, showReceipt bool) {
+	log.Printf("performSync: %s/%s mode=%s receipt=%v", user, repo, mode, showReceipt)
 
 	var syncDir string
 	var err error
@@ -1583,6 +1645,12 @@ func performSync(user, repo, mode, customPath string) {
 	remoteFiles, err := ftrClient.ListRepoFiles(user, repo)
 	if err != nil {
 		uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to list remote files: %w", err), w) }
+		return
+	}
+
+	// Ensure sync directory exists
+	if err := os.MkdirAll(syncDir, 0755); err != nil {
+		uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to create sync directory: %w", err), w) }
 		return
 	}
 
@@ -1655,65 +1723,144 @@ func performSync(user, repo, mode, customPath string) {
 	}
 
 	// detailed confirmation with exact file lists
-	okCh := make(chan bool)
-	uiQueue <- func() {
-		header := widget.NewLabel(fmt.Sprintf("About to sync %s/%s:\nUploads: %d (%.2f MB)  Downloads: %d (%.2f MB)",
-			user, repo, len(uploads), float64(totalUploadSize)/1024.0/1024.0, len(downloads), float64(totalDownloadSize)/1024.0/1024.0))
+	if showReceipt {
+		okCh := make(chan bool)
+		uiQueue <- func() {
+			header := widget.NewLabel(fmt.Sprintf("About to sync %s/%s:\nUploads: %d (%.2f MB)  Downloads: %d (%.2f MB)",
+				user, repo, len(uploads), float64(totalUploadSize)/1024.0/1024.0, len(downloads), float64(totalDownloadSize)/1024.0/1024.0))
 
-		uploadText := "(none)"
-		if len(uploads) > 0 {
-			uploadText = strings.Join(uploads, "\n")
-		}
-		downloadText := "(none)"
-		if len(downloads) > 0 {
-			downloadText = strings.Join(downloads, "\n")
-		}
-
-		uploadEntry := widget.NewMultiLineEntry()
-		uploadEntry.SetText(uploadText)
-		uploadEntry.Disable()
-		downloadEntry := widget.NewMultiLineEntry()
-		downloadEntry.SetText(downloadText)
-		downloadEntry.Disable()
-
-		content := container.NewVBox(
-			header,
-			widget.NewLabelWithStyle("Files to Upload:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			container.NewVScroll(uploadEntry),
-			widget.NewLabelWithStyle("Files to Download:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			container.NewVScroll(downloadEntry),
-		)
-
-		dialog.ShowCustomConfirm("Sync Confirmation", "Sync", "Cancel", content, func(ok bool) { okCh <- ok }, w)
-	}
-	if !<-okCh {
-		uiQueue <- func() { dialog.ShowInformation("Cancelled", "Sync cancelled by user.", w) }
-		return
-	}
-
-	// perform downloads/uploads sequentially (simpler)
-	for _, p := range downloads {
-		destPath := filepath.Join(syncDir, filepath.FromSlash(p))
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			log.Printf("failed to create dest dir: %v", err)
-			continue
-		}
-		if err := ftrClient.DownloadAndVerify(user, repo, p, destPath, nil); err != nil {
-			log.Printf("download failed: %v", err)
-		}
-	}
-	for _, p := range uploads {
-		localPath := filepath.Join(syncDir, filepath.FromSlash(p))
-		if file, err := os.Open(localPath); err == nil {
-			repoPath := fmt.Sprintf("%s/%s", user, repo)
-			if err := ftrClient.UploadFile(repoPath, p, file, fileInfoSize(file), false, nil); err != nil {
-				log.Printf("upload failed: %v", err)
+			uploadText := "(none)"
+			if len(uploads) > 0 {
+				uploadText = strings.Join(uploads, "\n")
 			}
-			file.Close()
+			downloadText := "(none)"
+			if len(downloads) > 0 {
+				downloadText = strings.Join(downloads, "\n")
+			}
+
+			uploadEntry := widget.NewMultiLineEntry()
+			uploadEntry.SetText(uploadText)
+			uploadEntry.Disable()
+			uploadEntry.SetMinRowsVisible(12)
+			downloadEntry := widget.NewMultiLineEntry()
+			downloadEntry.SetText(downloadText)
+			downloadEntry.Disable()
+			downloadEntry.SetMinRowsVisible(12)
+
+			content := container.NewVBox(
+				header,
+				widget.NewLabelWithStyle("Files to Upload:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				container.NewVScroll(uploadEntry),
+				widget.NewLabelWithStyle("Files to Download:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				container.NewVScroll(downloadEntry),
+			)
+
+			dialog.ShowCustomConfirm("Sync Confirmation", "Sync", "Cancel", content, func(ok bool) { okCh <- ok }, w)
+		}
+		if !<-okCh {
+			uiQueue <- func() { dialog.ShowInformation("Cancelled", "Sync cancelled by user.", w) }
+			return
 		}
 	}
 
-	uiQueue <- func() { dialog.ShowInformation("Sync Complete", fmt.Sprintf("Finished syncing %s/%s.", user, repo), w) }
+	// Start Sync Logic with Progress
+	statusLabel := widget.NewLabel("Starting sync...")
+	overallProgress := widget.NewProgressBar()
+
+	workerContainer := container.NewVBox()
+	workerBars := make([]*widget.ProgressBar, guiWorkers)
+	workerLabels := make([]*widget.Label, guiWorkers)
+	for i := 0; i < guiWorkers; i++ {
+		workerLabels[i] = widget.NewLabel(fmt.Sprintf("Worker %d: Idle", i+1))
+		workerBars[i] = widget.NewProgressBar()
+		workerContainer.Add(workerLabels[i])
+		workerContainer.Add(workerBars[i])
+	}
+
+	progressDialog := dialog.NewCustomWithoutButtons("Synchronising...", container.NewVBox(statusLabel, overallProgress, widget.NewSeparator(), workerContainer), w)
+	uiQueue <- func() { progressDialog.Show() }
+
+	totalSyncSize := totalDownloadSize + totalUploadSize
+	var syncedSize int64
+
+	type syncTask struct {
+		op   string // "download" or "upload"
+		path string
+		size int64
+	}
+	taskChan := make(chan syncTask, len(downloads)+len(uploads))
+	for _, path := range downloads {
+		size := 0.0
+		if rf, ok := remoteMap[path]; ok {
+			size, _ = rf["size"].(float64)
+		}
+		taskChan <- syncTask{op: "download", path: path, size: int64(size)}
+	}
+	for _, path := range uploads {
+		size := int64(0)
+		if lf, ok := localFiles[path]; ok {
+			size = lf.Info.Size()
+		}
+		taskChan <- syncTask{op: "upload", path: path, size: size}
+	}
+	close(taskChan)
+
+	var wg sync.WaitGroup
+	for i := 0; i < guiWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for task := range taskChan {
+				uiQueue <- func() {
+					workerLabels[workerID].SetText(fmt.Sprintf("%s: %s", strings.Title(task.op), task.path))
+					workerBars[workerID].SetValue(0)
+				}
+
+				var lastP float64
+				progressCb := func(p float64) {
+					deltaP := p - lastP
+					lastP = p
+					deltaBytes := int64(deltaP * float64(task.size))
+					newTotal := atomic.AddInt64(&syncedSize, deltaBytes)
+
+					uiQueue <- func() {
+						workerBars[workerID].SetValue(p)
+						if totalSyncSize > 0 {
+							overallProgress.SetValue(float64(newTotal) / float64(totalSyncSize))
+						}
+					}
+				}
+
+				if task.op == "download" {
+					destPath := filepath.Join(syncDir, filepath.FromSlash(task.path))
+					os.MkdirAll(filepath.Dir(destPath), 0755)
+					if err := ftrClient.DownloadAndVerify(user, repo, task.path, destPath, progressCb); err != nil {
+						log.Printf("download failed: %v", err)
+					}
+				} else {
+					localPath := filepath.Join(syncDir, filepath.FromSlash(task.path))
+					if file, err := os.Open(localPath); err == nil {
+						repoPath := fmt.Sprintf("%s/%s", user, repo)
+						if err := ftrClient.UploadFile(repoPath, task.path, file, task.size, false, progressCb); err != nil {
+							log.Printf("upload failed: %v", err)
+						}
+						file.Close()
+					}
+				}
+
+				uiQueue <- func() {
+					workerLabels[workerID].SetText(fmt.Sprintf("Worker %d: Idle", workerID+1))
+					workerBars[workerID].SetValue(0)
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	uiQueue <- func() {
+		progressDialog.Hide()
+		dialog.ShowInformation("Sync Complete", fmt.Sprintf("Finished syncing %s/%s.", user, repo), w)
+	}
 }
 
 func fileInfoSize(f *os.File) int64 {
@@ -1735,7 +1882,7 @@ func formatTime(seconds int) string {
 func syncAllEntries() {
 	log.Printf("syncAllEntries: running %d entries", len(appSettings.AutoSyncEntries))
 	for _, e := range appSettings.AutoSyncEntries {
-		go performSync(e.User, e.Repo, e.SyncMode, e.SyncCustomPath)
+		go performSync(e.User, e.Repo, e.SyncMode, e.SyncCustomPath, e.ShowReceipt)
 	}
 }
 

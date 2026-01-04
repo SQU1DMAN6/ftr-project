@@ -17,11 +17,14 @@ type Builder struct {
 	RepoName         string
 	WorkDir          string
 	privilegedRunner *PrivilegedRunner
+	Password         string
 }
 
 // PrivilegedRunner collects and runs commands requiring elevated privileges.
 type PrivilegedRunner struct {
 	commands []string
+	Password string
+	UseSudo  bool
 }
 
 // NewPrivilegedRunner creates a new runner.
@@ -54,14 +57,19 @@ func (pr *PrivilegedRunner) Execute() error {
 	}
 
 	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		escapedScript := strings.ReplaceAll(script, "\\", "\\\\")
-		escapedScript = strings.ReplaceAll(escapedScript, "\"", "\\\"")
-		appleScript := fmt.Sprintf("do shell script \"%s\" with administrator privileges", escapedScript)
-		cmd = exec.Command("osascript", "-e", appleScript)
-	default:
-		cmd = exec.Command("pkexec", "sh", "-c", script)
+	if pr.UseSudo {
+		cmd = exec.Command("sudo", "-S", "sh", "-c", script)
+		cmd.Stdin = strings.NewReader(pr.Password + "\n")
+	} else {
+		switch runtime.GOOS {
+		case "darwin":
+			escapedScript := strings.ReplaceAll(script, "\\", "\\\\")
+			escapedScript = strings.ReplaceAll(escapedScript, "\"", "\\\"")
+			appleScript := fmt.Sprintf("do shell script \"%s\" with administrator privileges", escapedScript)
+			cmd = exec.Command("osascript", "-e", appleScript)
+		default:
+			cmd = exec.Command("pkexec", "sh", "-c", script)
+		}
 	}
 
 	var stderr bytes.Buffer
@@ -79,6 +87,12 @@ func New(repoName, workDir string) *Builder {
 		WorkDir:          workDir,
 		privilegedRunner: NewPrivilegedRunner(),
 	}
+}
+
+func (b *Builder) SetPassword(password string) {
+	b.Password = password
+	b.privilegedRunner.Password = password
+	b.privilegedRunner.UseSudo = true
 }
 
 func (b *Builder) run(command string, args ...string) error {
@@ -227,7 +241,7 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 	shareDir := filepath.Join("/usr/share", b.RepoName)
 
 	// Make binary executable
-	if err := b.run("chmod", "+x", binaryPath); err != nil {
+	if err := b.run("sudo", "chmod", "+x", binaryPath); err != nil {
 		return fmt.Errorf("changing permissions failed: %w", err)
 	}
 

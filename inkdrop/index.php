@@ -261,11 +261,6 @@ if (
         align-items: center;
         word-break: break-word;
         overflow: auto;
-        scrollbar-width: none;
-    }
-
-    * {
-        scrollbar-width: none;
     }
     </style>
     <script>

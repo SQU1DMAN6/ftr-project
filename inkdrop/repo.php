@@ -1304,10 +1304,6 @@ function include_repo_creation_form($repo, $user) {
         </main>
     </body>
     <style>
-    * {
-        scrollbar-width: none;
-    }
-
     main {
         background-image: linear-gradient(
             to bottom,
@@ -1318,7 +1314,6 @@ function include_repo_creation_form($repo, $user) {
         display: flex;
         flex-direction: column;
         overflow: auto;
-        scrollbar-width: none;
         width: 100%;
         height: 100vh;
         align-items: center;
@@ -1330,7 +1325,7 @@ function include_repo_creation_form($repo, $user) {
 
     input[type="file"] {
         margin: 8px;
-        madding: 8px;
+        padding: 8px;
         border: 1px solid white;
         color: white;
         background-color: var(--dark);

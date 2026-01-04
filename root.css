@@ -1,12 +1,23 @@
 * {
     margin: 0px;
     padding: 0px;
-    scrollbar-width: none; /* For FireFox */
-    -ms-overflow-style: none; /* For Internet Explorer */
 }
 
-html::-webkit-scrollbar {
-    display: none; /* For chrome */
+::-webkit-scrollbar {
+    height: 0px;
+    width: 10px;
+    border: 2px solid #b5b5b5;
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-track {
+    border-radius: 6px;
+    background: #eeeeee;
+}
+
+::-webkit-scrollbar-thumb {
+    border-radius: 6px;
+    background: #a0a0a0;
 }
 
 hr.linebreaker {
@@ -108,8 +119,10 @@ input.details {
         width 0.3s ease,
         box-shadow 0.3s ease;
     outline: none;
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* Internet Explorer 10+ */
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* Internet Explorer 10+ */
     margin: 5px;
 }
 
