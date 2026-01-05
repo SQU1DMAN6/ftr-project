@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	appName    = "FtR Inker 2.5"
+	appName    = "FtR Inker 2.6"
 	appWidth   = 800
 	appHeight  = 600
 	guiWorkers = 4
@@ -87,10 +87,9 @@ func main() {
 	if ok && runtime.GOOS != "darwin" {
 		w = drv.CreateSplashWindow()
 	} else {
+		// Create default window on macOS since it is not possible to drag windows without a drag bar in macOS
 		w = a.NewWindow(appName)
 	}
-
-	// w = a.NewWindow(appName)
 
 	var err error
 	ftrClient, err = api.NewClient()
