@@ -156,8 +156,10 @@ func main() {
 									defer func() { uiQueue <- func() { progressDialog.Hide() } }()
 
 									repoPath := fmt.Sprintf("%s/%s", user, repo)
-									tmpDir := "/tmp/fsdl"
-									if err := os.MkdirAll(tmpDir, 0755); err != nil {
+									// Use a unique temporary directory to avoid permission issues
+									// with a shared /tmp/fsdl folder owned by root from previous runs.
+									tmpDir, err := os.MkdirTemp("", "fsdl-*")
+									if err != nil {
 										log.Printf("failed to create temp directory: %v", err)
 										uiQueue <- func() {
 											progressDialog.Hide()
@@ -165,6 +167,7 @@ func main() {
 										}
 										return
 									}
+									defer os.RemoveAll(tmpDir)
 
 									fsdlFile := filepath.Join(tmpDir, repo+".fsdl")
 
@@ -213,12 +216,55 @@ func main() {
 
 									binaryPath, err := b.DetectAndBuild()
 									if err != nil {
-										log.Printf("build failed: %v", err)
-										uiQueue <- func() {
-											progressDialog.Hide()
-											dialog.ShowError(fmt.Errorf("build failed: %w", err), w)
+										// If the builder indicates privileged actions are required,
+										// prompt the user for a password and execute the collected
+										// privileged commands. This ensures a GUI password dialog
+										// is shown instead of a terminal prompt.
+										if err == builder.ErrPrivilegedRequired {
+											pwdChan := make(chan string)
+											cancelChan := make(chan struct{})
+											uiQueue <- func() {
+												pwdEntry := widget.NewPasswordEntry()
+												dialog.ShowCustomConfirm("Authentication Required", "Run as admin", "Cancel",
+													container.NewVBox(
+														widget.NewLabel("Enter your sudo password to continue:"),
+														pwdEntry,
+													),
+													func(ok bool) {
+														if ok {
+															pwdChan <- pwdEntry.Text
+														} else {
+															close(cancelChan)
+														}
+													}, w)
+											}
+
+											select {
+											case password := <-pwdChan:
+												b.SetPassword(password)
+												if err2 := b.ExecutePrivileged(); err2 != nil {
+													log.Printf("privileged execution failed: %v", err2)
+													uiQueue <- func() {
+														progressDialog.Hide()
+														dialog.ShowError(fmt.Errorf("installation failed: %w", err2), w)
+													}
+													return
+												}
+											case <-cancelChan:
+												uiQueue <- func() {
+													progressDialog.Hide()
+													dialog.ShowInformation("Cancelled", "Installation cancelled.", w)
+												}
+												return
+											}
+										} else {
+											log.Printf("build failed: %v", err)
+											uiQueue <- func() {
+												progressDialog.Hide()
+												dialog.ShowError(fmt.Errorf("build failed: %w", err), w)
+											}
+											return
 										}
-										return
 									}
 
 									if binaryPath != "" {
