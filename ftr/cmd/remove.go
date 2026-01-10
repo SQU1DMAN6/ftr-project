@@ -14,10 +14,10 @@ var removeCmd = &cobra.Command{
 	Use:   "remove [repo]",
 	Short: "Remove an installed package",
 	Long: `Remove an installed package from the system.
-This will remove the binary from /usr/local/bin and its directory from /usr/share.
+This will remove the binary from /usr/local/bin and its directory from /usr/local/share.
 
 Example: ftr remove myapp
-         ftr remove user/myapp`,
+		 ftr remove user/myapp`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		repoPath := args[0]
@@ -30,8 +30,8 @@ Example: ftr remove myapp
 		}
 
 		binPath := filepath.Join("/usr/local/bin", repoName)
-		sharePath := filepath.Join("/usr/share", repoName)
-		desktopEntry := filepath.Join("/usr/share/applications", repoName+".desktop")
+		sharePath := filepath.Join("/usr/local/share", repoName)
+		desktopEntry := filepath.Join("/usr/local/share/applications", repoName+".desktop")
 
 		// Remove binary
 		if _, err := os.Stat(binPath); err == nil {
