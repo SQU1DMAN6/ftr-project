@@ -7,7 +7,7 @@ set -e
 APP_NAME="inker"
 BIN_DIR="/usr/local/bin"
 SHARE_DIR="/usr/local/share/$APP_NAME"
-DESKTOP_DIR="/usr/local/share/applications"
+DESKTOP_DIR="/usr/share/applications"
 ICON_PATH="/usr/local/share/$APP_NAME/$APP_NAME.png"
 
 sudo echo "Installing $APP_NAME..."
