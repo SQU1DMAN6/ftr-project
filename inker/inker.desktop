@@ -2,7 +2,7 @@
 Name=FtR Inker
 Comment=Use the GUI to manage local and remote files
 Exec=/usr/local/bin/inker
-Icon=/usr/share/inker/inker.png
+Icon=/usr/local/share/inker/inker.png
 Terminal=false
 Type=Application
 Categories=Network

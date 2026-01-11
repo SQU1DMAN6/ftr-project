@@ -14,10 +14,10 @@ import (
 	"strings"
 )
 
-// ErrPrivilegedRequired indicates that the detected build requires privileged actions
-// to be executed later by the caller (so the caller can prompt the user for a password
-// or otherwise decide how to obtain elevation).
 var ErrPrivilegedRequired = errors.New("privileged actions required")
+
+// ErrDelegatedToTerminal indicates privileged commands were delegated to the user's Terminal.app for interactive execution (macOS only).
+var ErrDelegatedToTerminal = errors.New("delegated to terminal")
 
 // Builder handles the detection and building of different project types
 type Builder struct {
@@ -65,15 +65,69 @@ func (pr *PrivilegedRunner) Execute() error {
 
 	var cmd *exec.Cmd
 	if pr.UseSudo {
+		// First, verify the provided password works with sudo by running a
+		// small test command. This provides an earlier, clearer error when
+		// authentication fails instead of running the full script.
+		checkCmd := exec.Command("sudo", "-S", "-k", "-p", "", "sh", "-c", "echo SUDO_AUTH_OK")
+		var checkOut, checkErr bytes.Buffer
+		checkCmd.Stdout = &checkOut
+		checkCmd.Stderr = &checkErr
+		checkCmd.Stdin = strings.NewReader(pr.Password + "\n")
+		if err := checkCmd.Run(); err != nil || !strings.Contains(checkOut.String(), "SUDO_AUTH_OK") {
+			out := strings.TrimSpace(checkOut.String() + "\n" + checkErr.String())
+			if err != nil {
+				return fmt.Errorf("sudo authentication failed: %w\nOutput:\n%s", err, out)
+			}
+			return fmt.Errorf("sudo authentication failed: Output:\n%s", out)
+		}
+
 		cmd = exec.Command("sudo", "-S", "sh", "-c", script)
 		cmd.Stdin = strings.NewReader(pr.Password + "\n")
 	} else {
 		switch runtime.GOOS {
 		case "darwin":
-			escapedScript := strings.ReplaceAll(script, "\\", "\\\\")
-			escapedScript = strings.ReplaceAll(escapedScript, "\"", "\\\"")
-			appleScript := fmt.Sprintf("do shell script \"%s\" with administrator privileges", escapedScript)
+			// On macOS, delegate the privileged script to Terminal so the user
+			// sees the install running in the standard terminal environment
+			// (and can enter sudo password interactively). Create a temporary
+			// shell script and instruct Terminal.app to run it. Because the
+			// actual commands will run asynchronously in Terminal, return a
+			// sentinel error so the caller knows execution was delegated.
+			tmpFile, merr := os.CreateTemp("", "ftr-priv-*.sh")
+			if merr != nil {
+				return fmt.Errorf("failed to create temp script: %w", merr)
+			}
+			tmpPath := tmpFile.Name()
+			// Add an EXIT trap to close the Terminal window only on success.
+			// This avoids hiding failures by closing the window when the
+			// installer fails; users can still see errors in Terminal.
+			trap := "trap 'status=$?; if [ \"$status\" -eq 0 ]; then /usr/bin/osascript -e \"tell application \\\"Terminal\\\" to close front window\"; fi; exit $status' EXIT\n"
+			if _, werr := tmpFile.WriteString("#!/bin/sh\nset -e\n" + trap + script); werr != nil {
+				tmpFile.Close()
+				return fmt.Errorf("failed to write temp script: %w", werr)
+			}
+			tmpFile.Close()
+			if chmodErr := os.Chmod(tmpPath, 0755); chmodErr != nil {
+				return fmt.Errorf("failed to mark temp script executable: %w", chmodErr)
+			}
+
+			// Build AppleScript to open Terminal and run the script. Use /bin/sh
+			// to ensure consistent shell behavior for GUI-launched terminals.
+			// Escape double quotes in path just in case.
+			safePath := strings.ReplaceAll(tmpPath, "\"", "\\\"")
+			// Run the script with sudo so the terminal prompts for the user's
+			// password and the installer runs with elevated privileges.
+			termCmd := fmt.Sprintf("/bin/sh '%s'", safePath)
+			appleScript := fmt.Sprintf("tell application \"Terminal\" to do script \"%s\"", termCmd)
 			cmd = exec.Command("osascript", "-e", appleScript)
+
+			// Run the osascript command to open Terminal; do not wait for the
+			// script inside Terminal to finish — delegate and inform caller.
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("failed to launch Terminal: %w\nOutput:\n%s", err, stderr.String())
+			}
+			return ErrDelegatedToTerminal
 		default:
 			cmd = exec.Command("pkexec", "sh", "-c", script)
 		}
@@ -109,11 +163,48 @@ func (b *Builder) run(command string, args ...string) error {
 	}
 
 	if currentUser.Uid == "0" {
-		cmd := exec.Command(command, args...)
+		// Resolve executable path to handle limited PATH when launched from GUI bundles
+		cmdPath, perr := findExecutable(command)
+		if perr != nil {
+			return perr
+		}
+		cmd := exec.Command(cmdPath, args...)
+		// If invoking `go`, ensure GOROOT is set when the binary is a trimmed
+		// Homebrew shim. Try common libexec locations used by Homebrew and
+		// system installs and set GOROOT in the command environment if found.
+		if command == "go" {
+			env := os.Environ()
+			// Common possible GOROOT locations
+			candidates := []string{
+				"/opt/homebrew/opt/go/libexec",
+				"/usr/local/opt/go/libexec",
+				"/usr/local/go",
+			}
+			// Also try a libexec next to the go binary (two levels up)/libexec
+			binDir := filepath.Dir(cmdPath)
+			candidates = append([]string{filepath.Join(filepath.Dir(binDir), "opt", "go", "libexec")}, candidates...)
+			for _, g := range candidates {
+				if g == "" {
+					continue
+				}
+				if fi, err := os.Stat(g); err == nil && fi.IsDir() {
+					env = append(env, "GOROOT="+g)
+					cmd.Env = env
+					log.Printf("Setting GOROOT=%s for go binary", g)
+					break
+				}
+			}
+		}
 		cmd.Dir = b.WorkDir
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("command failed: %w\nOutput:\n%s", err, strings.TrimSpace(out.String()))
+		}
+		return nil
 	}
 
 	if command == "sudo" {
@@ -149,42 +240,59 @@ func (b *Builder) run(command string, args ...string) error {
 		return nil
 	}
 
-	cmd := exec.Command(command, args...)
+	// Resolve executable path to handle limited PATH when launched from GUI bundles
+	cmdPath, perr := findExecutable(command)
+	if perr != nil {
+		return perr
+	}
+	cmd := exec.Command(cmdPath, args...)
+	// If invoking `go`, ensure GOROOT is set similarly for non-root runs.
+	if command == "go" {
+		env := os.Environ()
+		candidates := []string{
+			"/opt/homebrew/opt/go/libexec",
+			"/usr/local/opt/go/libexec",
+			"/usr/local/go",
+		}
+		binDir := filepath.Dir(cmdPath)
+		candidates = append([]string{filepath.Join(filepath.Dir(binDir), "opt", "go", "libexec")}, candidates...)
+		for _, g := range candidates {
+			if g == "" {
+				continue
+			}
+			if fi, err := os.Stat(g); err == nil && fi.IsDir() {
+				env = append(env, "GOROOT="+g)
+				cmd.Env = env
+				log.Printf("Setting GOROOT=%s for go binary", g)
+				break
+			}
+		}
+	}
 	cmd.Dir = b.WorkDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("command failed: %w\nOutput:\n%s", err, strings.TrimSpace(out.String()))
+	}
+	return nil
 }
 
 func (b *Builder) DetectAndBuild() (string, error) {
 	// Check for install.sh first
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "install.sh")); err == nil {
 		log.Println("install.sh found. Running and skipping default installer protocol...")
-		// On macOS, many installers assume /usr/share which is protected by SIP.
-		// Create a MAC-specific copy that rewrites /usr/share -> /usr/local/share
-		// when possible so installations succeed without hitting SIP.
-		if runtime.GOOS == "darwin" {
-			origPath := filepath.Join(b.WorkDir, "install.sh")
-			data, rerr := os.ReadFile(origPath)
-			if rerr == nil {
-				modified := strings.ReplaceAll(string(data), "/usr/share", "/usr/local/share")
-				newName := "install.mac.sh"
-				newPath := filepath.Join(b.WorkDir, newName)
-				if werr := os.WriteFile(newPath, []byte(modified), 0755); werr == nil {
-					b.privilegedRunner.Add("chmod", "+x", newPath)
-					b.privilegedRunner.Add("sh", "-c", newPath)
-					return "", ErrPrivilegedRequired
-				}
-				// If writing the modified script fails, fall back to original
-			}
-		}
-		// Default: collect privileged steps and return a sentinel error to allow the
+		// Collect privileged steps and return a sentinel error to allow the
 		// caller to prompt the user for credentials (or choose another
 		// elevation method) before executing the actions. Use absolute paths
 		// so the privileged runner can find the files regardless of its cwd.
 		orig := filepath.Join(b.WorkDir, "install.sh")
+		// Ensure the installer runs with the package's workdir as the current
+		// directory; some installers expect to be executed from that location.
 		b.privilegedRunner.Add("chmod", "+x", orig)
-		b.privilegedRunner.Add("sh", "-c", orig)
+		b.privilegedRunner.Add("sh", "-c", fmt.Sprintf("cd '%s' && sh '%s'", b.WorkDir, orig))
 		return "", ErrPrivilegedRequired
 	}
 
@@ -250,6 +358,11 @@ func (b *Builder) DetectAndBuild() (string, error) {
 	// Check for main.sqd
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "main.sqd")); err == nil {
 		fmt.Println("Detected SQU1D app. Building with squ1d++...")
+		// Ensure the required build tool exists and is visible to GUI-launched apps.
+		if _, err := findExecutable("squ1d++"); err != nil {
+			return "", fmt.Errorf("required build tool 'squ1d++' not found: %w", err)
+		}
+
 		if err := b.run("squ1d++", "-B", "main.sqd", "-o", b.RepoName); err != nil {
 			return "", fmt.Errorf("squ1d++ build failed: %w", err)
 		}
@@ -275,31 +388,12 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 		log.Printf("warning: failed to copy binary to %s: %v", destBin, err)
 	}
 
-	// For macOS, avoid writing into system-wide share directories which may be
-	// restricted by SIP. Use a per-user Application Support folder instead so
-	// installations remain stable and do not require system-level writes when
-	// possible.
-	if runtime.GOOS == "darwin" {
-		home, herr := os.UserHomeDir()
-		if herr != nil {
-			return fmt.Errorf("failed to determine home directory: %w", herr)
-		}
-		userShare := filepath.Join(home, "Library", "Application Support", b.RepoName)
-		if err := os.MkdirAll(userShare, 0755); err != nil {
-			return fmt.Errorf("failed to create user share directory: %w", err)
-		}
-		dest := filepath.Join(userShare, binName)
-		if err := copyFile(binaryPath, dest); err != nil {
-			return fmt.Errorf("failed to copy binary to user share dir: %w", err)
-		}
-	} else {
-		// Non-macOS: attempt to create and copy into system-wide share directory
-		if err := b.run("sudo", "mkdir", "-p", shareDir); err != nil {
-			log.Printf("warning: could not create %s: %v", shareDir, err)
-		}
-		if err := b.run("sudo", "cp", binaryPath, shareDir); err != nil {
-			log.Printf("warning: could not copy to %s: %v", shareDir, err)
-		}
+	// Attempt to create and copy into system-wide share directory
+	if err := b.run("sudo", "mkdir", "-p", shareDir); err != nil {
+		log.Printf("warning: could not create %s: %v", shareDir, err)
+	}
+	if err := b.run("sudo", "cp", binaryPath, shareDir); err != nil {
+		log.Printf("warning: could not copy to %s: %v", shareDir, err)
 	}
 
 	// Now, execute all collected privileged commands (if any).
@@ -362,4 +456,32 @@ func copyFile(src, dst string) error {
 // then perform elevation after prompting the user for credentials.
 func (b *Builder) ExecutePrivileged() error {
 	return b.privilegedRunner.Execute()
+}
+
+// findExecutable attempts to locate an executable. It first uses exec.LookPath
+// (which respects the current PATH). If not found, it searches common macOS
+// and Homebrew locations so GUI-launched apps (with a limited PATH) can still
+// find developer tools like `go`.
+func findExecutable(name string) (string, error) {
+	if p, err := exec.LookPath(name); err == nil {
+		return p, nil
+	}
+
+	// Check common locations on macOS/Homebrew
+	if runtime.GOOS == "darwin" {
+		candidates := []string{
+			filepath.Join("/opt/homebrew/bin", name),
+			filepath.Join("/usr/local/bin", name),
+			filepath.Join("/usr/local/go/bin", name),
+			filepath.Join("/usr/bin", name),
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				return c, nil
+			}
+		}
+	}
+
+	// As a last resort, return an informative error
+	return "", fmt.Errorf("executable %q not found in PATH; please install it or set PATH for GUI apps", name)
 }

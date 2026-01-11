@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -78,6 +79,84 @@ func main() {
 
 	a := app.NewWithID("0")
 	loadSettings(a)
+
+	// GUI-launched apps on macOS often have a limited PATH. Load the user's
+	// login shell PATH and prepend it so tools like `go` installed via
+	// Homebrew (/opt/homebrew/bin) are discoverable.
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "zsh"
+	}
+	if out, err := exec.Command(shell, "-lc", "echo $PATH").Output(); err == nil {
+		p := strings.TrimSpace(string(out))
+		if p != "" {
+			// Prepend the shell PATH to the environment PATH
+			os.Setenv("PATH", p+":"+os.Getenv("PATH"))
+			log.Printf("Loaded shell PATH for GUI: %s", p)
+		}
+	} else {
+		log.Printf("Could not load shell PATH: %v", err)
+	}
+
+	// If `go` (or other tools) still isn't available, try reading system
+	// path files and common install locations and prepend them to PATH.
+	if _, err := exec.LookPath("go"); err != nil {
+		var systemPaths []string
+		if data, rerr := os.ReadFile("/etc/paths"); rerr == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					systemPaths = append(systemPaths, line)
+				}
+			}
+		}
+		if entries, derr := os.ReadDir("/etc/paths.d"); derr == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				if data, rerr := os.ReadFile(filepath.Join("/etc/paths.d", e.Name())); rerr == nil {
+					for _, line := range strings.Split(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if line != "" {
+							systemPaths = append(systemPaths, line)
+						}
+					}
+				}
+			}
+		}
+
+		candidates := append(systemPaths, []string{"/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}...)
+		for _, p := range candidates {
+			if p == "" {
+				continue
+			}
+			if _, serr := os.Stat(p); serr == nil {
+				// If `go` exists in this path, use it; otherwise still prepend
+				// the path so other tools become available.
+				os.Setenv("PATH", p+":"+os.Getenv("PATH"))
+				if _, gerr := exec.LookPath("go"); gerr == nil {
+					log.Printf("Found go after adding %s", p)
+					break
+				}
+			}
+		}
+	}
+
+	// On macOS, ensure Homebrew and common bin locations are present for GUI
+	// launched apps which often have a reduced environment.
+	if runtime.GOOS == "darwin" {
+		prepend := []string{"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"}
+		cur := os.Getenv("PATH")
+		for i := len(prepend) - 1; i >= 0; i-- {
+			if strings.Contains(cur, prepend[i]) {
+				continue
+			}
+			cur = prepend[i] + ":" + cur
+		}
+		os.Setenv("PATH", cur)
+		log.Printf("Final PATH for GUI: %s", os.Getenv("PATH"))
+	}
 
 	// Destination directory
 	var downDest string
@@ -167,7 +246,12 @@ func main() {
 										}
 										return
 									}
-									defer os.RemoveAll(tmpDir)
+									cleanupTmp := true
+									defer func() {
+										if cleanupTmp {
+											os.RemoveAll(tmpDir)
+										}
+									}()
 
 									fsdlFile := filepath.Join(tmpDir, repo+".fsdl")
 
@@ -221,41 +305,117 @@ func main() {
 										// privileged commands. This ensures a GUI password dialog
 										// is shown instead of a terminal prompt.
 										if err == builder.ErrPrivilegedRequired {
-											pwdChan := make(chan string)
-											cancelChan := make(chan struct{})
-											uiQueue <- func() {
-												pwdEntry := widget.NewPasswordEntry()
-												dialog.ShowCustomConfirm("Authentication Required", "Run as admin", "Cancel",
-													container.NewVBox(
-														widget.NewLabel("Enter your sudo password to continue:"),
-														pwdEntry,
-													),
-													func(ok bool) {
-														if ok {
-															pwdChan <- pwdEntry.Text
-														} else {
-															close(cancelChan)
-														}
-													}, w)
-											}
+											// First try system GUI elevation (osascript on macOS,
+											// pkexec on Linux). This tends to present a native
+											// authentication prompt that users notice. If that
+											// fails, fall back to an in-app password prompt and
+											// `sudo -S`.
+											if err2 := b.ExecutePrivileged(); err2 == nil {
+												// Done
+											} else if err2 == builder.ErrDelegatedToTerminal {
+												// The privileged actions were delegated to Terminal.app;
+												// prevent removal of the temp dir, bring Terminal to
+												// the front, and offer a cleanup button to the user.
+												cleanupTmp = false
+												// Try to bring Terminal to the front. Ignore errors.
+												go func() {
+													exec.Command("osascript", "-e", "tell application \"Terminal\" to activate").Run()
+												}()
+												uiQueue <- func() {
+													progressDialog.Hide()
+													copyBtn := widget.NewButton("Copy temp path", func() { w.Clipboard().SetContent(tmpDir) })
+													dlg := dialog.NewCustomConfirm("Installation redirected to Terminal",
+														"Cleanup files", "Leave files",
+														container.NewVBox(
+															widget.NewLabel("The installer has been opened in Terminal.app. Follow the Terminal window for progress and enter your password there if prompted."),
+															widget.NewLabel(fmt.Sprintf("Temporary files are at: %s", tmpDir)),
+															copyBtn,
+															widget.NewLabel("When you are finished with the Terminal session, click 'Cleanup temp files' to remove the temporary installation files."),
+														),
+														func(ok bool) {
+															if ok {
+																go func() {
+																	_ = os.RemoveAll(tmpDir)
+																	uiQueue <- func() { dialog.ShowInformation("Cleanup", "Temporary files removed.", w) }
+																}()
+															}
+														}, w)
+													dlg.Show()
+												}
+												return
+											} else {
+												log.Printf("system elevation failed: %v; falling back to in-app prompt", err2)
+												pwdChan := make(chan string)
+												cancelChan := make(chan struct{})
+												uiQueue <- func() {
+													pwdEntry := widget.NewPasswordEntry()
+													dialog.ShowCustomConfirm("Authentication Required", "Run as admin", "Cancel",
+														container.NewVBox(
+															widget.NewLabel("Enter your sudo password to continue:"),
+															pwdEntry,
+														),
+														func(ok bool) {
+															if ok {
+																pwdChan <- pwdEntry.Text
+															} else {
+																close(cancelChan)
+															}
+														}, w)
+												}
 
-											select {
-											case password := <-pwdChan:
-												b.SetPassword(password)
-												if err2 := b.ExecutePrivileged(); err2 != nil {
-													log.Printf("privileged execution failed: %v", err2)
+												select {
+												case password := <-pwdChan:
+													b.SetPassword(password)
+													if err3 := b.ExecutePrivileged(); err3 != nil {
+														if err3 == builder.ErrDelegatedToTerminal {
+															cleanupTmp = false
+															go func() {
+																exec.Command("osascript", "-e", "tell application \"Terminal\" to activate").Run()
+															}()
+															uiQueue <- func() {
+																progressDialog.Hide()
+																copyBtn := widget.NewButton("Copy temp path", func() { w.Clipboard().SetContent(tmpDir) })
+																dlg := dialog.NewCustomConfirm("Installation delegated to Terminal",
+																	"Cleanup temp files", "Leave files",
+																	container.NewVBox(
+																		widget.NewLabel("The installer has been opened in Terminal.app. Follow the Terminal window for progress and enter your password there if prompted."),
+																		widget.NewLabel(fmt.Sprintf("Temporary files are at: %s", tmpDir)),
+																		copyBtn,
+																		widget.NewLabel("When you are finished with the Terminal session, click 'Cleanup temp files' to remove the temporary files."),
+																	),
+																	func(ok bool) {
+																		if ok {
+																			go func() {
+																				_ = os.RemoveAll(tmpDir)
+																				uiQueue <- func() { dialog.ShowInformation("Cleanup", "Temporary files removed.", w) }
+																			}()
+																		}
+																	}, w)
+																dlg.Show()
+															}
+															return
+														}
+														log.Printf("privileged execution failed: %v", err3)
+														uiQueue <- func() {
+															progressDialog.Hide()
+															// Show a copyable error dialog so the user can paste the
+															// full error output elsewhere for debugging.
+															entry := widget.NewMultiLineEntry()
+															entry.SetText(fmt.Sprintf("installation failed: %v", err3))
+															entry.SetMinRowsVisible(8)
+															dlg := dialog.NewCustom("Installation failed", "Close",
+																container.NewVBox(entry, widget.NewButton("Copy to clipboard", func() { w.Clipboard().SetContent(entry.Text) })), w)
+															dlg.Show()
+														}
+														return
+													}
+												case <-cancelChan:
 													uiQueue <- func() {
 														progressDialog.Hide()
-														dialog.ShowError(fmt.Errorf("installation failed: %w", err2), w)
+														dialog.ShowInformation("Cancelled", "Installation cancelled.", w)
 													}
 													return
 												}
-											case <-cancelChan:
-												uiQueue <- func() {
-													progressDialog.Hide()
-													dialog.ShowInformation("Cancelled", "Installation cancelled.", w)
-												}
-												return
 											}
 										} else {
 											log.Printf("build failed: %v", err)
@@ -306,7 +466,12 @@ func main() {
 											log.Printf("installation failed: %v", err)
 											uiQueue <- func() {
 												progressDialog.Hide()
-												dialog.ShowError(fmt.Errorf("installation failed: %w", err), w)
+												entry := widget.NewMultiLineEntry()
+												entry.SetText(fmt.Sprintf("installation failed: %v", err))
+												entry.SetMinRowsVisible(8)
+												dlg := dialog.NewCustom("Installation failed", "Close",
+													container.NewVBox(entry, widget.NewButton("Copy to clipboard", func() { w.Clipboard().SetContent(entry.Text) })), w)
+												dlg.Show()
 											}
 											return
 										}
