@@ -46,8 +46,10 @@ type AppSettings struct {
 	downloadPathM  string
 	// Auto sync settings
 	AutoSyncIntervalMinutes int             `json:"auto_sync_interval_minutes"`
+	AutoSyncEnabled         bool            `json:"auto_sync_enabled"`
 	AutoSyncEntries         []AutoSyncEntry `json:"auto_sync_entries"`
 	AutoSyncIntervalSeconds int             `json:"auto_sync_interval_seconds"`
+	AutoSyncNextRunUnix     int64           `json:"auto_sync_next_run_unix"`
 }
 
 type LocalFileInfo struct {
@@ -63,11 +65,22 @@ type AutoSyncEntry struct {
 	ShowReceipt    bool   `json:"show_receipt"`
 }
 
+type InstalledEntry struct {
+	User        string `json:"user"`
+	Repo        string `json:"repo"`
+	InstalledAt int64  `json:"installed_at_unix"`
+	Version     string `json:"version"`
+	InstallPath string `json:"install_path"`
+}
+
 var (
-	appSettings AppSettings
-	ftrClient   *api.Client
-	uiQueue     chan func()
-	w           fyne.Window
+	appSettings       AppSettings
+	ftrClient         *api.Client
+	uiQueue           chan func()
+	w                 fyne.Window
+	autoSyncRemaining int64
+	installedEntries  []InstalledEntry
+	varInstalledList  *widget.List
 )
 
 var updateUI func()
@@ -79,6 +92,9 @@ func main() {
 
 	a := app.NewWithID("0")
 	loadSettings(a)
+	loadInstalled()
+	// detect system-installed applications and merge with stored list
+	detectSystemInstalledApps()
 
 	// GUI-launched apps on macOS often have a limited PATH. Load the user's
 	// login shell PATH and prepend it so tools like `go` installed via
@@ -160,6 +176,10 @@ func main() {
 
 	// Destination directory
 	var downDest string
+
+	// forward declarations for UI elements used across handlers
+	var autoSyncList *widget.List
+	var countdownLabel *widget.Label
 
 	drv, ok := a.Driver().(desktop.Driver)
 
@@ -481,6 +501,21 @@ func main() {
 										done := make(chan struct{})
 										overallProgress.SetValue(1.0)
 										progressDialog.Hide()
+										// record installed entry
+										found := false
+										for _, ie := range installedEntries {
+											if ie.User == user && ie.Repo == repo {
+												found = true
+												break
+											}
+										}
+										if !found {
+											installedEntries = append(installedEntries, InstalledEntry{User: user, Repo: repo, InstalledAt: time.Now().Unix(), Version: "", InstallPath: ""})
+											saveInstalled()
+											if varInstalledList != nil {
+												varInstalledList.Refresh()
+											}
+										}
 										infoDialog := dialog.NewInformation("Install complete", fmt.Sprintf("Finished installing %s/%s", user, repo), w)
 										infoDialog.SetOnClosed(func() { close(done) })
 										infoDialog.Show()
@@ -1104,63 +1139,68 @@ func main() {
 	settingsTabContent.Add(syncModeRadio)
 	settingsTabContent.Add(container.NewBorder(nil, nil, nil, syncPathSelectBtn, syncPathEntry))
 
-	// Auto Sync Interval UI (debug-aware)
-	debugMode := os.Getenv("FTR_DEBUG") != ""
-	var sliderMax float64
-	var sliderStep float64
+	// Auto Sync Interval UI (minutes, debug-aware)
+	debugMode := os.Getenv("FTR_DEBUG") == "1"
+	var minMinutes float64
 	if debugMode {
-		// debug: 0..600 seconds, 20s min typical; 0 means disabled
-		sliderMax = 600
-		sliderStep = 5
+		minMinutes = 1
 	} else {
-		// production: 0..7200 seconds (0..2h), step 600s (10min)
-		sliderMax = 7200
-		sliderStep = 600
+		minMinutes = 5
 	}
+	maxMinutes := 120.0
 	settingsTabContent.Add(widget.NewLabelWithStyle("Auto Sync Interval:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
-	intervalSlider := widget.NewSlider(0, sliderMax)
-	intervalSlider.Step = sliderStep
-	// initialize from seconds (backwards compatibility)
-	if appSettings.AutoSyncIntervalSeconds > 0 {
-		intervalSlider.SetValue(float64(appSettings.AutoSyncIntervalSeconds))
+	intervalSlider := widget.NewSlider(minMinutes, maxMinutes)
+	intervalSlider.Step = 1
+	// initialize from minutes (backwards compatibility)
+	if appSettings.AutoSyncIntervalMinutes > 0 {
+		intervalSlider.SetValue(float64(appSettings.AutoSyncIntervalMinutes))
+	} else if appSettings.AutoSyncIntervalSeconds > 0 {
+		intervalSlider.SetValue(float64(appSettings.AutoSyncIntervalSeconds) / 60.0)
 	} else {
 		intervalSlider.SetValue(0)
 	}
 
 	valueLabel := widget.NewLabel("")
-	updateValueLabel := func(v float64) {
-		if int(v) == 0 {
+	updateValueLabel := func(mins float64) {
+		if int(mins) == 0 {
 			valueLabel.SetText("Disabled")
 			return
 		}
-		if debugMode {
-			valueLabel.SetText(fmt.Sprintf("%d seconds", int(v)))
-		} else {
-			mins := int(v) / 60
-			valueLabel.SetText(fmt.Sprintf("%d minutes", mins))
-		}
+		valueLabel.SetText(fmt.Sprintf("%d minutes", int(mins)))
 	}
 	updateValueLabel(intervalSlider.Value)
 
 	intervalSlider.OnChanged = func(v float64) {
-		appSettings.AutoSyncIntervalSeconds = int(v)
-		if !debugMode {
-			appSettings.AutoSyncIntervalMinutes = int(v) / 60
-		} else {
-			appSettings.AutoSyncIntervalMinutes = int(v) / 60
-		}
-		saveSettings()
-		updateValueLabel(v)
-		log.Printf("AutoSync interval set to %d seconds", appSettings.AutoSyncIntervalSeconds)
-		if appSettings.AutoSyncIntervalSeconds > 0 {
+		mins := int(v)
+		appSettings.AutoSyncIntervalMinutes = mins
+		appSettings.AutoSyncIntervalSeconds = mins * 60
+		// Only schedule next run if auto-sync is enabled
+		if mins > 0 && appSettings.AutoSyncEnabled {
+			next := time.Now().Unix() + int64(mins*60)
+			appSettings.AutoSyncNextRunUnix = next
+			atomic.StoreInt64(&autoSyncRemaining, int64(mins*60))
+			// signal worker to reset
 			select {
 			case resetCountdown <- appSettings.AutoSyncIntervalSeconds:
 			default:
-				select {
-				case <-resetCountdown:
-				default:
+			}
+		} else {
+			// either disabled or zero interval
+			appSettings.AutoSyncNextRunUnix = 0
+			atomic.StoreInt64(&autoSyncRemaining, 0)
+		}
+		saveSettings()
+		updateValueLabel(v)
+		log.Printf("AutoSync interval set to %d minutes", appSettings.AutoSyncIntervalMinutes)
+		uiQueue <- func() {
+			if countdownLabel != nil {
+				if appSettings.AutoSyncEnabled && atomic.LoadInt64(&autoSyncRemaining) > 0 {
+					countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(int(atomic.LoadInt64(&autoSyncRemaining)))))
+				} else if !appSettings.AutoSyncEnabled {
+					countdownLabel.SetText("Auto Sync: Paused")
+				} else {
+					countdownLabel.SetText("Next sync: --:--")
 				}
-				resetCountdown <- appSettings.AutoSyncIntervalSeconds
 			}
 		}
 	}
@@ -1168,8 +1208,8 @@ func main() {
 	settingsTabContent.Add(intervalSlider)
 	settingsTabContent.Add(valueLabel)
 
-	// visible countdown label
-	countdownLabel := widget.NewLabel("Next sync: --:--")
+	// visible countdown label (already predeclared)
+	countdownLabel = widget.NewLabel("Next sync: --:--")
 	settingsTabContent.Add(countdownLabel)
 
 	// --- Upload Tab ---
@@ -1433,8 +1473,45 @@ func main() {
 
 	// --- Auto Sync Tab ---
 	autoSyncLabel := widget.NewLabelWithStyle("Auto Sync", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	// Auto Sync enabled checkbox (persisted). Default to enabled when interval > 0.
+	if appSettings.AutoSyncIntervalMinutes > 0 && appSettings.AutoSyncNextRunUnix > 0 {
+		appSettings.AutoSyncEnabled = true
+	}
+	autoSyncEnableCheck := widget.NewCheck("Enable Auto Sync", func(b bool) {})
+	autoSyncEnableCheck.SetChecked(appSettings.AutoSyncEnabled)
+	autoSyncEnableCheck.OnChanged = func(b bool) {
+		appSettings.AutoSyncEnabled = b
+		if !b {
+			// pause and reset countdown
+			appSettings.AutoSyncNextRunUnix = 0
+			atomic.StoreInt64(&autoSyncRemaining, 0)
+			uiQueue <- func() {
+				if countdownLabel != nil {
+					countdownLabel.SetText("Auto Sync: Paused")
+				}
+			}
+		} else {
+			// enable: schedule next if interval is set
+			if appSettings.AutoSyncIntervalMinutes > 0 {
+				next := time.Now().Unix() + int64(appSettings.AutoSyncIntervalMinutes*60)
+				appSettings.AutoSyncNextRunUnix = next
+				atomic.StoreInt64(&autoSyncRemaining, int64(appSettings.AutoSyncIntervalMinutes*60))
+				// signal worker to reset
+				select {
+				case resetCountdown <- appSettings.AutoSyncIntervalSeconds:
+				default:
+				}
+				uiQueue <- func() {
+					if countdownLabel != nil {
+						countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(int(atomic.LoadInt64(&autoSyncRemaining)))))
+					}
+				}
+			}
+		}
+		saveSettings()
+		log.Printf("AutoSync enabled set to: %v", appSettings.AutoSyncEnabled)
+	}
 	var autoSyncSelected widget.ListItemID = -1
-	var autoSyncList *widget.List
 	autoSyncList = widget.NewList(
 		func() int { return len(appSettings.AutoSyncEntries) },
 		func() fyne.CanvasObject {
@@ -1543,23 +1620,84 @@ func main() {
 		}
 	})
 
+	// --- Installed Tab ---
+	installedLabel := widget.NewLabelWithStyle("Installed", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	varInstalledList = widget.NewList(
+		func() int { return len(installedEntries) },
+		func() fyne.CanvasObject {
+			lbl := widget.NewLabel("user/repo")
+			removeBtn := widget.NewButtonWithIcon("Remove", theme.DeleteIcon(), nil)
+			upgradeBtn := widget.NewButtonWithIcon("Upgrade", theme.DocumentSaveIcon(), nil)
+			return container.NewHBox(lbl, layout.NewSpacer(), upgradeBtn, removeBtn)
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			idx := int(i)
+			if idx < len(installedEntries) {
+				ie := installedEntries[idx]
+				box := o.(*fyne.Container)
+				lbl := box.Objects[0].(*widget.Label)
+				lbl.SetText(fmt.Sprintf("%s/%s (installed %s)", ie.User, ie.Repo, time.Unix(ie.InstalledAt, 0).Format(time.RFC822)))
+				removeBtn := box.Objects[3].(*widget.Button)
+				upgradeBtn := box.Objects[2].(*widget.Button)
+				removeBtn.OnTapped = func() {
+					dialog.ShowConfirm("Remove Installed", fmt.Sprintf("Remove %s/%s from system and list?", ie.User, ie.Repo), func(confirm bool) {
+						if !confirm {
+							return
+						}
+						// attempt to remove via helper
+						go func(entry InstalledEntry, index int) {
+							if err := removeInstalledEntry(entry); err != nil {
+								uiQueue <- func() { dialog.ShowError(fmt.Errorf("failed to remove: %w", err), w) }
+								return
+							}
+							// remove from slice
+							uiQueue <- func() {
+								if index >= 0 && index < len(installedEntries) {
+									installedEntries = append(installedEntries[:index], installedEntries[index+1:]...)
+									saveInstalled()
+									varInstalledList.Refresh()
+									dialog.ShowInformation("Removed", fmt.Sprintf("%s/%s removed.", entry.User, entry.Repo), w)
+								}
+							}
+						}(ie, idx)
+					}, w)
+				}
+				upgradeBtn.OnTapped = func() {
+					dialog.ShowInformation("Upgrade", "Upgrade functionality is not implemented yet.", w)
+				}
+			}
+		},
+	)
+	// varInstalledList.OnSelected = func(id widget.ListItemID) { installedSelected = id }
+
 	syncAllBtn := widget.NewButton("Sync All", func() {
 		syncAllEntries()
-		if appSettings.AutoSyncIntervalSeconds > 0 {
+		// persist next run only if auto-sync is enabled
+		if appSettings.AutoSyncEnabled && appSettings.AutoSyncIntervalMinutes > 0 {
+			next := time.Now().Unix() + int64(appSettings.AutoSyncIntervalMinutes*60)
+			appSettings.AutoSyncNextRunUnix = next
+			saveSettings()
+			// signal worker to reset countdown
 			select {
 			case resetCountdown <- appSettings.AutoSyncIntervalSeconds:
 			default:
-				select {
-				case <-resetCountdown:
-				default:
-				}
-				resetCountdown <- appSettings.AutoSyncIntervalSeconds
 			}
 		}
 		uiQueue <- func() {
-			countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(appSettings.AutoSyncIntervalSeconds)))
+			if countdownLabel != nil {
+				if appSettings.AutoSyncEnabled && appSettings.AutoSyncIntervalMinutes > 0 {
+					countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(int(appSettings.AutoSyncIntervalMinutes*60))))
+				} else if !appSettings.AutoSyncEnabled {
+					countdownLabel.SetText("Auto Sync: Paused")
+				} else {
+					countdownLabel.SetText("Next sync: --:--")
+				}
+			}
 		}
 	})
+
+	// Build Auto Sync header (label + enable checkbox)
+	autoSyncHeader := container.NewHBox(autoSyncLabel, layout.NewSpacer(), autoSyncEnableCheck)
 
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Search", searchTabContent),
@@ -1569,7 +1707,8 @@ func main() {
 			container.NewBorder(repoListLabel, nil, nil, nil, repoList),
 			browserRightPane,
 		)),
-		container.NewTabItem("Auto Sync", container.NewBorder(autoSyncLabel, container.NewHBox(addAutoSyncBtn, removeAutoSyncBtn, syncAllBtn), nil, nil, autoSyncList)),
+		container.NewTabItem("Auto Sync", container.NewBorder(autoSyncHeader, container.NewHBox(addAutoSyncBtn, removeAutoSyncBtn, syncAllBtn), nil, nil, autoSyncList)),
+		container.NewTabItem("Installed", container.NewBorder(installedLabel, nil, nil, nil, varInstalledList)),
 		container.NewTabItem("Settings", settingsTabContent),
 	)
 	tabs.SetTabLocation(container.TabLocationLeading)
@@ -1655,56 +1794,78 @@ func main() {
 		}
 	}()
 
-	// background auto-sync countdown worker
+	// background auto-sync countdown worker: uses persisted next-run so restarts keep the schedule
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
-		debugMode := os.Getenv("FTR_DEBUG") != ""
-		var remaining int
-		if appSettings.AutoSyncIntervalSeconds > 0 {
-			remaining = appSettings.AutoSyncIntervalSeconds
-		} else if debugMode {
-			remaining = 20
-		}
+		debugMode := os.Getenv("FTR_DEBUG") == "1"
 		for {
 			select {
-			case newInterval := <-resetCountdown:
-				remaining = newInterval
-				uiQueue <- func() {
-					countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(remaining)))
-				}
 			case <-ticker.C:
-				interval := appSettings.AutoSyncIntervalSeconds
-				if interval <= 0 {
-					if debugMode {
-						// keep a short debug countdown even when interval is 0
-						interval = 20
-					} else {
-						// disabled
-						continue
+				now := time.Now().Unix()
+				// Respect the enabled flag
+				if !appSettings.AutoSyncEnabled {
+					atomic.StoreInt64(&autoSyncRemaining, 0)
+					uiQueue <- func() {
+						if countdownLabel != nil {
+							countdownLabel.SetText("Auto Sync: Paused")
+						}
 					}
+					continue
 				}
-				if remaining <= 0 {
-					if appSettings.AutoSyncIntervalSeconds > 0 {
-						remaining = appSettings.AutoSyncIntervalSeconds
-					} else if debugMode {
-						remaining = 20
-					} else {
-						continue
+
+				next := atomic.LoadInt64(&appSettings.AutoSyncNextRunUnix)
+				intervalSecs := int64(appSettings.AutoSyncIntervalMinutes) * 60
+				if intervalSecs <= 0 && debugMode {
+					intervalSecs = 60 // debug default 1 minute
+				}
+				if next == 0 {
+					if intervalSecs <= 0 {
+						continue // disabled
 					}
+					// schedule next run
+					next = now + intervalSecs
+					atomic.StoreInt64(&appSettings.AutoSyncNextRunUnix, next)
+					saveSettings()
 				}
-				// update visible countdown label
+
+				remaining := next - now
+				if remaining < 0 {
+					remaining = 0
+				}
+				atomic.StoreInt64(&autoSyncRemaining, remaining)
 				uiQueue <- func() {
-					countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(remaining)))
+					if countdownLabel != nil {
+						countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(int(atomic.LoadInt64(&autoSyncRemaining)))))
+					}
 				}
-				remaining--
+
 				if remaining <= 0 {
 					log.Printf("Auto-sync: interval reached, triggering Sync All")
 					syncAllEntries()
-					if appSettings.AutoSyncIntervalSeconds > 0 {
-						remaining = appSettings.AutoSyncIntervalSeconds
+					// schedule next
+					if intervalSecs > 0 {
+						next = time.Now().Unix() + intervalSecs
+						atomic.StoreInt64(&appSettings.AutoSyncNextRunUnix, next)
+						saveSettings()
+						atomic.StoreInt64(&autoSyncRemaining, next-time.Now().Unix())
 					} else if debugMode {
-						remaining = 20
+						next = time.Now().Unix() + 60
+						atomic.StoreInt64(&appSettings.AutoSyncNextRunUnix, next)
+						saveSettings()
+						atomic.StoreInt64(&autoSyncRemaining, next-time.Now().Unix())
+					}
+				}
+			case newInterval := <-resetCountdown:
+				if newInterval > 0 {
+					next := time.Now().Unix() + int64(newInterval)
+					atomic.StoreInt64(&appSettings.AutoSyncNextRunUnix, next)
+					atomic.StoreInt64(&autoSyncRemaining, int64(newInterval))
+					saveSettings()
+					uiQueue <- func() {
+						if countdownLabel != nil {
+							countdownLabel.SetText(fmt.Sprintf("Next sync: %s", formatTime(newInterval)))
+						}
 					}
 				}
 			}
@@ -2114,6 +2275,161 @@ func configPath() string {
 	return filepath.Join(home, ".config", "inker", "settings.json")
 }
 
+func installedConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "inker", "installed.json")
+}
+
+func loadInstalled() {
+	path := installedConfigPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Error reading installed file: %v", err)
+		}
+		return
+	}
+	if err := json.Unmarshal(data, &installedEntries); err != nil {
+		log.Printf("Error parsing installed file: %v", err)
+	}
+}
+
+func saveInstalled() {
+	path := installedConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		log.Printf("Error creating installed directory: %v", err)
+		return
+	}
+	data, err := json.MarshalIndent(installedEntries, "", "  ")
+	if err != nil {
+		log.Printf("Error marshalling installed list: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		log.Printf("Error writing installed file: %v", err)
+	}
+}
+
+// detectSystemInstalledApps scans common system locations for installed binaries
+// and desktop entries and merges them into the installed list if not already
+// present. Entries discovered by the system scanner will use User="system".
+func detectSystemInstalledApps() {
+	home, _ := os.UserHomeDir()
+	binDirs := []string{"/usr/local/bin", "/usr/bin", "/bin", filepath.Join(home, ".local", "bin"), "/snap/bin", "/opt/bin"}
+	for _, d := range binDirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			full := filepath.Join(d, e.Name())
+			fi, err := os.Stat(full)
+			if err != nil {
+				continue
+			}
+			// consider regular files with executable bit
+			if fi.Mode().IsRegular() && fi.Mode()&0111 != 0 {
+				repo := e.Name()
+				found := false
+				for _, ie := range installedEntries {
+					if ie.Repo == repo || ie.InstallPath == full {
+						found = true
+						break
+					}
+				}
+				if !found {
+					installedEntries = append(installedEntries, InstalledEntry{User: "system", Repo: repo, InstalledAt: fi.ModTime().Unix(), Version: "", InstallPath: full})
+				}
+			}
+		}
+	}
+
+	desktopDirs := []string{"/usr/share/applications", filepath.Join(home, ".local", "share", "applications")}
+	for _, d := range desktopDirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if strings.HasSuffix(name, ".desktop") {
+				base := strings.TrimSuffix(name, ".desktop")
+				found := false
+				for _, ie := range installedEntries {
+					if ie.Repo == base {
+						found = true
+						break
+					}
+				}
+				if !found {
+					installedEntries = append(installedEntries, InstalledEntry{User: "system", Repo: base, InstalledAt: time.Now().Unix(), Version: "", InstallPath: filepath.Join(d, name)})
+				}
+			}
+		}
+	}
+
+	saveInstalled()
+	if varInstalledList != nil {
+		uiQueue <- func() { varInstalledList.Refresh() }
+	}
+}
+
+// removeInstalledEntry attempts to remove an installed entry from disk. It will
+// first try non-privileged removal via os.RemoveAll, and fall back to running
+// `sudo rm -rf` when necessary. Returns an error if removal failed.
+func removeInstalledEntry(ie InstalledEntry) error {
+	// If an explicit install path exists, try to remove it first
+	if ie.InstallPath != "" {
+		if err := os.RemoveAll(ie.InstallPath); err == nil {
+			return nil
+		}
+		// fall back to sudo removal
+		cmd := exec.Command("sudo", "rm", "-rf", ie.InstallPath)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to remove %s: %v (%s)", ie.InstallPath, err, string(out))
+		}
+		return nil
+	}
+
+	// Otherwise, attempt to remove common locations based on repo name
+	repo := ie.Repo
+	home, _ := os.UserHomeDir()
+	candidates := []string{
+		filepath.Join("/usr/local/bin", repo),
+		filepath.Join("/usr/bin", repo),
+		filepath.Join(home, ".local", "bin", repo),
+		filepath.Join("/usr/local/share", repo),
+		filepath.Join(home, ".local", "share", repo),
+		filepath.Join("/usr/local/share", "applications", repo+".desktop"),
+		filepath.Join(home, ".local", "share", "applications", repo+".desktop"),
+	}
+	var lastErr error
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			if err := os.RemoveAll(c); err == nil {
+				return nil
+			}
+			// try sudo
+			cmd := exec.Command("sudo", "rm", "-rf", c)
+			if out, err := cmd.CombinedOutput(); err == nil {
+				return nil
+			} else {
+				lastErr = fmt.Errorf("sudo failed: %v (%s)", err, string(out))
+			}
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("no candidates found to remove for %s", repo)
+}
+
 func loadSettings(a fyne.App) {
 	// Set defaults
 	home, _ := os.UserHomeDir()
@@ -2150,6 +2466,26 @@ func loadSettings(a fyne.App) {
 		appSettings.AutoSyncIntervalMinutes = appSettings.AutoSyncIntervalSeconds / 60
 	} else if appSettings.AutoSyncIntervalMinutes > 0 {
 		appSettings.AutoSyncIntervalSeconds = appSettings.AutoSyncIntervalMinutes * 60
+	}
+
+	// Initialize countdown remaining using persisted next-run so restarts keep schedule
+	if appSettings.AutoSyncNextRunUnix > 0 {
+		now := time.Now().Unix()
+		if appSettings.AutoSyncNextRunUnix > now {
+			atomic.StoreInt64(&autoSyncRemaining, appSettings.AutoSyncNextRunUnix-now)
+		} else if appSettings.AutoSyncIntervalMinutes > 0 {
+			// next run in the past; schedule next based on interval
+			next := now + int64(appSettings.AutoSyncIntervalMinutes*60)
+			appSettings.AutoSyncNextRunUnix = next
+			saveSettings()
+			atomic.StoreInt64(&autoSyncRemaining, next-now)
+		}
+	} else if appSettings.AutoSyncIntervalMinutes > 0 {
+		// no persisted next-run, schedule one
+		next := time.Now().Unix() + int64(appSettings.AutoSyncIntervalMinutes*60)
+		appSettings.AutoSyncNextRunUnix = next
+		saveSettings()
+		atomic.StoreInt64(&autoSyncRemaining, int64(appSettings.AutoSyncIntervalMinutes*60))
 	}
 
 	applyTheme(a)
