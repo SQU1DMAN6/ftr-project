@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"ftr/pkg/api"
 	"ftr/pkg/builder"
 	"ftr/pkg/fsdl"
+	"ftr/pkg/registry"
+	"ftr/pkg/sqar"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -66,9 +70,18 @@ Example: ftr get user/myapp`,
 		}
 
 		fmt.Printf("Fetching package via API...\n")
-		// Use repo.php API to download and verify
-		if err := client.DownloadAndVerify(parts[0], repoName, repoName+".fsdl", fsdlFile, nil); err != nil {
-			return fmt.Errorf("download failed: %w", err)
+		// Try SQAR first (default), then fall back to FSDL
+		sqarFile := filepath.Join(tmpDir, repoName+".sqar")
+		fsdlFile = filepath.Join(tmpDir, repoName+".fsdl")
+
+		downloadErr := client.DownloadAndVerify(parts[0], repoName, repoName+".sqar", sqarFile, nil)
+		usedSqar := true
+		if downloadErr != nil {
+			// fall back to fsdl
+			if err := client.DownloadAndVerify(parts[0], repoName, repoName+".fsdl", fsdlFile, nil); err != nil {
+				return fmt.Errorf("download failed (tried .sqar and .fsdl): %w / %v", err, downloadErr)
+			}
+			usedSqar = false
 		}
 
 		fmt.Println()
@@ -78,9 +91,15 @@ Example: ftr get user/myapp`,
 			return nil
 		}
 
-		// Extract the package
-		if err := fsdl.Extract(fsdlFile, tmpDir); err != nil {
-			return fmt.Errorf("failed to extract package: %w", err)
+		// Extract the package based on type
+		if usedSqar {
+			if err := extractSqar(sqarFile, tmpDir); err != nil {
+				return fmt.Errorf("failed to extract sqar package: %w", err)
+			}
+		} else {
+			if err := fsdl.Extract(fsdlFile, tmpDir); err != nil {
+				return fmt.Errorf("failed to extract package: %w", err)
+			}
 		}
 
 		// Initialize builder
@@ -99,7 +118,32 @@ Example: ftr get user/myapp`,
 			}
 		}
 
+		// Register package in registry
+		regInfo := registry.PackageInfo{
+			Name:        repoName,
+			Version:     "",
+			Source:      repoPath,
+			InstallPath: "/usr/local/share/" + repoName,
+			BinaryPath:  "/usr/local/bin/" + repoName,
+		}
+		_ = registry.Register(regInfo)
+
 		fmt.Println("Done.")
 		return nil
 	},
+}
+
+func extractSqar(sqarPath, destDir string) error {
+	sqarTool := sqar.FindSqarTool()
+	if sqarTool != "" {
+		cmd := exec.Command(sqarTool, "unpack", sqarPath, destDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err == nil {
+			return nil
+		} else {
+			return err
+		}
+	}
+	return errors.New("failed to find SQAR archiving utility. Consider getting SQAR first.")
 }

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"ftr/pkg/registry"
+
 	"github.com/spf13/cobra"
 )
 
@@ -62,6 +64,9 @@ Example: ftr remove myapp
 		} else {
 			fmt.Println("Desktop entry was not found.")
 		}
+
+		// Unregister from registry if present
+		_ = registry.Unregister(repoName)
 
 		return nil
 	},
