@@ -13,8 +13,6 @@ fi
 
 echo "Changing working directory to temporary build directory..."
 cd /tmp/fsdl
-pwd
-ls
 
 echo "Creating share directory at /usr/local/share/ftr..."
 sudo mkdir -p "/usr/local/share/ftr"

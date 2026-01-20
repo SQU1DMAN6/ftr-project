@@ -148,6 +148,8 @@ Example: ftr get user/myapp`,
 					name := ""
 					if n, ok := f["name"].(string); ok {
 						name = n
+					} else if p, ok := f["path"].(string); ok {
+						name = p
 					}
 					fmt.Printf("[%d] %s\n", i, name)
 				}
@@ -196,34 +198,39 @@ Example: ftr get user/myapp`,
 				downloadedPath = p
 				usedSqar = strings.HasSuffix(chosenFile, ".sqar")
 			} else {
-				// Build candidate names depending on whether a version was requested
 				candidates := []string{}
 				if version != "" {
-					// prefer exact arch/os
+					// prefer exact arch/os first
 					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-%s.sqar", repoName, version, localArch, localOS))
-					// prefer version-all
+					// prefer all arch/os second
 					candidates = append(candidates, fmt.Sprintf("%s-%s-all-%s.sqar", repoName, version, localOS))
 					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-all.sqar", repoName, version, localArch))
 					candidates = append(candidates, fmt.Sprintf("%s-%s-all-all.sqar", repoName, version))
-					// fallback to plain versioned sqar and fsdl
+					// fallback
 					candidates = append(candidates, fmt.Sprintf("%s-%s.sqar", repoName, version))
 					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-%s.fsdl", repoName, version, localArch, localOS))
 					candidates = append(candidates, fmt.Sprintf("%s-%s.fsdl", repoName, version))
 				} else {
-					// No version: pick latest by scanning repo file list for versioned names
 					files, err := client.ListRepoFiles(user, repoName)
 					if err == nil {
 						var sqarMatches []string
 						var fsdlMatches []string
 						for _, f := range files {
+							name := ""
 							if n, ok := f["name"].(string); ok {
-								lname := strings.ToLower(n)
-								if strings.Contains(lname, strings.ToLower(repoName)) {
-									if strings.HasSuffix(lname, ".sqar") {
-										sqarMatches = append(sqarMatches, n)
-									} else if strings.HasSuffix(lname, ".fsdl") {
-										fsdlMatches = append(fsdlMatches, n)
-									}
+								name = n
+							} else if p, ok := f["path"].(string); ok {
+								name = p
+							}
+							if name == "" {
+								continue
+							}
+							lname := strings.ToLower(name)
+							if strings.Contains(lname, strings.ToLower(repoName)) {
+								if strings.HasSuffix(lname, ".sqar") {
+									sqarMatches = append(sqarMatches, name)
+								} else if strings.HasSuffix(lname, ".fsdl") {
+									fsdlMatches = append(fsdlMatches, name)
 								}
 							}
 						}
@@ -255,8 +262,10 @@ Example: ftr get user/myapp`,
 								}
 							}
 							if chosen == "" {
+								// no arch/os match; pick highest versioned file
 								chosen = found[0].name
 							}
+							// Use the single chosen versioned file as the primary candidate
 							candidates = append(candidates, chosen)
 						} else {
 							// fallback: try any sqar first then fsdl
@@ -268,14 +277,15 @@ Example: ftr get user/myapp`,
 							}
 						}
 					}
-					// fallback generic names if nothing collected
+					// final fallback
 					candidates = append(candidates, fmt.Sprintf("%s.sqar", repoName))
 					candidates = append(candidates, fmt.Sprintf("%s.fsdl", repoName))
 				}
 
-				// Try candidates in order
+				attempted := []string{}
 				var dlErr error
 				for _, c := range candidates {
+					attempted = append(attempted, c)
 					downloadedPath, dlErr = tryDownload(c)
 					if dlErr == nil {
 						usedSqar = strings.HasSuffix(c, ".sqar")
@@ -283,7 +293,7 @@ Example: ftr get user/myapp`,
 					}
 				}
 				if downloadedPath == "" {
-					lastErr = fmt.Errorf("download failed for %s; no candidate matched", repoPath)
+					lastErr = fmt.Errorf("download failed for %s; no files to download", repoPath)
 					fmt.Fprintln(os.Stderr, lastErr)
 					continue
 				}
