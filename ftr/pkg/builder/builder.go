@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // Builder handles the detection and building of different project types
@@ -15,6 +16,11 @@ type Builder struct {
 
 // New creates a new Builder instance
 func New(repoName, workDir string) *Builder {
+	if strings.TrimSpace(workDir) == "" {
+		workDir = "/tmp/fsdl"
+	}
+	// Ensure workDir exists so install scripts that cd to /tmp/fsdl succeed
+	_ = os.MkdirAll(workDir, 0755)
 	return &Builder{
 		RepoName: repoName,
 		WorkDir:  workDir,
@@ -34,7 +40,7 @@ func (b *Builder) run(cmd string) error {
 func (b *Builder) DetectAndBuild() (string, error) {
 	// Check for install.sh first
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "install.sh")); err == nil {
-		fmt.Println("install.sh found. Running and skipping default installer protocol...")
+		fmt.Println("\ninstall.sh found. Running and skipping default installer protocol...")
 		if err := b.run("chmod +x install.sh && ./install.sh"); err != nil {
 			return "", fmt.Errorf("install.sh failed: %w", err)
 		}
@@ -43,7 +49,7 @@ func (b *Builder) DetectAndBuild() (string, error) {
 
 	// Check for Makefile
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "Makefile")); err == nil {
-		fmt.Println("Makefile found. Running make...")
+		fmt.Println("\nMakefile found. Running make...")
 		if err := b.run("make"); err != nil {
 			return "", fmt.Errorf("make failed: %w", err)
 		}
@@ -52,7 +58,7 @@ func (b *Builder) DetectAndBuild() (string, error) {
 
 	// Check for main.py
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "main.py")); err == nil {
-		fmt.Println("Detected Python app. Building with PyInstaller...")
+		fmt.Println("\nDetected Python app. Building with PyInstaller...")
 		if err := b.run("pip install pyinstaller"); err != nil {
 			return "", fmt.Errorf("failed to install pyinstaller: %w", err)
 		}
@@ -85,7 +91,7 @@ func (b *Builder) DetectAndBuild() (string, error) {
 
 	// Check for main.go
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "main.go")); err == nil {
-		fmt.Println("Detected Go app. Building...")
+		fmt.Println("\nDetected Go app. Building...")
 		if err := b.run(fmt.Sprintf("go build -o %s .", b.RepoName)); err != nil {
 			return "", fmt.Errorf("go build failed: %w", err)
 		}
@@ -94,7 +100,7 @@ func (b *Builder) DetectAndBuild() (string, error) {
 
 	// Check for main.cpp
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "main.cpp")); err == nil {
-		fmt.Println("Detected C++ app. Building with g++...")
+		fmt.Println("\nDetected C++ app. Building with g++...")
 		if err := b.run(fmt.Sprintf("g++ main.cpp -o %s", b.RepoName)); err != nil {
 			return "", fmt.Errorf("g++ build failed: %w", err)
 		}
@@ -103,7 +109,7 @@ func (b *Builder) DetectAndBuild() (string, error) {
 
 	// Check for main.sqd
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "main.sqd")); err == nil {
-		fmt.Println("Detected SQU1D app. Building with squ1d++...")
+		fmt.Println("\nDetected SQU1D app. Building with squ1d++...")
 		if err := b.run(fmt.Sprintf("squ1d++ -B main.sqd -o %s", b.RepoName)); err != nil {
 			return "", fmt.Errorf("squ1d++ build failed: %w", err)
 		}
@@ -125,14 +131,14 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 	}
 
 	// Copy to /usr/local/bin
-	if err := b.run(fmt.Sprintf("sudo cp %s %s", binaryPath, destBin)); err != nil {
+	if err := b.run(fmt.Sprintf("sudo cp -r %s %s", binaryPath, destBin)); err != nil {
 		return fmt.Errorf("failed to copy to /usr/local/bin: %w", err)
 	}
 
 	if err := b.run(fmt.Sprintf("sudo mkdir -p %s", shareDir)); err != nil {
 		return fmt.Errorf("failed to create share directory: %w", err)
 	}
-	if err := b.run(fmt.Sprintf("sudo cp %s %s", binaryPath, shareDir)); err != nil {
+	if err := b.run(fmt.Sprintf("sudo cp -r %s %s", binaryPath, shareDir)); err != nil {
 		return fmt.Errorf("failed to copy to share directory: %w", err)
 	}
 
