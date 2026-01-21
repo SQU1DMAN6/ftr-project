@@ -469,10 +469,17 @@ Example: ftr get user/myapp`,
 				}
 			}
 
+			// Determine installed version: prefer BUILD/Meta.config VERSION, then requested version
+			installedVersion := version
+			if meta != nil {
+				if v, ok := meta["VERSION"]; ok && strings.TrimSpace(v) != "" {
+					installedVersion = strings.TrimSpace(v)
+				}
+			}
 			// Register package in registry
 			regInfo := registry.PackageInfo{
 				Name:        repoName,
-				Version:     version,
+				Version:     installedVersion,
 				Source:      repoPath,
 				InstallPath: "/usr/local/share/" + repoName,
 				BinaryPath:  "/usr/local/bin/" + repoName,

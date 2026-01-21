@@ -28,6 +28,7 @@ func init() {
 		buildCmd,
 		versionCmd,
 		listCmd,
+		updateCmd,
 		syncCmd,
 		queryCmd,
 		remoteCmd,

@@ -13,61 +13,71 @@ import (
 )
 
 var removeCmd = &cobra.Command{
-	Use:   "remove [repo]",
+	Use:   "remove [repo]...",
 	Short: "Remove an installed package",
 	Long: `Remove an installed package from the system.
 This will remove the binary from /usr/local/bin and its directory from /usr/local/share.
 
-Example: ftr remove myapp
-		 ftr remove user/myapp`,
-	Args: cobra.ExactArgs(1),
+Examples:
+  ftr remove myapp
+  ftr remove user/myapp otherapp`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		repoPath := args[0]
-
-		// Extract repo name if full path is given
-		repoName := repoPath
-		if strings.Contains(repoPath, "/") {
-			parts := strings.Split(repoPath, "/")
-			repoName = parts[len(parts)-1]
-		}
-
-		binPath := filepath.Join("/usr/local/bin", repoName)
-		sharePath := filepath.Join("/usr/local/share", repoName)
-		desktopEntry := filepath.Join("/usr/local/share/applications", repoName+".desktop")
-
-		// Remove binary
-		if _, err := os.Stat(binPath); err == nil {
-			if err := exec.Command("sudo", "rm", "-rf", binPath).Run(); err != nil {
-				return fmt.Errorf("failed to remove binary: %w", err)
+		var lastErr error
+		for _, repoPath := range args {
+			// Extract repo name if full path is given
+			repoName := repoPath
+			if strings.Contains(repoPath, "/") {
+				parts := strings.Split(repoPath, "/")
+				repoName = parts[len(parts)-1]
 			}
-			fmt.Printf("Removed binary from %s\n", binPath)
-		} else {
-			fmt.Println("Binary not found in /usr/local/bin")
-		}
 
-		// Remove share directory
-		if _, err := os.Stat(sharePath); err == nil {
-			if err := exec.Command("sudo", "rm", "-rf", sharePath).Run(); err != nil {
-				return fmt.Errorf("failed to remove share directory: %w", err)
+			binPath := filepath.Join("/usr/local/bin", repoName)
+			sharePath := filepath.Join("/usr/local/share", repoName)
+			desktopEntry := filepath.Join("/usr/local/share/applications", repoName+".desktop")
+
+			// Remove binary
+			if _, err := os.Stat(binPath); err == nil {
+				if err := exec.Command("sudo", "rm", "-rf", binPath).Run(); err != nil {
+					lastErr = fmt.Errorf("failed to remove binary %s: %w", binPath, err)
+					fmt.Fprintln(os.Stderr, lastErr)
+				} else {
+					fmt.Printf("Removed binary from %s\n", binPath)
+				}
+			} else {
+				fmt.Printf("Binary not found in /usr/local/bin: %s\n", binPath)
 			}
-			fmt.Printf("Removed directory %s\n", sharePath)
-		} else {
-			fmt.Println("Share directory not found")
-		}
 
-		// Remove desktop entry
-		if _, err := os.Stat(desktopEntry); err == nil {
-			if err := exec.Command("sudo", "rm", "-f", desktopEntry).Run(); err != nil {
-				return fmt.Errorf("failed to remove desktop entry: %w", err)
+			// Remove share directory
+			if _, err := os.Stat(sharePath); err == nil {
+				if err := exec.Command("sudo", "rm", "-rf", sharePath).Run(); err != nil {
+					lastErr = fmt.Errorf("failed to remove share directory %s: %w", sharePath, err)
+					fmt.Fprintln(os.Stderr, lastErr)
+				} else {
+					fmt.Printf("Removed directory %s\n", sharePath)
+				}
+			} else {
+				fmt.Printf("Share directory not found: %s\n", sharePath)
 			}
-			fmt.Printf("Removed desktop entry at %s\n", desktopEntry)
-		} else {
-			fmt.Println("Desktop entry was not found.")
+
+			// Remove desktop entry
+			if _, err := os.Stat(desktopEntry); err == nil {
+				if err := exec.Command("sudo", "rm", "-f", desktopEntry).Run(); err != nil {
+					lastErr = fmt.Errorf("failed to remove desktop entry %s: %w", desktopEntry, err)
+					fmt.Fprintln(os.Stderr, lastErr)
+				} else {
+					fmt.Printf("Removed desktop entry at %s\n", desktopEntry)
+				}
+			} else {
+				fmt.Printf("Desktop entry was not found: %s\n", desktopEntry)
+			}
+
+			// Unregister from registry if present
+			if err := registry.Unregister(repoName); err != nil {
+				lastErr = err
+				fmt.Fprintln(os.Stderr, err)
+			}
 		}
-
-		// Unregister from registry if present
-		_ = registry.Unregister(repoName)
-
-		return nil
+		return lastErr
 	},
 }

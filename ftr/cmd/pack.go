@@ -95,32 +95,105 @@ var packCmd = &cobra.Command{
 
 				sqarFileName := fmt.Sprintf("%s-%s-%s-%s.sqar", repoName, version, useArch, useOS)
 
+				tmpSrc, cleanup, err := preparePackSrc(directoryPath)
+				if err != nil {
+					return fmt.Errorf("failed to prepare source for packing: %w", err)
+				}
+
 				if sqarTool == "" {
 					fsdlFileName := fmt.Sprintf("%s-%s-%s-%s.fsdl", repoName, version, useArch, useOS)
-					if err := createFsdl(directoryPath, fsdlFileName); err != nil {
+					if err := createFsdl(tmpSrc, fsdlFileName); err != nil {
+						cleanup()
 						return err
 					}
 					fmt.Printf("Successfully packed '%s' into '%s'\n", directoryPath, fsdlFileName)
+					cleanup()
 					continue
 				}
 
-				if err := createSqar(directoryPath, sqarFileName, sqarCompress); err != nil {
+				if err := createSqar(tmpSrc, sqarFileName, sqarCompress); err != nil {
+					cleanup()
 					return fmt.Errorf("failed to create SQAR '%s': %w", sqarFileName, err)
 				}
 				fmt.Printf("Successfully packed '%s' into '%s'\n", directoryPath, sqarFileName)
+				cleanup()
 			}
 		}
 		return nil
 	},
 }
 
-func createFsdl(srcDir, destPath string) error {
-	f, err := os.Create(destPath)
+// preparePackSrc copies srcDir into a temporary directory excluding
+// .sqar and .fsdl files, returning the temp dir path and a cleanup func.
+func preparePackSrc(srcDir string) (string, func(), error) {
+	tmpDir, err := os.MkdirTemp("", "ftr-src-")
 	if err != nil {
-		return fmt.Errorf("failed to create %s: %w", destPath, err)
+		return "", nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
-	defer f.Close()
-	zw := zip.NewWriter(f)
+
+	err = filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		// Skip generated archives
+		if !d.IsDir() {
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext == ".sqar" || ext == ".fsdl" {
+				return nil
+			}
+		}
+		dest := filepath.Join(tmpDir, rel)
+		if d.IsDir() {
+			return os.MkdirAll(dest, 0755)
+		}
+		// copy file
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.Create(dest)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		if _, err := io.Copy(out, in); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", nil, err
+	}
+	return tmpDir, func() { _ = os.RemoveAll(tmpDir) }, nil
+}
+
+func createFsdl(srcDir, destPath string) error {
+	// Create temp file outside srcDir to avoid including the archive inside itself
+	tmpFile, err := os.CreateTemp("", "ftr-*.fsdl")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file for %s: %w", destPath, err)
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		tmpFile.Close()
+		if _, err := os.Stat(tmpPath); err == nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	zw := zip.NewWriter(tmpFile)
 	defer zw.Close()
 
 	err = filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
@@ -160,6 +233,25 @@ func createFsdl(srcDir, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create %s: %w", destPath, err)
 	}
+
+	// Move temp file to final destination (overwrite if exists)
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		// try copy fallback
+		in, err2 := os.Open(tmpPath)
+		if err2 != nil {
+			return fmt.Errorf("failed to move temp fsdl to destination: %w", err)
+		}
+		defer in.Close()
+		out, err2 := os.Create(destPath)
+		if err2 != nil {
+			return fmt.Errorf("failed to create destination fsdl: %w", err2)
+		}
+		defer out.Close()
+		if _, err2 := io.Copy(out, in); err2 != nil {
+			return fmt.Errorf("failed to copy fsdl to destination: %w", err2)
+		}
+		_ = os.Remove(tmpPath)
+	}
 	return nil
 }
 
@@ -169,13 +261,48 @@ func createSqar(srcDir, destPath string, sqarCompress bool) error {
 		return fmt.Errorf("sqar utility not found")
 	}
 
+	// Use a temp output path outside srcDir to avoid the archive being included
+	tmpFile, err := os.CreateTemp("", "ftr-*.sqar")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file for %s: %w", destPath, err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer func() {
+		if _, err := os.Stat(tmpPath); err == nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
 	var cmd *exec.Cmd
 	if sqarCompress {
-		cmd = exec.Command(sqarTool, "pack", "-C", "-L", "best", "-I", srcDir, "-O", destPath)
+		cmd = exec.Command(sqarTool, "pack", "-C", "-L", "best", "-I", srcDir, "-O", tmpPath)
 	} else {
-		cmd = exec.Command(sqarTool, "pack", "-I", srcDir, "-O", destPath)
+		cmd = exec.Command(sqarTool, "pack", "-I", srcDir, "-O", tmpPath)
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// Move temp sqar to final destination (overwrite if exists)
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		// copy fallback
+		in, err2 := os.Open(tmpPath)
+		if err2 != nil {
+			return fmt.Errorf("failed to move temp sqar to destination: %w", err)
+		}
+		defer in.Close()
+		out, err2 := os.Create(destPath)
+		if err2 != nil {
+			return fmt.Errorf("failed to create destination sqar: %w", err2)
+		}
+		defer out.Close()
+		if _, err2 := io.Copy(out, in); err2 != nil {
+			return fmt.Errorf("failed to copy sqar to destination: %w", err2)
+		}
+		_ = os.Remove(tmpPath)
+	}
+	return nil
 }
