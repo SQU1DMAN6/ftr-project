@@ -924,6 +924,38 @@ func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, err
 	return out, nil
 }
 
+// SessionConfirmed queries the sessionconfirm endpoint and returns true if
+// the remote server considers the current session valid.
+func (c *Client) SessionConfirmed() (bool, error) {
+	req, err := http.NewRequest("GET", BaseURL+"/sessionconfirm", nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create sessionconfirm request: %w", err)
+	}
+	req.Header.Set("X-FTR-CLIENT", "FtR-GUI")
+	if c.sessionID != "" {
+		req.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("sessionconfirm request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read sessionconfirm response: %w", err)
+	}
+	s := strings.TrimSpace(string(body))
+	if s == "true" {
+		return true, nil
+	}
+	if s == "false" {
+		return false, nil
+	}
+	return false, fmt.Errorf("unexpected sessionconfirm response: %s", s)
+}
+
 // DeleteRemoteFile sends a request to delete a file from a repository.
 func (c *Client) DeleteRemoteFile(user, repo, fileName string) error {
 	if !c.IsLoggedIn() {

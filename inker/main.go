@@ -196,6 +196,30 @@ func main() {
 		dialog.ShowError(fmt.Errorf("failed to establish connection with InkDrop server: %w", err), w)
 	}
 
+	// Verify remote session validity and clear local session if the server
+	// reports it as invalid. This prevents stale local session files from
+	// misleading the GUI about login state.
+	if ftrClient != nil && ftrClient.IsLoggedIn() {
+		go func() {
+			ok, err := ftrClient.SessionConfirmed()
+			if err != nil {
+				log.Printf("session confirmation failed: %v", err)
+				return
+			}
+			if !ok {
+				log.Println("Remote session invalid; clearing local session")
+				if err := ftrClient.Logout(); err != nil {
+					log.Printf("failed to clear local session: %v", err)
+				}
+				uiQueue <- func() {
+					if updateUI != nil {
+						updateUI()
+					}
+				}
+			}
+		}()
+	}
+
 	var searchResults []map[string]string
 	resultsList := widget.NewList(
 		func() int {
@@ -273,6 +297,7 @@ func main() {
 										}
 									}()
 
+									sqarFile := filepath.Join(tmpDir, repo+".sqar")
 									fsdlFile := filepath.Join(tmpDir, repo+".fsdl")
 
 									// Download from server
@@ -280,40 +305,65 @@ func main() {
 									uiQueue <- func() { statusLabel.SetText(fmt.Sprintf("Downloading metadata for %s", repoPath)) }
 
 									log.Println("Fetching package via API...")
-									// Use repo.php API to download and verify
-									if err := ftrClient.DownloadAndVerify(user, repo, repo+".fsdl", fsdlFile, func(p float64) {
+									// Try SQAR first, then fall back to FSDL
+									downloadErr := ftrClient.DownloadAndVerify(user, repo, repo+".sqar", sqarFile, func(p float64) {
 										uiQueue <- func() {
 											if overallProgress.Value < 0.3 {
-												overallProgress.SetValue(0.1 + p*0.2) // Download is 10-30% of overall
+												overallProgress.SetValue(0.1 + p*0.2)
 											}
 											fileProgress.SetValue(p)
 										}
-									}); err != nil { // Check for the specific "file not found" error for the FSDL file.
-										if err.Error() == fmt.Sprintf("file not found: %s", repo+".fsdl") {
+									})
+									usedSqar := true
+									if downloadErr != nil {
+										// fall back to fsdl
+										if err := ftrClient.DownloadAndVerify(user, repo, repo+".fsdl", fsdlFile, func(p float64) {
 											uiQueue <- func() {
-												dialog.ShowInformation("Not Found", fmt.Sprintf("The required installer file (%s.fsdl) was not found in this repository.", repo), w)
+												if overallProgress.Value < 0.3 {
+													overallProgress.SetValue(0.1 + p*0.2)
+												}
+												fileProgress.SetValue(p)
 											}
-										} else {
-											log.Printf("download failed: %v", err)
-											uiQueue <- func() {
-												progressDialog.Hide()
-												dialog.ShowError(fmt.Errorf("metadata download failed: %w", err), w)
+										}); err != nil {
+											if err.Error() == fmt.Sprintf("file not found: %s", repo+".fsdl") {
+												uiQueue <- func() {
+													dialog.ShowInformation("Not Found", fmt.Sprintf("The required installer file (%s.fsdl) was not found in this repository.", repo), w)
+												}
+											} else {
+												log.Printf("download failed: %v", err)
+												uiQueue <- func() {
+													progressDialog.Hide()
+													dialog.ShowError(fmt.Errorf("metadata download failed: %w", err), w)
+												}
 											}
+											return
 										}
-										return
+										usedSqar = false
 									}
 
 									uiQueue <- func() {
 										statusLabel.SetText("Extracting package...")
 										overallProgress.SetValue(0.3)
 									}
-									if err := fsdl.Extract(fsdlFile, tmpDir); err != nil {
-										log.Printf("failed to extract package: %v", err)
-										uiQueue <- func() {
-											progressDialog.Hide()
-											dialog.ShowError(fmt.Errorf("failed to extract package: %w", err), w)
+
+									if usedSqar {
+										if err := extractSqar(sqarFile, tmpDir); err != nil {
+											log.Printf("failed to extract sqar package: %v", err)
+											uiQueue <- func() {
+												progressDialog.Hide()
+												dialog.ShowError(fmt.Errorf("failed to extract package: %w", err), w)
+											}
+											return
 										}
-										return
+									} else {
+										if err := fsdl.Extract(fsdlFile, tmpDir); err != nil {
+											log.Printf("failed to extract package: %v", err)
+											uiQueue <- func() {
+												progressDialog.Hide()
+												dialog.ShowError(fmt.Errorf("failed to extract package: %w", err), w)
+											}
+											return
+										}
 									}
 
 									b := builder.New(repo, tmpDir)
@@ -2518,4 +2568,43 @@ func applyTheme(a fyne.App) {
 	default:
 		a.Settings().SetTheme(theme.DefaultTheme())
 	}
+}
+
+// extractSqar attempts to use an external SQAR tool (env SQAR_TOOL) to extract, falling back to tar
+func extractSqar(sqarPath, destDir string) error {
+	// Flexible lookup: env, PATH, common locations
+	if v := os.Getenv("SQAR_TOOL"); v != "" {
+		if _, err := os.Stat(v); err == nil {
+			cmd := exec.Command(v, "unpack", sqarPath, destDir)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err == nil {
+				return nil
+			}
+		}
+	}
+	if p, err := exec.LookPath("sqar"); err == nil {
+		cmd := exec.Command(p, "unpack", sqarPath, destDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+	}
+	common := []string{"/usr/local/bin/sqar", "/opt/homebrew/bin/sqar", "/usr/bin/sqar", "/bin/sqar"}
+	for _, p := range common {
+		if _, err := os.Stat(p); err == nil {
+			cmd := exec.Command(p, "unpack", sqarPath, destDir)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err == nil {
+				return nil
+			}
+		}
+	}
+	// fallback: use tar
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("tar -xzf %s -C %s", sqarPath, destDir))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
