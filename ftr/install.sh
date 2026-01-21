@@ -22,6 +22,11 @@ go build -o ftr .
 echo "Making binary executable..."
 chmod 755 ./ftr
 
+if [ -f "/usr/local/bin/ftr" ]; then
+	echo "Renaming busy application file..."
+	sudo mv /usr/local/bin/ftr /usr/local/bin/ftr.old
+fi
+
 echo "Copying application files..."
 sudo cp ftr /usr/local/share/ftr
 echo "Installing binary to /usr/local/bin/ftr..."
@@ -30,6 +35,11 @@ sudo cp ftr /usr/local/bin/ftr
 ftr --help
 echo "Cleaning build directory..."
 sudo rm -rf /tmp/fsdl
+
+if [ -f "/usr/local/bin/ftr.old" ]; then
+	echo "Cleaning old files..."
+	sudo rm -f /usr/local/bin/ftr.old
+fi
 
 ftr clear
 echo "You're all set."
