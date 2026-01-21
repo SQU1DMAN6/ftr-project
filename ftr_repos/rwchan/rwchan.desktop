@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=RWChan
+Comment=GUI bitstream messenger
+Exec=/usr/local/bin/rwchan
+Icon=/usr/share/rwchan/rwchan.png
+Terminal=false
+Type=Application
+Categories=Utility;

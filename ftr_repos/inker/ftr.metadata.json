@@ -1,0 +1,8 @@
+{
+    "name": "inker",
+    "description": "Official GUI client for FtR",
+    "version": "2.6.0",
+    "release_date": "January 19 2026",
+    "packaging": "sqar",
+    "author": "Quan Thai"
+}

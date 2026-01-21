@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [[ $EUID -ne 0 ]]; then
+	echo "This is not running with root privelages. Consider using sudo."
+	exit 1
+fi
+
+sudo sshuttle --dns --method=tproxy \
+	-e "ssh -i /usr/local/share/ftrvpn/vpnkey" \
+	-r ubuntu@129.150.63.22 0.0.0.0/0
