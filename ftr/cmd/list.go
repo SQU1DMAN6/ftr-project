@@ -1,12 +1,9 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"ftr/pkg/api"
 	"ftr/pkg/registry"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -64,34 +61,43 @@ var listCmd = &cobra.Command{
 				if len(parts) != 2 {
 					continue
 				}
-				user, repo := parts[0], parts[1]
+				user := parts[0]
+				
+				// Extract repo name, removing any @version suffix
+				repo := parts[1]
+				if idx := strings.Index(repo, "@"); idx != -1 {
+					repo = repo[:idx]
+				}
 				
 				// Skip packages with empty versions
 				if p.Version == "" {
 					continue
 				}
 				
-				tmp := filepath.Join(os.TempDir(), repo+".meta.tmp")
-				if err := client.DownloadAndVerify(user, repo, "BUILD/Meta.config", tmp, nil); err != nil {
-					// ignore errors fetching metadata and continue to next package
-					continue
-				}
-				f, err := os.Open(tmp)
+				// Get list of files available in the repository
+				files, err := client.ListRepoFiles(user, repo)
 				if err != nil {
+					// ignore errors and continue to next package
 					continue
 				}
-				scanner := bufio.NewScanner(f)
+				
+				// Find the latest version from filenames
 				remoteVer := ""
-				for scanner.Scan() {
-					line := strings.TrimSpace(scanner.Text())
-					if strings.HasPrefix(line, "VERSION=") {
-						remoteVer = strings.TrimPrefix(line, "VERSION=")
-						remoteVer = strings.TrimSpace(remoteVer)
-						break
+				for _, file := range files {
+					// The API returns "path" not "name"
+					fileName, ok := file["path"].(string)
+					if !ok {
+						continue
+					}
+					
+					// Try to extract version from filename
+					// Expected format: packagename-version.fsdl or packagename-version.sqar
+					v := extractVersionFromFilename(fileName, p.Name)
+					if v != "" && compareVersions(remoteVer, v) < 0 {
+						remoteVer = v
 					}
 				}
-				f.Close()
-				os.Remove(tmp)
+				
 				if remoteVer == "" {
 					continue
 				}
@@ -152,4 +158,23 @@ func compareVersions(a, b string) int {
 		}
 	}
 	return 0
+}
+
+// extractVersionFromFilename extracts version from filenames like "package-name-1.0.0.fsdl"
+// It looks for the pattern: packagename-version.extension
+func extractVersionFromFilename(fileName, packageName string) string {
+	// Remove extension
+	withoutExt := strings.TrimSuffix(strings.TrimSuffix(fileName, ".fsdl"), ".sqar")
+	
+	// Look for pattern: packagename-version
+	prefix := packageName + "-"
+	if strings.HasPrefix(withoutExt, prefix) {
+		version := strings.TrimPrefix(withoutExt, prefix)
+		// Validate it looks like a version (starts with a digit)
+		if len(version) > 0 && version[0] >= '0' && version[0] <= '9' {
+			return version
+		}
+	}
+	
+	return ""
 }

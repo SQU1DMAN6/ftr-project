@@ -30,19 +30,11 @@ func extractSqar(sqarPath, destDir string) error {
 	}
 
 	sqarTool := sqar.FindSqarTool()
-	if sqarTool != "" {
-		cmd := exec.Command(sqarTool, "unpack", sqarPath, destDir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err == nil {
-			return nil
-		} else {
-			// fall through to try tar as a fallback
-		}
+	if sqarTool == "" {
+		return fmt.Errorf("sqar tool not found on system")
 	}
 
-	// Fallback: try tar extraction
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("tar -xzf %s -C %s", sqarPath, destDir))
+	cmd := exec.Command(sqarTool, "unpack", sqarPath, destDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -187,6 +179,9 @@ Example: ftr get user/myapp`,
 			var usedSqar bool
 			var downloadedPath string
 
+			// Check if SQAR is available
+			sqarAvailable := sqar.FindSqarTool() != ""
+
 			if chosenFile != "" {
 				// user selected exact file
 				p, err := tryDownload(chosenFile)
@@ -200,14 +195,17 @@ Example: ftr get user/myapp`,
 			} else {
 				candidates := []string{}
 				if version != "" {
-					// prefer exact arch/os first
-					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-%s.sqar", repoName, version, localArch, localOS))
-					// prefer all arch/os second
-					candidates = append(candidates, fmt.Sprintf("%s-%s-all-%s.sqar", repoName, version, localOS))
-					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-all.sqar", repoName, version, localArch))
-					candidates = append(candidates, fmt.Sprintf("%s-%s-all-all.sqar", repoName, version))
-					// fallback
-					candidates = append(candidates, fmt.Sprintf("%s-%s.sqar", repoName, version))
+					if sqarAvailable {
+						// prefer exact arch/os first (SQAR)
+						candidates = append(candidates, fmt.Sprintf("%s-%s-%s-%s.sqar", repoName, version, localArch, localOS))
+						// prefer all arch/os second (SQAR)
+						candidates = append(candidates, fmt.Sprintf("%s-%s-all-%s.sqar", repoName, version, localOS))
+						candidates = append(candidates, fmt.Sprintf("%s-%s-%s-all.sqar", repoName, version, localArch))
+						candidates = append(candidates, fmt.Sprintf("%s-%s-all-all.sqar", repoName, version))
+						// fallback (SQAR)
+						candidates = append(candidates, fmt.Sprintf("%s-%s.sqar", repoName, version))
+					}
+					// FSDL fallback
 					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-%s.fsdl", repoName, version, localArch, localOS))
 					candidates = append(candidates, fmt.Sprintf("%s-%s.fsdl", repoName, version))
 				} else {
@@ -235,50 +233,63 @@ Example: ftr get user/myapp`,
 							}
 						}
 
-						// prefer versioned sqar (highest version) and matching arch/os
-						type fileVer struct{ name, ver string }
-						var found []fileVer
-						for _, n := range sqarMatches {
-							if strings.HasPrefix(n, repoName+"-") {
-								rest := strings.TrimPrefix(n, repoName+"-")
-								parts := strings.Split(rest, "-")
-								if len(parts) > 0 {
-									ver := parts[0]
-									found = append(found, fileVer{name: n, ver: ver})
-								}
-							}
-						}
-						if len(found) > 0 {
-							sort.Slice(found, func(i, j int) bool {
-								return compareVersions(found[i].ver, found[j].ver) > 0
-							})
-							// prefer a file that matches our arch/os if present
-							chosen := ""
-							for _, f := range found {
-								lname := strings.ToLower(f.name)
-								if strings.Contains(lname, strings.ToLower(localArch)) && strings.Contains(lname, strings.ToLower(localOS)) {
-									chosen = f.name
-									break
-								}
-							}
-							if chosen == "" {
-								// no arch/os match; pick highest versioned file
-								chosen = found[0].name
-							}
-							// Use the single chosen versioned file as the primary candidate
-							candidates = append(candidates, chosen)
-						} else {
-							// fallback: try any sqar first then fsdl
+						// If SQAR is available, prefer versioned sqar (highest version) and matching arch/os
+						if sqarAvailable && len(sqarMatches) > 0 {
+							type fileVer struct{ name, ver string }
+							var found []fileVer
 							for _, n := range sqarMatches {
+								if strings.HasPrefix(n, repoName+"-") {
+									rest := strings.TrimPrefix(n, repoName+"-")
+									parts := strings.Split(rest, "-")
+									if len(parts) > 0 {
+										ver := parts[0]
+										found = append(found, fileVer{name: n, ver: ver})
+									}
+								}
+							}
+							if len(found) > 0 {
+								sort.Slice(found, func(i, j int) bool {
+									return compareVersions(found[i].ver, found[j].ver) > 0
+								})
+								// prefer a file that matches our arch/os if present
+								chosen := ""
+								for _, f := range found {
+									lname := strings.ToLower(f.name)
+									if strings.Contains(lname, strings.ToLower(localArch)) && strings.Contains(lname, strings.ToLower(localOS)) {
+										chosen = f.name
+										break
+									}
+								}
+								if chosen == "" {
+									// no arch/os match; pick highest versioned file
+									chosen = found[0].name
+								}
+								// Use the single chosen versioned file as the primary candidate
+								candidates = append(candidates, chosen)
+							} else {
+								// fallback: try all sqar files, then fsdl
+								for _, n := range sqarMatches {
+									candidates = append(candidates, n)
+								}
+								for _, n := range fsdlMatches {
+									candidates = append(candidates, n)
+								}
+							}
+						} else {
+							// SQAR not available, prefer FSDL first
+							for _, n := range fsdlMatches {
 								candidates = append(candidates, n)
 							}
-							for _, n := range fsdlMatches {
+							// then fall back to SQAR if available
+							for _, n := range sqarMatches {
 								candidates = append(candidates, n)
 							}
 						}
 					}
 					// final fallback
-					candidates = append(candidates, fmt.Sprintf("%s.sqar", repoName))
+					if sqarAvailable {
+						candidates = append(candidates, fmt.Sprintf("%s.sqar", repoName))
+					}
 					candidates = append(candidates, fmt.Sprintf("%s.fsdl", repoName))
 				}
 
@@ -484,7 +495,9 @@ Example: ftr get user/myapp`,
 				InstallPath: "/usr/local/share/" + repoName,
 				BinaryPath:  "/usr/local/bin/" + repoName,
 			}
-			_ = registry.Register(regInfo)
+		if err := registry.Register(regInfo); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to register package in registry: %v\n", err)
+		}
 
 			fmt.Println("Done.")
 		}

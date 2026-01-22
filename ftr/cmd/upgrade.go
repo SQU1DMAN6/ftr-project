@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"ftr/pkg/api"
+	"ftr/pkg/builder"
 	"ftr/pkg/fsdl"
 	"ftr/pkg/registry"
 	"os"
@@ -64,8 +65,15 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 				continue
 			}
 
-			user, repo := parts[0], parts[1]
-			remoteVer, err := fetchRemoteVersion(client, user, repo)
+			user := parts[0]
+			
+			// Extract repo name, removing any @version suffix
+			repo := parts[1]
+			if idx := strings.Index(repo, "@"); idx != -1 {
+				repo = repo[:idx]
+			}
+			
+			remoteVer, err := fetchRemoteVersion(client, user, repo, p.Name)
 			if err != nil {
 				// silently skip packages where we can't fetch remote version
 				continue
@@ -143,7 +151,7 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 			// Find FSDL or SQAR file for this version
 			packageFile := ""
 			for _, f := range files {
-				if fName, ok := f["name"].(string); ok {
+				if fName, ok := f["path"].(string); ok {
 					// Look for files matching the version and containing our architecture/os
 					if strings.Contains(fName, upg.RemoteVer) && (strings.HasSuffix(fName, ".fsdl") || strings.HasSuffix(fName, ".sqar")) {
 						packageFile = fName
@@ -204,6 +212,24 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 					continue
 				}
 			}
+			
+			// Build if it's a Go application or shell script
+			b := builder.New(upg.Package.Name, extractDir)
+			binaryPath, err := b.DetectAndBuild()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Build failed for %s: %v\n", upg.Package.Name, err)
+				failedUpgrades = append(failedUpgrades, upg.Package.Name)
+				continue
+			}
+			
+			// Install the binary if it was produced
+			if binaryPath != "" {
+				if err := b.InstallBinary(binaryPath); err != nil {
+					fmt.Fprintf(os.Stderr, "Installation failed for %s: %v\n", upg.Package.Name, err)
+					failedUpgrades = append(failedUpgrades, upg.Package.Name)
+					continue
+				}
+			}
 
 			// Update registry with new version
 			upg.Package.Version = upg.RemoteVer
@@ -238,34 +264,31 @@ type upgradeInfo struct {
 	Repo      string
 }
 
-// fetchRemoteVersion fetches the remote version from repository metadata
-func fetchRemoteVersion(client *api.Client, user, repo string) (string, error) {
-	tmp := filepath.Join(os.TempDir(), repo+".meta.tmp")
-	defer func() {
-		os.Remove(tmp)
-	}()
-
-	if err := client.DownloadAndVerify(user, repo, "BUILD/Meta.config", tmp, nil); err != nil {
-		return "", err
-	}
-
-	f, err := os.Open(tmp)
+// fetchRemoteVersion fetches the remote version by listing repository files and extracting versions from filenames
+func fetchRemoteVersion(client *api.Client, user, repo, packageName string) (string, error) {
+	files, err := client.ListRepoFiles(user, repo)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "VERSION=") {
-			remoteVer := strings.TrimPrefix(line, "VERSION=")
-			remoteVer = strings.TrimSpace(remoteVer)
-			return remoteVer, nil
+	// Find the latest version from filenames
+	remoteVer := ""
+	for _, file := range files {
+		// The API returns "path" not "name"
+		fileName, ok := file["path"].(string)
+		if !ok {
+			continue
+		}
+
+		// Try to extract version from filename
+		// Expected format: packagename-version.fsdl or packagename-version.sqar
+		v := extractVersionFromFilename(fileName, packageName)
+		if v != "" && compareVersions(remoteVer, v) < 0 {
+			remoteVer = v
 		}
 	}
 
-	return "", nil
+	return remoteVer, nil
 }
 
 func init() {
