@@ -32,8 +32,20 @@ var queryCmd = &cobra.Command{
 
 		files, err := client.ListRepoFiles(user, repo)
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid character '<'") {
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "invalid character '<'") {
+				// This happens when the server returns HTML instead of JSON
+				if strings.Contains(errMsg, "response started with:") {
+					// Extract what the response started with for more helpful error message
+					return fmt.Errorf("repository %s not found or access denied - the server returned an error page\nTry checking the repository name or run 'ftr login' to authenticate", repoPath)
+				}
 				return screen.SuggestLoginError(fmt.Errorf("failed to list repo files: %w", err))
+			}
+			if strings.Contains(errMsg, "404") {
+				return fmt.Errorf("repository '%s' not found", repoPath)
+			}
+			if strings.Contains(errMsg, "403") {
+				return fmt.Errorf("access denied to repository '%s' - you don't have permission to access it", repoPath)
 			}
 			return fmt.Errorf("failed to list remote files: %w", err)
 		}

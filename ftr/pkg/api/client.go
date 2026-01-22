@@ -827,23 +827,43 @@ func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("list failed: %s - %s", resp.Status, string(body))
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read list response: %w", err)
 	}
 
+	// Check if we got an error status code
+	if resp.StatusCode != http.StatusOK {
+		// Try to parse as JSON error response
+		var errResp map[string]interface{}
+		if err := json.Unmarshal(body, &errResp); err == nil {
+			if msg, ok := errResp["error"].(string); ok {
+				return nil, fmt.Errorf("list failed: %s (HTTP %d)", msg, resp.StatusCode)
+			}
+		}
+		// If not JSON, return the raw body
+		bodyStr := string(body)
+		if len(bodyStr) > 200 {
+			bodyStr = bodyStr[:200] + "..."
+		}
+		return nil, fmt.Errorf("list failed with HTTP %d: %s", resp.StatusCode, bodyStr)
+	}
+
+	// Try to parse the response as JSON
 	var apiResp map[string]interface{}
 	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse list response: %w", err)
+		bodyStr := string(body)
+		if len(bodyStr) > 100 {
+			bodyStr = bodyStr[:100] + "..."
+		}
+		return nil, fmt.Errorf("failed to parse list response (repository may not exist or is inaccessible): %w (response started with: %s)", err, bodyStr)
 	}
 
 	out := []map[string]interface{}{}
 	if ok, _ := apiResp["success"].(bool); !ok {
+		if msg, ok := apiResp["error"].(string); ok {
+			return nil, fmt.Errorf("API returned failure: %s", msg)
+		}
 		return out, nil
 	}
 	if fl, ok := apiResp["files"].([]interface{}); ok {

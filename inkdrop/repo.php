@@ -1,5 +1,26 @@
 <?php
-include "guard.php";
+// Check if this is an API request early to handle authentication properly
+$isApiRequest = isset($_GET['api']) && $_GET['api'] === '1';
+
+// Ensure HTTPS
+if (empty($_SERVER["HTTPS"]) || $_SERVER["HTTPS"] === "off") {
+    header("Location: https://" . $_SERVER["HTTP_HOST"] . $_SERVER["REQUEST_URI"]);
+    exit();
+}
+
+ini_set("session.gc_maxlifetime", 7776000);
+ini_set("session.cookie_lifetime", 7776000);
+session_set_cookie_params(7776000, "/");
+session_start();
+
+// For non-API requests, require authentication
+if (!$isApiRequest) {
+    if (!isset($_SESSION["login"]) || !isset($_SESSION["name"])) {
+        header("Location: /login.php");
+        exit();
+    }
+}
+
 include "loguserinfo.php";
 
 // ============ Repo metadata and encryption functions ============
@@ -253,7 +274,13 @@ $repo = $_GET["name"] ?? null;
 $user = $_GET["user"] ?? ($_SESSION["name"] ?? null);
 
 if (!$repo || !$user) {
-    echo "Repository or user is not specified. Please proceed to <a href='index.php'>the main page</a>.";
+    if ($isApiRequest) {
+        header('Content-Type: application/json');
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Repository or user is not specified']);
+    } else {
+        echo "Repository or user is not specified. Please proceed to <a href='index.php'>the main page</a>.";
+    }
     exit();
 }
 
@@ -283,12 +310,24 @@ if (!is_dir($repoPath)) {
         ];
         
         if (!in_array($selectedType, $validTypes)) {
-            echo "Invalid repository type specified.";
+            if ($isApiRequest) {
+                header('Content-Type: application/json');
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Invalid repository type specified']);
+            } else {
+                echo "Invalid repository type specified.";
+            }
             exit();
         }
         
         if (!mkdir($repoPath, 0755, true)) {
-            echo "Failed to create repository.";
+            if ($isApiRequest) {
+                header('Content-Type: application/json');
+                http_response_code(500);
+                echo json_encode(['success' => false, 'error' => 'Failed to create repository']);
+            } else {
+                echo "Failed to create repository.";
+            }
             exit();
         }
         
@@ -306,12 +345,20 @@ if (!is_dir($repoPath)) {
     } else {
         // Check if showing creation form
         if ($isOwner && $_SERVER["REQUEST_METHOD"] === "GET") {
-            // Show repo creation form
-            include_repo_creation_form($repo, $user);
+            // Show repo creation form (only for web UI, not API)
+            if (!$isApiRequest) {
+                include_repo_creation_form($repo, $user);
+            }
             exit();
         }
         
-        echo "The repository is not found. Please proceed to <a href='index.php'>the main page</a>.";
+        if ($isApiRequest) {
+            header('Content-Type: application/json');
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Repository not found']);
+        } else {
+            echo "The repository is not found. Please proceed to <a href='index.php'>the main page</a>.";
+        }
         exit();
     }
 } else {
@@ -406,7 +453,12 @@ if (!is_dir($repoPath)) {
     // Check access permissions
     if (!canAccessRepo($repoType, $isOwner)) {
         http_response_code(403);
-        echo "You do not have permission to access this repository.";
+        if ($isApiRequest) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'You do not have permission to access this repository']);
+        } else {
+            echo "You do not have permission to access this repository.";
+        }
         exit();
     }
 }
