@@ -18,6 +18,7 @@ var listCmd = &cobra.Command{
 		installedOnly, _ := cmd.Flags().GetBool("installed")
 		upgradeableOnly, _ := cmd.Flags().GetBool("upgradeable")
 		quiet, _ := cmd.Flags().GetBool("quiet")
+		alternative, _ := cmd.Flags().GetBool("alternative")
 
 		// default to installed if no flags
 		if !installedOnly && !upgradeableOnly && !quiet {
@@ -32,6 +33,13 @@ var listCmd = &cobra.Command{
 		if quiet && !upgradeableOnly {
 			for _, p := range pkgs {
 				fmt.Println(p.Name)
+			}
+			return nil
+		}
+
+		if alternative && !upgradeableOnly {
+			for _, p := range pkgs {
+				fmt.Println(p.Source)
 			}
 			return nil
 		}
@@ -62,25 +70,25 @@ var listCmd = &cobra.Command{
 					continue
 				}
 				user := parts[0]
-				
+
 				// Extract repo name, removing any @version suffix
 				repo := parts[1]
 				if idx := strings.Index(repo, "@"); idx != -1 {
 					repo = repo[:idx]
 				}
-				
+
 				// Skip packages with empty versions
 				if p.Version == "" {
 					continue
 				}
-				
+
 				// Get list of files available in the repository
 				files, err := client.ListRepoFiles(user, repo)
 				if err != nil {
 					// ignore errors and continue to next package
 					continue
 				}
-				
+
 				// Find the latest version from filenames
 				remoteVer := ""
 				for _, file := range files {
@@ -89,7 +97,7 @@ var listCmd = &cobra.Command{
 					if !ok {
 						continue
 					}
-					
+
 					// Try to extract version from filename
 					// Expected format: packagename-version.fsdl or packagename-version.sqar
 					v := extractVersionFromFilename(fileName, p.Name)
@@ -97,14 +105,19 @@ var listCmd = &cobra.Command{
 						remoteVer = v
 					}
 				}
-				
+
 				if remoteVer == "" {
 					continue
 				}
+
+				altWithRemoteVersion := strings.Split(p.Source, "@")[0]
+
 				cmp := compareVersions(p.Version, remoteVer)
 				if cmp < 0 {
 					if quiet {
 						fmt.Println(p.Name)
+					} else if alternative {
+						fmt.Println(altWithRemoteVersion)
 					} else {
 						fmt.Printf("%s %s -> %s (%s)\n", p.Name, p.Version, remoteVer, p.Source)
 					}
@@ -120,11 +133,10 @@ func init() {
 	listCmd.Flags().BoolP("installed", "I", false, "List installed packages with versions")
 	listCmd.Flags().BoolP("upgradeable", "U", false, "List upgradeable packages with remote versions")
 	listCmd.Flags().BoolP("quiet", "q", false, "Quiet: list only package names")
+	listCmd.Flags().BoolP("alternative", "a", false, "Alternative display: list package sources")
 	rootCmd.AddCommand(listCmd)
 }
 
-// compareVersions compares semantic version-like strings (basic numeric parts).
-// returns -1 if a<b, 0 if equal, 1 if a>b
 func compareVersions(a, b string) int {
 	if a == b {
 		return 0
@@ -160,21 +172,16 @@ func compareVersions(a, b string) int {
 	return 0
 }
 
-// extractVersionFromFilename extracts version from filenames like "package-name-1.0.0.fsdl"
-// It looks for the pattern: packagename-version.extension
 func extractVersionFromFilename(fileName, packageName string) string {
-	// Remove extension
 	withoutExt := strings.TrimSuffix(strings.TrimSuffix(fileName, ".fsdl"), ".sqar")
-	
-	// Look for pattern: packagename-version
+
 	prefix := packageName + "-"
 	if strings.HasPrefix(withoutExt, prefix) {
 		version := strings.TrimPrefix(withoutExt, prefix)
-		// Validate it looks like a version (starts with a digit)
 		if len(version) > 0 && version[0] >= '0' && version[0] <= '9' {
 			return version
 		}
 	}
-	
+
 	return ""
 }

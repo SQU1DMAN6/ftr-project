@@ -66,13 +66,13 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 			}
 
 			user := parts[0]
-			
+
 			// Extract repo name, removing any @version suffix
 			repo := parts[1]
 			if idx := strings.Index(repo, "@"); idx != -1 {
 				repo = repo[:idx]
 			}
-			
+
 			remoteVer, err := fetchRemoteVersion(client, user, repo, p.Name)
 			if err != nil {
 				// silently skip packages where we can't fetch remote version
@@ -87,10 +87,10 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 			cmp := compareVersions(p.Version, remoteVer)
 			if cmp < 0 {
 				upgradeable = append(upgradeable, upgradeInfo{
-					Package:    p,
-					RemoteVer:  remoteVer,
-					User:       user,
-					Repo:       repo,
+					Package:   p,
+					RemoteVer: remoteVer,
+					User:      user,
+					Repo:      repo,
 				})
 			}
 		}
@@ -110,13 +110,14 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 			fmt.Printf("%d. %s %s -> %s (%s/%s)\n", i+1, upg.Package.Name, upg.Package.Version, upg.RemoteVer, upg.User, upg.Repo)
 		}
 
-		// Ask for confirmation if not using -y flag
 		if !yes {
-			fmt.Print("\nDo you want to upgrade these packages? (y/n) ")
+			fmt.Print("\nDo you want to upgrade these packages? [y/N] ")
 			reader := bufio.NewReader(os.Stdin)
-			response, _ := reader.ReadString('\n')
-			response = strings.TrimSpace(strings.ToLower(response))
-			if response != "y" && response != "yes" {
+			response, _ := reader.ReadByte()
+			if err != nil {
+				return err
+			}
+			if response != 'y' {
 				fmt.Println("Upgrade cancelled.")
 				return nil
 			}
@@ -187,41 +188,36 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 				continue
 			}
 
-			// Extract and install
-			extractDir := filepath.Join(tmpDir, upg.Repo+"_"+upg.RemoteVer)
-			if err := os.RemoveAll(extractDir); err == nil {
-				// best effort cleanup
-			}
-			if err := os.MkdirAll(extractDir, 0755); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to create extraction directory: %v\n", err)
+			if err := os.MkdirAll(tmpDir, 0755); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to create temporary build directory: %v\n", err)
 				failedUpgrades = append(failedUpgrades, upg.Package.Name)
 				continue
 			}
 
 			// Extract based on file type
 			if strings.HasSuffix(packageFile, ".sqar") {
-				if err := extractSqar(localFilePath, extractDir); err != nil {
+				if err := extractSqar(localFilePath, tmpDir); err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to extract SQAR: %v\n", err)
 					failedUpgrades = append(failedUpgrades, upg.Package.Name)
 					continue
 				}
 			} else if strings.HasSuffix(packageFile, ".fsdl") {
-				if err := fsdl.Extract(localFilePath, extractDir); err != nil {
+				if err := fsdl.Extract(localFilePath, tmpDir); err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to extract FSDL: %v\n", err)
 					failedUpgrades = append(failedUpgrades, upg.Package.Name)
 					continue
 				}
 			}
-			
+
 			// Build if it's a Go application or shell script
-			b := builder.New(upg.Package.Name, extractDir)
+			b := builder.New(upg.Package.Name, tmpDir)
 			binaryPath, err := b.DetectAndBuild()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Build failed for %s: %v\n", upg.Package.Name, err)
 				failedUpgrades = append(failedUpgrades, upg.Package.Name)
 				continue
 			}
-			
+
 			// Install the binary if it was produced
 			if binaryPath != "" {
 				if err := b.InstallBinary(binaryPath); err != nil {
@@ -238,6 +234,9 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 				failedUpgrades = append(failedUpgrades, upg.Package.Name)
 				continue
 			}
+
+			fmt.Println("Cleaning temporary build directory...")
+			os.RemoveAll(tmpDir)
 
 			fmt.Printf("Successfully upgraded %s to %s\n", upg.Package.Name, upg.RemoteVer)
 		}
