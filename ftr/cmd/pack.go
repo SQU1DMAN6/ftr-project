@@ -194,7 +194,6 @@ func createFsdl(srcDir, destPath string) error {
 	}()
 
 	zw := zip.NewWriter(tmpFile)
-	defer zw.Close()
 
 	err = filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -231,8 +230,22 @@ func createFsdl(srcDir, destPath string) error {
 		return err
 	})
 	if err != nil {
+		zw.Close()
 		return fmt.Errorf("failed to create %s: %w", destPath, err)
 	}
+
+	// Close the ZIP writer to finalize the archive
+	if err := zw.Close(); err != nil {
+		return fmt.Errorf("failed to close zip writer for %s: %w", destPath, err)
+	}
+
+	// Ensure data is synced to disk
+	if err := tmpFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync temp fsdl file: %w", err)
+	}
+
+	// Close the file before moving
+	tmpFile.Close()
 
 	// Move temp file to final destination (overwrite if exists)
 	if err := os.Rename(tmpPath, destPath); err != nil {
@@ -283,7 +296,18 @@ func createSqar(srcDir, destPath string, sqarCompress bool) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return err
+		// If compression fails, try without compression and log a warning
+		if sqarCompress {
+			fmt.Fprintf(os.Stderr, "Warning: SQAR compression failed, retrying without compression...\n")
+			cmd = exec.Command(sqarTool, "pack", "-I", srcDir, "-O", tmpPath)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
 	}
 
 	// Move temp sqar to final destination (overwrite if exists)

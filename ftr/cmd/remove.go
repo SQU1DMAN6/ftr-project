@@ -36,7 +36,7 @@ Examples:
 			sharePath := filepath.Join("/usr/local/share", repoName)
 			desktopEntry := filepath.Join("/usr/local/share/applications", repoName+".desktop")
 
-			// Remove binary
+			// Remove binary (silent if not found)
 			if _, err := os.Stat(binPath); err == nil {
 				if err := exec.Command("sudo", "rm", "-rf", binPath).Run(); err != nil {
 					lastErr = fmt.Errorf("failed to remove binary %s: %w", binPath, err)
@@ -44,11 +44,9 @@ Examples:
 				} else {
 					fmt.Printf("Removed binary from %s\n", binPath)
 				}
-			} else {
-				fmt.Printf("Binary not found in /usr/local/bin: %s\n", binPath)
 			}
 
-			// Remove share directory
+			// Remove share directory (silent if not found)
 			if _, err := os.Stat(sharePath); err == nil {
 				if err := exec.Command("sudo", "rm", "-rf", sharePath).Run(); err != nil {
 					lastErr = fmt.Errorf("failed to remove share directory %s: %w", sharePath, err)
@@ -56,11 +54,9 @@ Examples:
 				} else {
 					fmt.Printf("Removed directory %s\n", sharePath)
 				}
-			} else {
-				fmt.Printf("Share directory not found: %s\n", sharePath)
 			}
 
-			// Remove desktop entry
+			// Remove desktop entry (silent if not found)
 			if _, err := os.Stat(desktopEntry); err == nil {
 				if err := exec.Command("sudo", "rm", "-f", desktopEntry).Run(); err != nil {
 					lastErr = fmt.Errorf("failed to remove desktop entry %s: %w", desktopEntry, err)
@@ -68,14 +64,15 @@ Examples:
 				} else {
 					fmt.Printf("Removed desktop entry at %s\n", desktopEntry)
 				}
-			} else {
-				fmt.Printf("Desktop entry was not found: %s\n", desktopEntry)
 			}
 
-			// Unregister from registry if present
+			// Unregister from registry if present (silent if not found)
 			if err := registry.Unregister(repoName); err != nil {
-				lastErr = err
-				fmt.Fprintln(os.Stderr, err)
+				// Silently ignore "package not found" errors, but report other errors
+				if err.Error() != "package not found" {
+					lastErr = err
+					fmt.Fprintln(os.Stderr, err)
+				}
 			}
 		}
 		return lastErr

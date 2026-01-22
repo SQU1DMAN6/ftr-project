@@ -65,9 +65,15 @@ var listCmd = &cobra.Command{
 					continue
 				}
 				user, repo := parts[0], parts[1]
+				
+				// Skip packages with empty versions
+				if p.Version == "" {
+					continue
+				}
+				
 				tmp := filepath.Join(os.TempDir(), repo+".meta.tmp")
 				if err := client.DownloadAndVerify(user, repo, "BUILD/Meta.config", tmp, nil); err != nil {
-					// ignore errors fetching metadata
+					// ignore errors fetching metadata and continue to next package
 					continue
 				}
 				f, err := os.Open(tmp)
@@ -94,7 +100,7 @@ var listCmd = &cobra.Command{
 					if quiet {
 						fmt.Println(p.Name)
 					} else {
-						fmt.Printf("%s %s -> %s\n", p.Name, p.Version, remoteVer)
+						fmt.Printf("%s %s -> %s (%s)\n", p.Name, p.Version, remoteVer, p.Source)
 					}
 				}
 			}
