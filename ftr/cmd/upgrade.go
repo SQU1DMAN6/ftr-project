@@ -219,8 +219,11 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 			}
 
 			// Install the binary if it was produced
+			var installedBinaryPath, installedSharePath string
 			if binaryPath != "" {
-				if err := b.InstallBinary(binaryPath); err != nil {
+				var err error
+				installedBinaryPath, installedSharePath, err = b.InstallBinary(binaryPath)
+				if err != nil {
 					fmt.Fprintf(os.Stderr, "Installation failed for %s: %v\n", upg.Package.Name, err)
 					failedUpgrades = append(failedUpgrades, upg.Package.Name)
 					continue
@@ -229,6 +232,8 @@ Example: ftr upgrade  # upgrades all upgradeable packages`,
 
 			// Update registry with new version
 			upg.Package.Version = upg.RemoteVer
+			upg.Package.BinaryPath = installedBinaryPath
+			upg.Package.InstallPath = installedSharePath
 			if err := registry.Register(upg.Package); err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to update registry for %s: %v\n", upg.Package.Name, err)
 				failedUpgrades = append(failedUpgrades, upg.Package.Name)

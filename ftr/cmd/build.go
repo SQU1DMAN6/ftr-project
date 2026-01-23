@@ -165,8 +165,11 @@ var buildCmd = &cobra.Command{
 		}
 
 		// Install if a binary was produced
+		var installedBinaryPath, installedSharePath string
 		if binaryPath != "" {
-			if err := b.InstallBinary(binaryPath); err != nil {
+			var err error
+			installedBinaryPath, installedSharePath, err = b.InstallBinary(binaryPath)
+			if err != nil {
 				return fmt.Errorf("installation failed: %w", err)
 			}
 		}
@@ -176,8 +179,8 @@ var buildCmd = &cobra.Command{
 			Name:        repoName,
 			Version:     "",
 			Source:      "",
-			InstallPath: filepath.Join("/usr/local/share", repoName),
-			BinaryPath:  filepath.Join("/usr/local/bin", repoName),
+			InstallPath: installedSharePath,
+			BinaryPath:  installedBinaryPath,
 		}
 		_ = registry.Register(regInfo)
 

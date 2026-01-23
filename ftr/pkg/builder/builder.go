@@ -6,12 +6,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Builder handles the detection and building of different project types
 type Builder struct {
-	RepoName string
-	WorkDir  string
+	RepoName     string
+	WorkDir      string
+	InstallPaths []string // Paths created during install.sh execution
 }
 
 // New creates a new Builder instance
@@ -36,15 +38,95 @@ func (b *Builder) run(cmd string) error {
 	return command.Run()
 }
 
+// scanForNewFiles finds all files modified after the given time in common install directories
+func scanForNewFiles(after time.Time) []string {
+	var newFiles []string
+	homeDir, _ := os.UserHomeDir()
+
+	// Directories to scan for file modifications (more targeted)
+	scanDirs := []string{
+		"/usr/local/bin",
+		"/usr/local/share",
+		"/opt",
+		"/usr/bin",
+		"/etc",
+	}
+
+	// For home directory, only scan specific subdirectories
+	homeSubdirs := []string{
+		filepath.Join(homeDir, ".config"),
+		filepath.Join(homeDir, ".local"),
+		filepath.Join(homeDir, ".opt"),
+	}
+	scanDirs = append(scanDirs, homeSubdirs...)
+
+	// Map to track parent directories we've already added (avoid duplicates)
+	seenPaths := make(map[string]bool)
+
+	for _, dir := range scanDirs {
+		if _, err := os.Stat(dir); err != nil {
+			continue // Skip directories that don't exist
+		}
+
+		// Walk the directory looking for files modified after 'after'
+		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // Skip errors
+			}
+
+			// Skip certain patterns that are too noisy
+			if strings.Contains(path, "/.cache/") ||
+				strings.Contains(path, "go/telemetry") ||
+				strings.Contains(path, ".npm") {
+				return nil
+			}
+
+			// Include files and directories modified after the install started
+			// But skip top-level scan directories themselves (they change when files are added)
+			if info.ModTime().After(after) && path != dir {
+				// Only add if we haven't seen this path before (avoid duplicates)
+				if !seenPaths[path] {
+					newFiles = append(newFiles, path)
+					seenPaths[path] = true
+				}
+			}
+			return nil
+		})
+	}
+
+	return newFiles
+}
+
 // DetectAndBuild tries to detect the project type and build it accordingly
 func (b *Builder) DetectAndBuild() (string, error) {
 	// Check for install.sh first
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "install.sh")); err == nil {
 		fmt.Println("\ninstall.sh found. Running and skipping default installer protocol...")
-		if err := b.run("chmod +x install.sh && ./install.sh"); err != nil {
+
+		// Record the time just before running install.sh to track what gets created
+		beforeTime := time.Now().Add(-1 * time.Second)
+
+		// Fix line endings (convert CRLF to LF) in case the script was packaged on Windows
+		if err := b.run("sed -i 's/\\r$//' install.sh && chmod +x install.sh && ./install.sh"); err != nil {
 			return "", fmt.Errorf("install.sh failed: %w", err)
 		}
-		return "", nil
+
+		// Scan for all new/modified files created by install.sh
+		b.InstallPaths = scanForNewFiles(beforeTime)
+
+		// Also extract the binary path if it's a standard location
+		var foundBinary string
+		for _, path := range b.InstallPaths {
+			if strings.HasPrefix(path, "/usr/local/bin/") && !strings.HasSuffix(path, "/") {
+				// Prefer the first file in /usr/local/bin as the main binary
+				if foundBinary == "" {
+					foundBinary = path
+				}
+			}
+		}
+
+		// Return the binary path if found
+		return foundBinary, nil
 	}
 
 	// Check for Makefile
@@ -119,29 +201,30 @@ func (b *Builder) DetectAndBuild() (string, error) {
 	return "", fmt.Errorf("no known entry point found")
 }
 
-// InstallBinary installs the built binary to system directories
-func (b *Builder) InstallBinary(binaryPath string) error {
+// InstallBinary installs the built binary to system directories and returns
+// the actual paths where the binary and share directory were installed
+func (b *Builder) InstallBinary(binaryPath string) (binaryPathOut, sharePathOut string, err error) {
 	binName := filepath.Base(binaryPath)
 	destBin := filepath.Join("/usr/local/bin", binName)
 	shareDir := filepath.Join("/usr/local/share", b.RepoName)
 
 	// Make binary executable
 	if err := b.run(fmt.Sprintf("chmod +x %s", binaryPath)); err != nil {
-		return fmt.Errorf("chmod failed: %w", err)
+		return "", "", fmt.Errorf("chmod failed: %w", err)
 	}
 
 	// Copy to /usr/local/bin
 	if err := b.run(fmt.Sprintf("sudo cp -r %s %s", binaryPath, destBin)); err != nil {
-		return fmt.Errorf("failed to copy to /usr/local/bin: %w", err)
+		return "", "", fmt.Errorf("failed to copy to /usr/local/bin: %w", err)
 	}
 
 	if err := b.run(fmt.Sprintf("sudo mkdir -p %s", shareDir)); err != nil {
-		return fmt.Errorf("failed to create share directory: %w", err)
+		return "", "", fmt.Errorf("failed to create share directory: %w", err)
 	}
 	if err := b.run(fmt.Sprintf("sudo cp -r %s %s", binaryPath, shareDir)); err != nil {
-		return fmt.Errorf("failed to copy to share directory: %w", err)
+		return "", "", fmt.Errorf("failed to copy to share directory: %w", err)
 	}
 
 	fmt.Printf("Installed as '%s'\n", binName)
-	return nil
+	return destBin, shareDir, nil
 }

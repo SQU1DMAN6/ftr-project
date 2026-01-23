@@ -472,11 +472,29 @@ Example: ftr get user/myapp`,
 			}
 
 			// Install if binary was produced
+			var installedBinaryPath, installedSharePath string
 			if binaryPath != "" {
-				if err := b.InstallBinary(binaryPath); err != nil {
-					lastErr = fmt.Errorf("installation failed for %s: %w", repoPath, err)
-					fmt.Fprintln(os.Stderr, lastErr)
-					continue
+				// Check if this is a path from install.sh (absolute path in /usr/local/bin)
+				// vs a path from DetectAndBuild that needs to be installed
+				if strings.HasPrefix(binaryPath, "/usr/local/bin/") {
+					// This binary was installed by install.sh, just register it
+					installedBinaryPath = binaryPath
+					// For install.sh packages, store all detected install paths (colon-separated)
+					if len(b.InstallPaths) > 0 {
+						installedSharePath = strings.Join(b.InstallPaths, ":")
+					} else {
+						// Fallback in case no share paths were detected
+						installedSharePath = filepath.Join("/usr/local/share", repoName)
+					}
+				} else {
+					// This is a binary from the build system, needs InstallBinary processing
+					var err error
+					installedBinaryPath, installedSharePath, err = b.InstallBinary(binaryPath)
+					if err != nil {
+						lastErr = fmt.Errorf("installation failed for %s: %w", repoPath, err)
+						fmt.Fprintln(os.Stderr, lastErr)
+						continue
+					}
 				}
 			}
 
@@ -492,12 +510,12 @@ Example: ftr get user/myapp`,
 				Name:        repoName,
 				Version:     installedVersion,
 				Source:      repoPath,
-				InstallPath: "/usr/local/share/" + repoName,
-				BinaryPath:  "/usr/local/bin/" + repoName,
+				InstallPath: installedSharePath,
+				BinaryPath:  installedBinaryPath,
 			}
-		if err := registry.Register(regInfo); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to register package in registry: %v\n", err)
-		}
+			if err := registry.Register(regInfo); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to register package in registry: %v\n", err)
+			}
 
 			fmt.Println("Done.")
 		}
