@@ -23,6 +23,32 @@ func init() {
 	getCmd.Flags().BoolP("ask", "A", false, "Prompt to select which file to download from repository")
 }
 
+func normArch(a string) string {
+	a = strings.TrimSpace(a)
+	a = strings.ToLower(a)
+	if a == "amd64" {
+		return "x64"
+	}
+	return a
+}
+
+func normOS(o string) string {
+	return strings.ToLower(strings.TrimSpace(o))
+}
+
+func matchesTarget(t string, local string) bool {
+	if t == "" {
+		return true
+	}
+	for _, tok := range strings.Split(t, ",") {
+		tok = strings.ToLower(strings.TrimSpace(tok))
+		if tok == "all" || tok == local {
+			return true
+		}
+	}
+	return false
+}
+
 func extractSqar(sqarPath, destDir string) error {
 	// Ensure destination exists
 	if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -213,6 +239,8 @@ Example: ftr get user/myapp`,
 					if err == nil {
 						var sqarMatches []string
 						var fsdlMatches []string
+						var platformMatches []string // files matching our exact platform
+
 						for _, f := range files {
 							name := ""
 							if n, ok := f["name"].(string); ok {
@@ -227,8 +255,46 @@ Example: ftr get user/myapp`,
 							if strings.Contains(lname, strings.ToLower(repoName)) {
 								if strings.HasSuffix(lname, ".sqar") {
 									sqarMatches = append(sqarMatches, name)
+									// check if this matches our platform
+									if strings.Contains(lname, localArch) && strings.Contains(lname, localOS) {
+										platformMatches = append(platformMatches, name)
+									}
 								} else if strings.HasSuffix(lname, ".fsdl") {
 									fsdlMatches = append(fsdlMatches, name)
+									// check if this matches our platform
+									if strings.Contains(lname, localArch) && strings.Contains(lname, localOS) {
+										platformMatches = append(platformMatches, name)
+									}
+								}
+							}
+						}
+
+						// If platform-specific files exist, prefer them first
+						if len(platformMatches) > 0 {
+							// Sort to get highest version first
+							type fileVer struct{ name, ver string }
+							var versionedMatches []fileVer
+							for _, n := range platformMatches {
+								if strings.HasPrefix(n, repoName+"-") {
+									rest := strings.TrimPrefix(n, repoName+"-")
+									parts := strings.Split(rest, "-")
+									if len(parts) > 0 {
+										ver := parts[0]
+										versionedMatches = append(versionedMatches, fileVer{name: n, ver: ver})
+									}
+								}
+							}
+							if len(versionedMatches) > 0 {
+								sort.Slice(versionedMatches, func(i, j int) bool {
+									return compareVersions(versionedMatches[i].ver, versionedMatches[j].ver) > 0
+								})
+								for _, fv := range versionedMatches {
+									candidates = append(candidates, fv.name)
+								}
+							}
+							for _, n := range platformMatches {
+								if !strings.HasPrefix(n, repoName+"-") {
+									candidates = append(candidates, n)
 								}
 							}
 						}
@@ -251,17 +317,33 @@ Example: ftr get user/myapp`,
 								sort.Slice(found, func(i, j int) bool {
 									return compareVersions(found[i].ver, found[j].ver) > 0
 								})
-								// prefer a file that matches our arch/os if present
+								// Prioritize: exact arch/os match > any arch + matching os > all + any arch
 								chosen := ""
+								chosen_score := -1
 								for _, f := range found {
 									lname := strings.ToLower(f.name)
-									if strings.Contains(lname, strings.ToLower(localArch)) && strings.Contains(lname, strings.ToLower(localOS)) {
+									larch := strings.ToLower(localArch)
+									los := strings.ToLower(localOS)
+
+									// Score: 3=exact match, 2=matching OS only, 1=anything else
+									score := 0
+									hasExactArch := strings.Contains(lname, larch)
+									hasExactOS := strings.Contains(lname, los)
+									hasAllArch := strings.Contains(lname, "all") && !strings.Contains(lname, larch)
+
+									if hasExactArch && hasExactOS {
+										score = 3
+									} else if hasExactOS || (hasAllArch && hasExactOS) {
+										score = 2
+									}
+
+									if score > chosen_score {
 										chosen = f.name
-										break
+										chosen_score = score
 									}
 								}
 								if chosen == "" {
-									// no arch/os match; pick highest versioned file
+									// no match at all; pick highest versioned file
 									chosen = found[0].name
 								}
 								// Use the single chosen versioned file as the primary candidate
@@ -310,26 +392,8 @@ Example: ftr get user/myapp`,
 				}
 			}
 
-			fmt.Println()
-			{
-				filename := filepath.Base(downloadedPath)
-				ext := filepath.Ext(filename)
-				base := strings.TrimSuffix(filename, ext)
-				if strings.HasPrefix(base, repoName+"-") {
-					rest := strings.TrimPrefix(base, repoName+"-")
-					parts := strings.Split(rest, "-")
-					if len(parts) >= 2 {
-						// assume last two tokens are arch and os
-						targetArch := parts[len(parts)-2]
-						targetOS := parts[len(parts)-1]
-						mismatchArch := !(targetArch == "all" || targetArch == localArch)
-						mismatchOS := !(targetOS == "all" || targetOS == localOS)
-						if mismatchArch || mismatchOS {
-							fmt.Printf("Warning: package targets %s/%s which does not match your system %s/%s\n", targetArch, targetOS, localArch, localOS)
-						}
-					}
-				}
-			}
+			// Note: platform mismatch warning is shown later after extraction
+			// when we have more complete information from BUILD/Meta.config
 
 			if noUnzip {
 				fmt.Println("--no-unzip used. Skipping extraction and install.")
@@ -389,48 +453,20 @@ Example: ftr get user/myapp`,
 				targetOS = metaOS
 			}
 
-			// normalize helper
-			normArch := func(a string) string {
-				a = strings.TrimSpace(a)
-				if a == "amd64" {
-					return "x64"
-				}
-				return a
-			}
-			normOS := func(o string) string {
-				return strings.TrimSpace(strings.ToLower(o))
-			}
+			// Get local platform (already normalized from earlier)
+			la := normArch(localArch)
+			lo := normOS(localOS)
 
-			localArch := runtime.GOARCH
-			if localArch == "amd64" {
-				localArch = "x64"
-			}
-			localOS := runtime.GOOS
+			// Normalize target values
+			ta := normArch(targetArch)
+			to := normOS(targetOS)
 
-			// check if any of the comma-separated targets include local or 'all'
-			matchesTarget := func(t string, local string, normalize func(string) string) bool {
-				if t == "" {
-					return true
-				}
-				for _, tok := range strings.Split(t, ",") {
-					tok = normalize(tok)
-					if tok == "all" || tok == local {
-						return true
-					}
-				}
-				return false
-			}
+			// Check if target platform matches local platform
+			okArch := matchesTarget(ta, la)
+			okOS := matchesTarget(to, lo)
 
-			var ta, to, la, lo string
-			ta = normArch(targetArch)
-			to = normOS(targetOS)
-			la = normArch(localArch)
-			lo = normOS(localOS)
-
-			okArch := matchesTarget(ta, la, normArch)
-			okOS := matchesTarget(to, lo, normOS)
 			if !okArch || !okOS {
-				fmt.Printf("Warning: package targets %s/%s which does not match your system %s/%s\n", targetArch, targetOS, localArch, localOS)
+				fmt.Printf("Warning: package targets %s/%s which does not match your system %s/%s\n", ta, to, la, lo)
 				fmt.Printf("Proceed? [y/N] ")
 				var ans string
 				if _, err := fmt.Scanln(&ans); err != nil || (strings.ToLower(strings.TrimSpace(ans)) != "y") {
@@ -472,24 +508,19 @@ Example: ftr get user/myapp`,
 			}
 
 			// Install if binary was produced
-			var installedBinaryPath, installedSharePath string
+			var installedBinaryPath string
 			if binaryPath != "" {
 				// Check if this is a path from install.sh (absolute path in /usr/local/bin)
 				// vs a path from DetectAndBuild that needs to be installed
 				if strings.HasPrefix(binaryPath, "/usr/local/bin/") {
 					// This binary was installed by install.sh, just register it
 					installedBinaryPath = binaryPath
-					// For install.sh packages, store all detected install paths (colon-separated)
-					if len(b.InstallPaths) > 0 {
-						installedSharePath = strings.Join(b.InstallPaths, ":")
-					} else {
-						// Fallback in case no share paths were detected
-						installedSharePath = filepath.Join("/usr/local/share", repoName)
-					}
 				} else {
 					// This is a binary from the build system, needs InstallBinary processing
 					var err error
+					var installedSharePath string
 					installedBinaryPath, installedSharePath, err = b.InstallBinary(binaryPath)
+					_ = installedSharePath // Not used in new approach
 					if err != nil {
 						lastErr = fmt.Errorf("installation failed for %s: %w", repoPath, err)
 						fmt.Fprintln(os.Stderr, lastErr)
@@ -505,13 +536,13 @@ Example: ftr get user/myapp`,
 					installedVersion = strings.TrimSpace(v)
 				}
 			}
-			// Register package in registry
+			// Register package in registry (without install paths - remove will use remove.sh or defaults)
 			regInfo := registry.PackageInfo{
-				Name:        repoName,
-				Version:     installedVersion,
-				Source:      repoPath,
-				InstallPath: installedSharePath,
-				BinaryPath:  installedBinaryPath,
+				Name:    repoName,
+				Version: installedVersion,
+				Source:  repoPath,
+				// Note: InstallPath is NOT recorded - removal uses remove.sh or standard paths
+				BinaryPath: installedBinaryPath,
 			}
 			if err := registry.Register(regInfo); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to register package in registry: %v\n", err)

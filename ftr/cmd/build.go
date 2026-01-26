@@ -22,10 +22,10 @@ func init() {
 
 var buildCmd = &cobra.Command{
 	Use:   "build [file] [executable name]",
-	Short: "Build an existing .fsdl file",
-	Long: `Build an existing .fsdl file containing a main.py, main.go, or main.cpp, with an optional install.sh or Makefile into a computer-ready package.
+	Short: "Build an existing FtR-compatible file",
+	Long: `Build an existing .sqar or .fsdl file built for FtR containing a main.py, main.go, or main.cpp, with an optional install.sh or Makefile into a computer-ready package.
 
-	Example: ftr build myproject.fsdl myproject`,
+	Example: ftr build myproject.sqar myproject`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fsdlFilePath := args[0]

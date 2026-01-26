@@ -12,7 +12,7 @@ var versionCmd = &cobra.Command{
 	Long:  `Display the version and release of FtR installed on your system, including package name, release name, and version number.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var version string = "FtR version 2.7.4"
-		var release string = "Written by Quan Thai, January 22 2026"
+		var release string = "Written by Quan Thai, January 26 2026"
 		fmt.Println(version)
 		fmt.Println(release)
 

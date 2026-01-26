@@ -11,7 +11,7 @@ import (
 
 var boxletCmd = &cobra.Command{
 	Use:   "boxlet",
-	Short: "Boxlet helper commands (create metadata etc.)",
+	Short: "Boxlet helper commands",
 }
 
 var boxletInitCmd = &cobra.Command{
