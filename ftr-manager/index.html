@@ -125,6 +125,27 @@
                 box-shadow 0.3s ease;
         }
 
+        .installbtn {
+            color: black;
+            background-color: #f0f0f0;
+            border: 1px solid black;
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+            font-size: 1rem;
+            text-decoration: none;
+            cursor: pointer;
+            transition:
+                box-shadow 0.3s ease,
+                background-color 0.3s ease,
+                color 0.3s ease;
+        }
+
+        .installbtn:hover {
+            background-color: var(--accent);
+            color: white;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+        }
+
         pre:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
@@ -269,6 +290,9 @@
             <pre><code>ftr get qchef/inker</code></pre>
             <button class="copy-btn">Copy</button>
         </div>
+        <strong>Inker for Windows:</strong>
+        <button onclick="window.open('https://quanthai.net/installinker4win.zip', '_blank')" class="installbtn">Download Inker
+            for Windows</button>
     </section>
 
     <section>
