@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	appName    = "FtR Inker 2.6"
+	appName    = "FtR Inker 2.7.0"
 	appWidth   = 800
 	appHeight  = 600
 	guiWorkers = 4
@@ -2228,13 +2228,21 @@ func syncAllEntries() {
 }
 
 func configPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "inker", "settings.json")
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		userProfile, _ = os.UserHomeDir()
+	}
+	// Use Windows AppData paths for settings
+	return filepath.Join(userProfile, "AppData", "Local", "FtR", "settings.json")
 }
 
 func installedConfigPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "inker", "installed.json")
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		userProfile, _ = os.UserHomeDir()
+	}
+	// Use Windows AppData paths for persistence
+	return filepath.Join(userProfile, "AppData", "Local", "FtR", "installed.json")
 }
 
 func loadInstalled() {
@@ -2356,7 +2364,9 @@ func saveInstalled() {
 	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		log.Printf("Error writing installed file: %v", err)
+		return
 	}
+	log.Printf("[Inker] Saved %d installed packages to %s", len(installedEntries), path)
 }
 
 // detectSystemInstalledApps scans common system locations for installed binaries

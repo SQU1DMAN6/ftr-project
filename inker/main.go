@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"inker/pkg/registry"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
@@ -91,7 +93,9 @@ func main() {
 	uiQueue = make(chan func(), 100)
 	resetCountdown := make(chan int, 1)
 
-	a := app.NewWithID("0")
+	a := app.NewWithID("com.ftr.ftr-inker")
+	a.NewWindow("FtR Inker")
+
 	loadSettings(a)
 	loadInstalled()
 	log.Println("[Inker] System app detection disabled - using FtR registry only")
@@ -561,10 +565,53 @@ func main() {
 											}
 										}
 										if !found {
-											installedEntries = append(installedEntries, InstalledEntry{User: user, Repo: repo, InstalledAt: time.Now().Unix(), Version: "", InstallPath: ""})
+											// attempt to determine version from repository files
+											version := ""
+											if ftrClient != nil {
+												if files, err := ftrClient.ListRepoFiles(user, repo); err == nil {
+													for _, f := range files {
+														if p, ok := f["path"].(string); ok {
+															v := extractVersionFromFilename(p, repo)
+															if v != "" && compareVersions(version, v) < 0 {
+																version = v
+															}
+														}
+													}
+												}
+											}
+											// try to detect install path
+											installPath := ""
+											home, _ := os.UserHomeDir()
+											candidates := []string{
+												filepath.Join("/usr/local/bin", repo),
+												filepath.Join(home, ".local", "bin", repo),
+												filepath.Join("/usr/local/share", repo, repo),
+												filepath.Join(home, ".local", "share", repo, repo),
+											}
+											for _, c := range candidates {
+												if _, err := os.Stat(c); err == nil {
+													installPath = c
+													break
+												}
+											}
+											installedEntries = append(installedEntries, InstalledEntry{User: user, Repo: repo, InstalledAt: time.Now().Unix(), Version: version, InstallPath: installPath})
 											saveInstalled()
 											if varInstalledList != nil {
 												varInstalledList.Refresh()
+											}
+											// update FtR registry so version isn't shown as unknown
+											if reg, err := registry.NewRegistry(); err == nil {
+												pkg := registry.PackageInfo{
+													Name:        repo,
+													Version:     version,
+													Source:      fmt.Sprintf("%s/%s", user, repo),
+													InstalledAt: time.Now(),
+												}
+												if installPath != "" {
+													pkg.BinaryPath = installPath
+												}
+												_ = reg.AddPackage(pkg)
+												_ = reg.Save()
 											}
 										}
 										infoDialog := dialog.NewInformation("Install complete", fmt.Sprintf("Finished installing %s/%s", user, repo), w)

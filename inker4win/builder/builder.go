@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"inker4win/pkg/boxlet"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 var ErrPrivilegedRequired = errors.New("privileged actions required")
@@ -44,23 +46,92 @@ func (b *Builder) run(cmd string) error {
 	return command.Run()
 }
 
+// createStartMenuEntry creates a Windows Start Menu shortcut for the installed application
+func (b *Builder) createStartMenuEntry(binaryPath, displayName string) error {
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		userProfile = os.Getenv("HOME")
+	}
+
+	startMenuPath := filepath.Join(userProfile, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "FtR")
+	if err := os.MkdirAll(startMenuPath, 0755); err != nil {
+		return fmt.Errorf("failed to create start menu directory: %w", err)
+	}
+
+	shortcutPath := filepath.Join(startMenuPath, displayName+".lnk")
+
+	// Use PowerShell to create a shortcut (.lnk file)
+	psCmd := fmt.Sprintf(`
+		$WshShell = New-Object -ComObject WScript.Shell
+		$Shortcut = $WshShell.CreateShortcut('%s')
+		$Shortcut.TargetPath = '%s'
+		$Shortcut.WorkingDirectory = (Split-Path -Parent '%s')
+		$Shortcut.Save()
+	`, shortcutPath, binaryPath, binaryPath)
+
+	// Run PowerShell command to create shortcut
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", psCmd)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create start menu shortcut: %w", err)
+	}
+
+	log.Printf("Created start menu entry at %s\n", shortcutPath)
+	return nil
+}
+
+// writeVersionToRegistry writes the application version to the Windows registry
+func (b *Builder) writeVersionToRegistry(appName, version string) error {
+	// Write to HKEY_CURRENT_USER for user-specific installation
+	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\FtR\Packages`, registry.ALL_ACCESS)
+	if err != nil {
+		// If key doesn't exist, create it
+		key, _, err = registry.CreateKey(registry.CURRENT_USER, `Software\FtR\Packages`, registry.ALL_ACCESS)
+		if err != nil {
+			return fmt.Errorf("failed to create registry key: %w", err)
+		}
+	}
+	defer key.Close()
+
+	// Create subkey for the application
+	appKey, _, err := registry.CreateKey(key, appName, registry.ALL_ACCESS)
+	if err != nil {
+		return fmt.Errorf("failed to create app registry key: %w", err)
+	}
+	defer appKey.Close()
+
+	// Write version to registry
+	if err := appKey.SetStringValue("Version", version); err != nil {
+		return fmt.Errorf("failed to write version to registry: %w", err)
+	}
+
+	log.Printf("Wrote version '%s' to registry for '%s'\n", version, appName)
+	return nil
+}
+
 // DetectAndBuild handles Windows-specific package detection and building
 func (b *Builder) DetectAndBuild() (string, error) {
 	var foundBinary string
 
 	// Early: detect prebuilt .exe in workdir and skip building if present
+	// First, look for an exact match: <reponame>.exe
+	expectedBinaryName := fmt.Sprintf("%s.exe", b.RepoName)
+	expectedBinaryPath := filepath.Join(b.WorkDir, expectedBinaryName)
+	if _, err := os.Stat(expectedBinaryPath); err == nil {
+		log.Printf("Prebuilt executable detected: %s\n", expectedBinaryPath)
+		return expectedBinaryPath, nil
+	}
+
+	// Fall back to searching for any .exe that contains the repo name
 	entries, _ := os.ReadDir(b.WorkDir)
 	for _, e := range entries {
 		if strings.HasSuffix(strings.ToLower(e.Name()), ".exe") {
 			name := e.Name()
-			if foundBinary == "" || strings.Contains(strings.ToLower(name), strings.ToLower(b.RepoName)) {
+			if strings.Contains(strings.ToLower(name), strings.ToLower(b.RepoName)) {
 				foundBinary = filepath.Join(b.WorkDir, name)
+				log.Printf("Prebuilt executable detected: %s\n", foundBinary)
+				return foundBinary, nil
 			}
 		}
-	}
-	if foundBinary != "" {
-		log.Printf("Prebuilt executable detected: %s\n", foundBinary)
-		return foundBinary, nil
 	}
 
 	// Check for install.bat or install.ps1 first
@@ -143,9 +214,50 @@ func (b *Builder) DetectAndBuild() (string, error) {
 	return "", fmt.Errorf("no supported Windows installer found (install.ps1, install.bat, main.cs, main.py, main.go, or main.cpp)")
 }
 
+// safeInstall copies a file from src to dst, renaming any existing dst to .old first.
+func safeInstall(src, dst string) error {
+	renamed := false
+	oldPath := dst + ".old"
+
+	// Check if destination exists
+	if _, err := os.Stat(dst); err == nil {
+		// Try to remove any previous .old file
+		_ = os.Remove(oldPath)
+
+		// Rename current file to .old
+		if err := os.Rename(dst, oldPath); err != nil {
+			return err
+		}
+		renamed = true
+	}
+
+	content, err := os.ReadFile(src)
+	if err != nil {
+		if renamed {
+			_ = os.Rename(oldPath, dst)
+		}
+		return err
+	}
+
+	if err := os.WriteFile(dst, content, 0755); err != nil {
+		if renamed {
+			_ = os.Rename(oldPath, dst)
+		}
+		return err
+	}
+
+	// Attempt to remove the .old file when done
+	if renamed {
+		_ = os.Remove(oldPath)
+	}
+
+	return nil
+}
+
 // InstallBinary handles installation of Windows binaries
 // On Windows, prefer user AppData bin directory to avoid UAC prompts
 // Falls back to Program Files if metadata indicates system-wide installation is required
+// Supports START_MENU_ENTRY for application shortcuts and VERSION registry entries
 func (b *Builder) InstallBinary(binaryPath string) error {
 	// Read BUILD/Meta.config to determine install behavior
 	meta, _ := boxlet.ReadMeta(b.WorkDir)
@@ -156,6 +268,16 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 		userProfile = os.Getenv("HOME")
 	}
 	userBin := filepath.Join(userProfile, "bin")
+
+	// Extract display name and version from metadata
+	displayName := strings.TrimSpace(meta["DISPLAY_NAME"])
+	if displayName == "" {
+		displayName = b.RepoName
+	}
+	version := strings.TrimSpace(meta["VERSION"])
+	if version == "" {
+		version = "1.0.0"
+	}
 
 	// If INSTALL_AS_CLI is present, install the executable into the user's bin and add to PATH
 	if meta != nil {
@@ -170,11 +292,7 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 			}
 
 			dest := filepath.Join(userBin, cliName+".exe")
-			content, err := os.ReadFile(binaryPath)
-			if err != nil {
-				return fmt.Errorf("failed to read binary: %w", err)
-			}
-			if err := os.WriteFile(dest, content, 0755); err != nil {
+			if err := safeInstall(binaryPath, dest); err != nil {
 				return fmt.Errorf("failed to copy binary to user bin: %w", err)
 			}
 
@@ -187,6 +305,11 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 			dataDir := filepath.Join(userProfile, "AppData", "Local", "FtR", "packages", b.RepoName)
 			_ = os.MkdirAll(dataDir, 0755)
 
+			// Write version to registry
+			if version != "" {
+				_ = b.writeVersionToRegistry(b.RepoName, version)
+			}
+
 			log.Printf("Installed CLI '%s' to %s\n", cliName, dest)
 			return nil
 		}
@@ -196,8 +319,19 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 	if err := os.MkdirAll(userBin, 0755); err == nil {
 		binName := filepath.Base(binaryPath)
 		destBin := filepath.Join(userBin, binName)
-		content, err := os.ReadFile(binaryPath)
-		if err == nil && os.WriteFile(destBin, content, 0755) == nil {
+		if err := safeInstall(binaryPath, destBin); err == nil {
+			// Create start menu entry if flagged
+			if meta != nil {
+				if startMenuEntry, ok := meta["START_MENU_ENTRY"]; ok && strings.TrimSpace(startMenuEntry) != "" {
+					_ = b.createStartMenuEntry(destBin, displayName)
+				}
+			}
+
+			// Write version to registry
+			if version != "" {
+				_ = b.writeVersionToRegistry(b.RepoName, version)
+			}
+
 			log.Printf("Installed %s to %s\n", binName, destBin)
 			return nil
 		}
@@ -213,12 +347,7 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 	destBin := filepath.Join(programFiles, binName)
 
 	// Copy binary to installation directory
-	content, err := os.ReadFile(binaryPath)
-	if err != nil {
-		return fmt.Errorf("failed to read binary: %w", err)
-	}
-
-	if err := os.WriteFile(destBin, content, 0755); err != nil {
+	if err := safeInstall(binaryPath, destBin); err != nil {
 		return fmt.Errorf("failed to copy binary: %w", err)
 	}
 
@@ -226,6 +355,18 @@ func (b *Builder) InstallBinary(binaryPath string) error {
 	dataDir := filepath.Join(programFiles, b.RepoName)
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// Create start menu entry if flagged
+	if meta != nil {
+		if startMenuEntry, ok := meta["START_MENU_ENTRY"]; ok && strings.TrimSpace(startMenuEntry) != "" {
+			_ = b.createStartMenuEntry(destBin, displayName)
+		}
+	}
+
+	// Write version to registry
+	if version != "" {
+		_ = b.writeVersionToRegistry(b.RepoName, version)
 	}
 
 	log.Printf("Installed %s to %s\n", binName, destBin)

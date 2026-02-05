@@ -323,6 +323,7 @@ func performInstall(logger *Logger, btn *widget.Button) {
 			entry := PackageInfo{
 				Name:        "inker",
 				Version:     "2.7.0",
+				Source:      "qchef/inker",
 				BinaryPath:  destPath,
 				InstalledAt: time.Now(),
 			}
