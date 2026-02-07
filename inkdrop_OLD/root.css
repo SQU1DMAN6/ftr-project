@@ -1,0 +1,177 @@
+* {
+    margin: 0px;
+    padding: 0px;
+}
+
+::-webkit-scrollbar {
+    height: 0px;
+    width: 10px;
+    border: 2px solid #b5b5b5;
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-track {
+    border-radius: 6px;
+    background: #eeeeee;
+}
+
+::-webkit-scrollbar-thumb {
+    border-radius: 6px;
+    background: #a0a0a0;
+}
+
+hr.linebreaker {
+    margin: 0 auto;
+    width: 80%;
+    line-height: 5px;
+}
+
+main {
+    font-family: "Open Sans", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 400;
+    font-style: normal;
+    font-variation-settings: "wdth" 100;
+}
+
+:root {
+    --primary: #2d518d;
+    --secondary: #142540;
+    --light-secondary: #10317f;
+    --grey: #4c4c4c;
+    --dark: #222222;
+    --light-blue: #488ecc;
+    --light-light-blue: #53acda;
+    --light: #eaeff4;
+    --dark-light: #cdcdcd;
+}
+
+button.redirect {
+    background-color: var(--primary);
+    color: var(--light);
+    border: 1px solid var(--light);
+    border-radius: 6px;
+    margin: 3px;
+    transition:
+        background-color 0.3s ease,
+        color 0.3s ease,
+        box-shadow 0.3s ease;
+    padding: 8px;
+    font-size: 18pt;
+    cursor: pointer;
+}
+
+button.redirect:hover {
+    background-color: var(--light);
+    color: var(--primary);
+    box-shadow: 0px 0px 10px var(--light-blue);
+}
+
+button.redirect:focus {
+    background-color: var(--light);
+    color: var(--primary);
+    box-shadow: 0px 0px 10px var(--light-blue);
+}
+
+button.select {
+    background-color: var(--dark);
+    color: white;
+    transition:
+        background-color 0.3s ease,
+        color 0.3s ease,
+        box-shadow 0.3s ease;
+    padding: 10px;
+    margin: 3px;
+    font-size: 16pt;
+    cursor: pointer;
+    border-radius: 6px;
+    border: 1px solid white;
+}
+
+button.select:hover {
+    background-color: var(--dark-light);
+    color: var(--dark);
+    box-shadow: 0px 0px 10px var(--grey);
+}
+
+button.select:focus {
+    background-color: var(--dark-light);
+    color: var(--dark);
+    box-shadow: 0px 0px 10px var(--grey);
+}
+
+button.small {
+    padding: 4px;
+    margin-left: 4px;
+    margin-right: 4px;
+    font-size: 14pt;
+}
+
+input.details {
+    background-color: var(--primary);
+    color: var(--light);
+    border: 1px solid #00ff00;
+    border-radius: 6px;
+    padding: 6px;
+    width: 400px;
+    font-size: 14pt;
+    transition:
+        width 0.3s ease,
+        box-shadow 0.3s ease;
+    outline: none;
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* Internet Explorer 10+ */
+    margin: 5px;
+}
+
+input.details:focus {
+    width: 450px;
+    box-shadow: 0px 0px 10px var(--light-blue);
+    outline: none;
+}
+
+h1.intro {
+    text-align: center;
+    margin: 20px;
+    width: 100%;
+    text-align: center;
+    text-shadow: 6px 6px 0px black;
+    font-size: 30pt;
+    line-height: 40px;
+    transition:
+        font-size 0.3s ease,
+        text-shadow 0.3s ease;
+}
+
+h1.intro:hover {
+    font-size: 32pt;
+    text-shadow: 6px 6px 3px #151515;
+}
+
+div.main {
+    width: 90%;
+    padding: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 20px;
+    margin-left: 0px;
+    margin-right: 0px;
+    border: 1px solid white;
+    color: white;
+    background-color: var(--dark);
+    flex-direction: column;
+    border-radius: 20px;
+}
+
+div.main1 {
+    background-color: var(--light) !important;
+    color: var(--dark) !important;
+}
+
+div.main3 {
+    background-color: var(--grey) !important;
+    color: var(--light) !important;
+}
