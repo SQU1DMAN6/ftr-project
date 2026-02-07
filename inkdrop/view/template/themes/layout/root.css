@@ -143,6 +143,7 @@ h1.intro {
     transition:
         font-size 0.3s ease,
         text-shadow 0.3s ease;
+    padding: 5px;
 }
 
 h1.intro:hover {
