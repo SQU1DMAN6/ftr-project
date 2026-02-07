@@ -2352,21 +2352,78 @@ func loadInstalled() {
 }
 
 func saveInstalled() {
-	path := installedConfigPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		log.Printf("Error creating installed directory: %v", err)
+	// Save to FtR registry.json instead of legacy installed.json
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		userProfile, _ = os.UserHomeDir()
+	}
+	ftrRegistryPath := filepath.Join(userProfile, "AppData", "Local", "FtR", "registry.json")
+
+	if err := os.MkdirAll(filepath.Dir(ftrRegistryPath), 0755); err != nil {
+		log.Printf("Error creating FtR registry directory: %v", err)
 		return
 	}
-	data, err := json.MarshalIndent(installedEntries, "", "  ")
+
+	// Convert installedEntries to FtR registry format
+	type ftrPackage struct {
+		Name        string `json:"name"`
+		Version     string `json:"version,omitempty"`
+		Source      string `json:"source,omitempty"`
+		BinaryPath  string `json:"binary_path,omitempty"`
+		InstallPath string `json:"install_path,omitempty"`
+	}
+	type ftrRegistry struct {
+		Packages        []ftrPackage `json:"packages"`
+		LastSync        time.Time    `json:"last_sync"`
+		SyncError       string       `json:"sync_error,omitempty"`
+		InkerVersion    string       `json:"inker_version"`
+		RegistryVersion string       `json:"registry_version"`
+	}
+
+	// Load existing registry first to preserve other entries
+	var ftrReg ftrRegistry
+	if data, err := os.ReadFile(ftrRegistryPath); err == nil {
+		_ = json.Unmarshal(data, &ftrReg)
+	} else {
+		ftrReg.RegistryVersion = "2.0"
+	}
+
+	// Convert each InstalledEntry to ftrPackage and update registry
+	ftrReg.LastSync = time.Now()
+	updatedNames := make(map[string]bool)
+	for _, entry := range installedEntries {
+		pkg := ftrPackage{
+			Name:       entry.Repo,
+			Version:    entry.Version,
+			Source:     entry.User + "/" + entry.Repo,
+			BinaryPath: entry.InstallPath,
+		}
+		updatedNames[entry.Repo] = true
+
+		// Update or append to packages list
+		found := false
+		for i := range ftrReg.Packages {
+			if ftrReg.Packages[i].Name == entry.Repo {
+				ftrReg.Packages[i] = pkg
+				found = true
+				break
+			}
+		}
+		if !found {
+			ftrReg.Packages = append(ftrReg.Packages, pkg)
+		}
+	}
+
+	data, err := json.MarshalIndent(ftrReg, "", "  ")
 	if err != nil {
-		log.Printf("Error marshalling installed list: %v", err)
+		log.Printf("Error marshalling FtR registry: %v", err)
 		return
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		log.Printf("Error writing installed file: %v", err)
+	if err := os.WriteFile(ftrRegistryPath, data, 0644); err != nil {
+		log.Printf("Error writing FtR registry file: %v", err)
 		return
 	}
-	log.Printf("[Inker] Saved %d installed packages to %s", len(installedEntries), path)
+	log.Printf("[Inker] Saved %d installed packages to FtR registry: %s", len(installedEntries), ftrRegistryPath)
 }
 
 // detectSystemInstalledApps scans common system locations for installed binaries

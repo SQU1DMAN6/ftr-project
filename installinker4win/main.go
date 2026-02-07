@@ -288,7 +288,7 @@ func performInstall(logger *Logger, btn *widget.Button) {
 	if localApp == "" {
 		logger.Log("WARNING: LOCALAPPDATA not set; skipping JSON registry")
 	} else {
-		regDir := filepath.Join(localApp, "ftr")
+		regDir := filepath.Join(localApp, "FtR")
 		regFile := filepath.Join(regDir, "registry.json")
 		logger.Logf("JSON registry path: %s", regFile)
 		if err := os.MkdirAll(regDir, 0755); err != nil {
