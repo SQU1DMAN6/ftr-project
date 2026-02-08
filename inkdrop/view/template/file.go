@@ -2,5 +2,7 @@ package template
 
 var (
 	// Frontend
-	LoginMain = ParseBackEndLogin("themes/layout/baselogin.html")
+	LoginMain                = Parse("themes/login/login.html")
+	RegisterMain             = Parse("themes/register/register.html")
+	RenderSuccessfulRegister = ParseBackEndMessage("themes/register/successregister.html")
 )

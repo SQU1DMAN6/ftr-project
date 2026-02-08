@@ -16,6 +16,7 @@ func BootApp() {
 	r.Use(config.GetSessionManager().LoadAndSave)
 
 	RegisterMiddleWares(r)
+	RegisterStatic(r)
 	routes.RegisterRoutes(r)
 
 	http.ListenAndServe(":6767", r)

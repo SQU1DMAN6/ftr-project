@@ -2,17 +2,30 @@ package template
 
 import (
 	"embed"
+	"io/fs"
 	"text/template"
 )
 
 //go:embed themes/*/*.html
-//go:embed themes/*/*.css
 var filesystem embed.FS
 
-func ParseBackEndLogin(files ...string) *template.Template {
+func Parse(files ...string) *template.Template {
+	return template.Must(
+		template.ParseFS(filesystem, files...))
+}
+
+func GetAssetsFS() fs.FS {
+	sub, err := fs.Sub(filesystem, "themes/assets")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
+
+func ParseBackEndMessage(files ...string) *template.Template {
 	allFiles := append(
 		[]string{
-			"themes/layout/baselogin.html",
+			"themes/base/message.html",
 		},
 		files...)
 
