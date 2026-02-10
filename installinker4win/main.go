@@ -72,9 +72,14 @@ func main() {
 		logger.mu.Unlock()
 	})
 
+	copyBtn := widget.NewButtonWithIcon("Copy Log to Clipboard", theme.ContentCopyIcon(), func() {
+		fyne.CurrentApp().Clipboard().SetContent(logger.logText.String())
+	})
+
 	buttonBar := container.NewHBox(
 		installBtn,
 		clearBtn,
+		copyBtn,
 		layout.NewSpacer(),
 	)
 
