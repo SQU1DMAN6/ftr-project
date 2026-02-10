@@ -41,7 +41,6 @@ func (l *Logger) Log(msg string) {
 	timestamp := time.Now().Format("15:04:05")
 	formatted := fmt.Sprintf("[%s] %s\n", timestamp, msg)
 	l.logText.WriteString(formatted)
-	// Update the RichText content by rebuilding with all text
 	l.output.ParseMarkdown("```\n" + l.logText.String() + "```")
 }
 
@@ -351,6 +350,50 @@ func performInstall(logger *Logger, btn *widget.Button) {
 				} else {
 					logger.Logf("WARNING: failed to write registry file: %v", err)
 				}
+			}
+		}
+	}
+
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		logger.Logf("Unable to find user profile directory. Skipping.")
+	} else {
+		binPath := userProfile + `\bin`
+		key, err := registry.OpenKey(
+			registry.CURRENT_USER,
+			`Environment`,
+			registry.QUERY_VALUE|registry.SET_VALUE,
+		)
+		if err != nil {
+			logger.Logf("WARNING: Failed to open registry key: %s", err)
+		}
+		defer key.Close()
+
+		path, _, err := key.GetStringValue("Path")
+		if err != nil {
+			path = ""
+		}
+
+		alreadyInPath := false
+		for _, p := range strings.Split(path, ";") {
+			if strings.EqualFold(p, binPath) {
+				logger.Log("Destination directory is already in PATH.")
+				alreadyInPath = true
+			}
+		}
+
+		if alreadyInPath == false {
+			newPath := path
+			if newPath != "" && !strings.HasSuffix(newPath, ";") {
+				newPath += ";"
+			}
+			newPath += binPath
+
+			err = key.SetStringValue("Path", newPath)
+			if err != nil {
+				logger.Logf("Failed to set PATH value: %s", err)
+			} else {
+				logger.Logf("Successfully added new PATH value %s", binPath)
 			}
 		}
 	}
