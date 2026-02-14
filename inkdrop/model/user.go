@@ -30,6 +30,7 @@ func ModelUser(db *bun.DB) error {
 
 func CreateUser(db *bun.DB, name string, email string, password string) error {
 	pass, err := regexp.MatchString("[^a-zA-Z0-9_-]+", name)
+
 	if err != nil {
 		return err
 	}
