@@ -3,16 +3,17 @@ package viewBackend
 import "html/template"
 
 type FrontEndParams struct {
-	Title       string
-	Name        string
-	Message     string
-	Message2    string
-	Message3    string
-	UserData    interface{}
-	SessionData map[string]string
-	CurrentURL  string
-	Page        int
-	CSRFToken   template.HTML
-	LoggedIn    bool
-	Error       map[string]string
+	Title           string
+	Name            string
+	Message         string
+	Message2        string
+	Message3        string
+	UserData        interface{}
+	SessionData     map[string]string
+	CurrentURL      string
+	Page            int
+	CSRFToken       template.HTML
+	LoggedIn        bool
+	IsViewingPublic bool
+	Error           map[string]string
 }

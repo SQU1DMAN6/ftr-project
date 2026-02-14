@@ -1,8 +1,12 @@
 package login
 
 import (
+	"fmt"
+	"inkdrop/config"
+	userModel "inkdrop/model"
 	viewBackend "inkdrop/view/connector"
 	"net/http"
+	"strings"
 )
 
 func LoginMain(w http.ResponseWriter, r *http.Request) {
@@ -13,4 +17,55 @@ func LoginMain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	viewBackend.LoginMain(w, p)
+}
+
+func LoginMainPost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse form entry: %s", err), http.StatusBadRequest)
+		return
+	}
+
+	userEmail := strings.TrimSpace(r.FormValue("email"))
+	userPassword := strings.TrimSpace(r.FormValue("password"))
+
+	if userEmail == "" || userPassword == "" {
+		http.Error(w, "User details are required, but not provided", http.StatusBadRequest)
+	}
+
+	//future work: csrf https://github.com/gorilla/csrf
+
+	fmt.Println("User tried to log in:", userEmail)
+
+	db := config.GetDB()
+
+	user, err := userModel.CheckPassword(db, userEmail, userPassword)
+	if err != nil {
+		fmt.Println("Error:", err)
+		paramData := viewBackend.FrontEndParams{
+			Title:   "Login",
+			Message: "Log into an existing FtR account",
+			Error:   make(map[string]string),
+		}
+
+		paramData.Error["general"] = fmt.Sprintf("Error logging in: %s", err)
+
+		viewBackend.LoginMain(w, paramData)
+		return
+	}
+
+	fmt.Printf("\nUser: %v | ID: %v | Email: %v\n", user.Name, user.ID, user.Email)
+
+	SS := config.GetSessionManager()
+
+	SS.Put(r.Context(), "email", user.Email)
+	SS.Put(r.Context(), "name", user.Name)
+	SS.Put(r.Context(), "isLoggedIn", true)
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

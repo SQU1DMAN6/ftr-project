@@ -11,6 +11,13 @@
         <div class="register-box">
             <h1 class="intro">Register for an FtR account</h1>
             <br><hr class="linebreaker"><br>
+            {{if .Error}}
+                <div class="alert">
+                    {{range $key, $msg := .Error}}
+                        <p>{{$msg}}</p>
+                    {{end}}
+                </div>
+            {{end}}
             <form action="/register" method="post" name="register">
                 <input class="details" name="name" type="text" placeholder="USERNAME" required><br><br>
                 <input class="details" name="email" type="email" placeholder="EMAIL" required><br><br>

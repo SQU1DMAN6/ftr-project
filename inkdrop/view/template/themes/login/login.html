@@ -9,8 +9,15 @@
 <body>
     <main>
         <div class="login-box">
-            <h1 class="intro">Login to access FtR InkDrop</h1>
+            <h1 class="intro">Welcome back to FtR</h1>
             <br><hr class="linebreaker" /><br>
+            {{if .Error}}
+                <div class="alert">
+                    {{range $key, $msg := .Error}}
+                        <p>{{$msg}}</p>
+                    {{end}}
+                </div>
+            {{end}}
             <form method="post" name="login" action="/login">
                 <input class="details" type="email" name="email" required placeholder="EMAIL" /><br><br>
                 <input class="details" type="password" name="password" required placeholder="PASSWORD"><br><br>
