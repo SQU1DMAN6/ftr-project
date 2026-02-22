@@ -3,6 +3,7 @@ package routes
 import (
 	"inkdrop/controller/login"
 	"inkdrop/controller/register"
+	"inkdrop/controller/repository"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -13,7 +14,7 @@ func RegisterRoutes(r chi.Router) {
 		w.Write([]byte("Server is up"))
 	})
 
-	// r.Get("/", index.ListRepositories)
+	r.Get("/", repository.IndexMain)
 	r.Get("/login", login.LoginMain)
 	r.Post("/login", login.LoginMainPost)
 	r.Get("/register", register.RegisterMain)

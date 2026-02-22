@@ -29,15 +29,14 @@ func ModelUser(db *bun.DB) error {
 }
 
 func CreateUser(db *bun.DB, name string, email string, password string) error {
-	pass, err := regexp.MatchString("[^a-zA-Z0-9_-]+", name)
-
-	if err != nil {
+	pass, err := regexp.MatchString("^[a-zA-Z0-9_-]+$", name)
+	fmt.Println("Regex:", pass)
+	if pass != true {
+		err = errors.New("username contains special characters")
 		return err
 	}
-	fmt.Println(pass)
-	if pass != true {
-		err = errors.New("Username contains special characters.")
-		return nil
+	if err != nil {
+		return err
 	}
 
 	checkUser, err := GetUserByEmail(email, db)
