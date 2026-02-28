@@ -16,4 +16,5 @@ type FrontEndParams struct {
 	LoggedIn        bool
 	IsViewingPublic bool
 	Error           map[string]string
+	RepoList        []string
 }

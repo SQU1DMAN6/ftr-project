@@ -10,6 +10,13 @@ import (
 )
 
 func LoginMain(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+	name := SS.GetString(r.Context(), "name")
+	isloggedin := SS.GetBool(r.Context(), "isLoggedIn")
+	if name != "" && isloggedin == true {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
+
 	p := viewBackend.FrontEndParams{
 		Title:   "Login",
 		Message: "Log in to an existing FtR account",
@@ -60,7 +67,6 @@ func LoginMainPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Printf("\nUser: %v | ID: %v | Email: %v\n", user.Name, user.ID, user.Email)
-
 	SS := config.GetSessionManager()
 
 	SS.Put(r.Context(), "email", user.Email)
@@ -68,4 +74,19 @@ func LoginMainPost(w http.ResponseWriter, r *http.Request) {
 	SS.Put(r.Context(), "isLoggedIn", true)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func Logout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionManager := config.GetSessionManager()
+	err := sessionManager.Destroy(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to log out", http.StatusServiceUnavailable)
+	}
+
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

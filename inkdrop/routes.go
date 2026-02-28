@@ -15,9 +15,12 @@ func RegisterRoutes(r chi.Router) {
 	})
 
 	r.Get("/", repository.IndexMain)
+	r.Post("/", repository.IndexMainPost)
 	r.Get("/login", login.LoginMain)
 	r.Post("/login", login.LoginMainPost)
 	r.Get("/register", register.RegisterMain)
 	r.Post("/register", register.RegisterMainPost)
+	r.Get("/logout", login.Logout)
+	r.Get("/delete/{reponame}", repository.DeleteRepository)
 	// r.Get("/successregister", register.SuccessRegister)
 }

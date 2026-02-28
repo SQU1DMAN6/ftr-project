@@ -1,58 +1,125 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="/assets/root.css">
-    <title>FtR InkDrop</title>
-</head>
-<body>
-    <main>
-        <h1 class="intro" style="color: white">Welcome to InkDrop, the universal file deployment platform</h1>
-        <br><hr class="linebreaker"><br>
-        {{if not .IsViewingPublic}}
-        <div class="main1 main">
-            <p style="font-size: 25pt">Welcome, {{.Name}}</p><br>
-            <nav>
-                <a href="?view=public"><button class="select">Browse Public Repositories</button></a>
-                <br>
-                <a href="/logout"><button class="redirect">Logout</button></a>
-            </nav>
-            <br><hr class="linebreaker"><br>
-            <form method="POST" action="/">
-                <input name="reponame" type="text" class="details" placeholder="Enter new repository name...">
-                <button type="submit">Create Repository</button>
-            </form>
-        </div>
-        <div class="main">
-            <p>Your repositories:</p>
-            <br><hr><br>
-            <ul></ul>
-        </div>
-        {{else}}
-        <div class="main3 main"></div>
-            <a href="/"><button class="redirect">Back to main page</button></a>
-            <br><br>
-            <h2>All users</h2>
-        </div>
-        {{end}}
-    </main>
-</body>
-<style>
-    main {
-        background-image: linear-gradient(
-            to bottom,
-            var(--primary),
-            var(--secondary)
-        );
-        width: 100%;
-        height: 100vh;
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        word-break: break-word;
-        overflow: auto;
-    }
-</style>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="/assets/root.css" />
+        <title>FtR InkDrop</title>
+    </head>
+    <body>
+        <main>
+            <h1 class="intro" style="color: white">
+                Welcome to InkDrop, the universal file deployment platform
+            </h1>
+            <br />
+            <hr class="linebreaker" />
+            <br />
+            {{if not .IsViewingPublic}}
+            <div class="main1 main">
+                <p style="font-size: 25pt">Welcome, {{.Name}}</p>
+                <br />
+                <nav>
+                    <a href="?view=public"
+                        ><button class="select">
+                            Browse Public Repositories
+                        </button></a
+                    >
+                    <br />
+                    <a href="/logout"
+                        ><button class="redirect">Logout</button></a
+                    >
+                </nav>
+                <br />
+                <hr class="linebreaker" />
+                <br />
+                <form name="newrepo" method="POST" action="/">
+                    <input
+                        name="reponame"
+                        type="text"
+                        class="details"
+                        placeholder="Enter new repository name..."
+                    />
+                    <button type="submit" class="select">
+                        Create Repository
+                    </button>
+                </form>
+                {{if .Error}}
+                <div class="alert">
+                    {{range $key, $msg := .Error}}
+                    <p>{{$msg}}</p>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+            {{if .RepoList}}
+            <div class="main">
+                <p>Your repositories:</p>
+                <br />
+                <hr class="linebreaker" />
+                <br />
+                <ul>
+                    {{range $i, $reponame := .RepoList}}
+                    <li>
+                        <div class="repolist">
+                            {{$reponame}}
+                            <a href="/delete/{{$reponame}}"
+                                ><button
+                                    style="
+                                        margin-left: 10px;
+                                        background: #ff3333;
+                                    "
+                                    class="select small"
+                                    onclick="return confirm('Are you sure you want to delete {{$reponame}}? This action is irreversable and will remove everything inside your repository.');"
+                                >
+                                    Delete
+                                </button></a
+                            >
+                        </div>
+                    </li>
+                    {{end}}
+                </ul>
+            </div>
+            {{else}}
+            <div class="main">
+                <p>
+                    You don't have any repositories yet. Consider making one to
+                    deploy and keep your files.
+                </p>
+            </div>
+            {{end}} {{else}}
+            <div class="main3 main">
+                <a href="/"
+                    ><button class="redirect">Back to main page</button></a
+                >
+                <br /><br />
+                <h2>All users</h2>
+            </div>
+            {{end}}
+        </main>
+    </body>
+    <style>
+        main {
+            background-image: linear-gradient(
+                to bottom,
+                var(--primary),
+                var(--secondary)
+            );
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            word-break: break-word;
+            overflow: auto;
+        }
+
+        div.repolist {
+            background-color: var(--dark-grey);
+            border: 1px solid white;
+            border-radius: 7px;
+            padding: 7px;
+            margin: 4px;
+        }
+    </style>
 </html>

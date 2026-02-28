@@ -39,6 +39,7 @@ main {
     --secondary: #142540;
     --light-secondary: #10317f;
     --grey: #4c4c4c;
+    --dark-grey: #333333;
     --dark: #222222;
     --light-blue: #488ecc;
     --light-light-blue: #53acda;
@@ -175,4 +176,14 @@ div.main1 {
 div.main3 {
     background-color: var(--grey) !important;
     color: var(--light) !important;
+}
+
+div.alert {
+    background-color: #f008;
+    border: 1px solid #fff;
+    border-radius: 8px;
+    padding: 10px;
+    margin: 5px;
+    height: max-content;
+    width: max-content;
 }

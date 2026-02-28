@@ -16,6 +16,13 @@ func RegisterMain(w http.ResponseWriter, r *http.Request) {
 		Error:   make(map[string]string),
 	}
 
+	SS := config.GetSessionManager()
+	name := SS.GetString(r.Context(), "name")
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	if name != "" && isLoggedIn == true {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
+
 	viewBackend.RegisterMain(w, p)
 }
 
@@ -70,15 +77,4 @@ func RegisterMainPost(w http.ResponseWriter, r *http.Request) {
 		Message3: "<br><br><a href='/login'><button class='redirect'>Login</button></a>",
 	}
 	viewBackend.RenderSuccessfulRegister(w, paramData)
-	// http.Redirect(w, r, "/successregister", http.StatusSeeOther)
 }
-
-// func SuccessRegister(w http.ResponseWriter, r *http.Request) {
-// 	p := viewBackend.FrontEndParams{
-// 		Title:    "Register",
-// 		Message:  "Successfully registered for a new account. Please proceed to login.",
-// 		Message2: "<br><br><a href='/login'><button class='redirect'>Login</button></a>",
-// 	}
-
-// 	viewBackend.RenderSuccessfulRegister(w, p)
-// }
