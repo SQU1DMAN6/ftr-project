@@ -1,4 +1,4 @@
-package model
+package repository
 
 import (
 	"errors"
@@ -71,6 +71,23 @@ func ListUserRepositories(userName string) ([]string, error) {
 
 	return clean, nil
 }
+
+func GetDirectoryListing(userName string, repoName string, path string) ([]string, error) {
+	var directoryToList string = fmt.Sprintf("%s/%s/%s%s", GlobalInkDropRepoDir, userName, repoName, path)
+	entries, err := os.ReadDir(directoryToList)
+	if err != nil {
+		return nil, err
+	}
+	var clean []string
+
+	for _, entry := range entries {
+		clean = append(clean, entry.Name())
+	}
+
+	return clean, nil
+}
+
+// func UploadFile(userName string, repoName string, fileName string, destPath string) ([]string, error)
 
 func DeleteUserRepository(userName string, repoName string) error {
 	var mainDirToRemove string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoDir, userName, repoName)

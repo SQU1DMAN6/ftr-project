@@ -57,24 +57,14 @@
                 <br />
                 <hr class="linebreaker" />
                 <br />
+                {{$parent := .}}
+
                 <ul>
                     {{range $i, $reponame := .RepoList}}
                     <li>
-                        <div class="repolist">
-                            {{$reponame}}
-                            <a href="/delete/{{$reponame}}"
-                                ><button
-                                    style="
-                                        margin-left: 10px;
-                                        background: #ff3333;
-                                    "
-                                    class="select small"
-                                    onclick="return confirm('Are you sure you want to delete {{$reponame}}? This action is irreversable and will remove everything inside your repository.');"
-                                >
-                                    Delete
-                                </button></a
-                            >
-                        </div>
+                        <a href="/{{$parent.Name}}/{{$reponame}}">
+                            <div class="repolist">{{$reponame}}</div>
+                        </a>
                     </li>
                     {{end}}
                 </ul>
@@ -120,6 +110,11 @@
             border-radius: 7px;
             padding: 7px;
             margin: 4px;
+        }
+
+        a {
+            text-decoration: none;
+            color: white;
         }
     </style>
 </html>

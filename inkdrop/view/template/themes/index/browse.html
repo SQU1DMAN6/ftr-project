@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <link rel="stylesheet" href="/assets/root.css" />
+        <title>{{ .Title }}</title>
+    </head>
+    <body>
+        <main>
+            <h1 class="intro">{{ .Title }}</h1>
+            <br />
+            <hr class="linebreaker" />
+            <br />
+            <div class="main main1">
+                {{.Message}} {{if .UserOwnsRepository}}
+                <form action="{{.Message2}}/{{.Message3}}/{{.Path}}"></form>
+                {{end}}
+            </div>
+            <hr class="linebreaker" />
+            <div class="main">
+                {{if .Error}}
+                <div class="alert">
+                    {{range $key, $msg := .Error}}
+                    <p>{{$msg}}</p>
+                    {{end}}
+                </div>
+                {{else}}
+                <h2>Files in {{.Message2}}/{{.Message3}}{{.Path}}</h2>
+                <br />
+                <hr class="linebreaker" />
+                <br />
+                <ul>
+                    {{range $i, $entry := .RepoList}}
+                    <li>
+                        <div class="repolist">{{$entry}}</div>
+                    </li>
+                    {{end}}
+                </ul>
+                {{end}}
+            </div>
+        </main>
+    </body>
+    <style>
+        main {
+            background-image: linear-gradient(
+                to bottom,
+                var(--primary),
+                var(--secondary)
+            );
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            word-break: break-word;
+            overflow: auto;
+        }
+
+        h1.intro {
+            color: #fff;
+        }
+
+        div.repolist {
+            background-color: var(--dark-grey);
+            border: 1px solid #fff;
+            border-radius: 7px;
+            padding: 7px;
+            margin: 4px;
+        }
+    </style>
+</html>
