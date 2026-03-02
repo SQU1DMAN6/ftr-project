@@ -1,23 +1,53 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="utf-8" />
-        <link rel="stylesheet" href="/assets/root.css" />
-        <title>{{ .Title }}</title>
-    </head>
-    <body>
-        <main>
-            <h1 class="intro">{{ .Title }}</h1>
-            <br />
-            <hr class="linebreaker" />
-            <br />
-            <div class="main main1">
-                {{.Message}} {{if .UserOwnsRepository}}
-                <form action="{{.Message2}}/{{.Message3}}/{{.Path}}"></form>
-                {{end}}
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/assets/root.css" />
+    <title>{{ .Title }}</title>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="topbar-brand">InkDrop</a>
+            <div class="topbar-right">
+                <div class="theme-switch" role="group" aria-label="Theme mode">
+                    <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+                    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+                </div>
+                <div class="profile-menu">
+                    <button
+                        type="button"
+                        class="profile-button"
+                        id="profileMenuButton"
+                        aria-haspopup="menu"
+                        aria-expanded="false"
+                        aria-controls="profileMenu"
+                    >
+                        {{.Name}} ▾
+                    </button>
+                    <div id="profileMenu" class="profile-dropdown" role="menu" hidden>
+                        <p class="menu-label">Signed in as</p>
+                        <p class="menu-user">{{.Name}}</p>
+                        <a href="/logout" class="button-link danger small" role="menuitem">Log Out</a>
+                    </div>
+                </div>
             </div>
-            <hr class="linebreaker" />
-            <div class="main">
+        </div>
+    </header>
+    <main class="page">
+        <section class="shell stack-lg">
+            <div class="panel dark stack">
+                <h1 class="intro">{{ .Title }}</h1>
+                <p class="subtle light">{{ .Message }}</p>
+                <div class="row">
+                    <a href="/" class="button-link">Back to Workspace</a>
+                    <p class="subtle light">Current path: <strong>{{.Message2}}/{{.Message3}}{{.Path}}</strong></p>
+                </div>
+            </div>
+
+            <div class="panel stack">
+                <h2 class="section">Repository Contents</h2>
                 {{if .Error}}
                 <div class="alert">
                     {{range $key, $msg := .Error}}
@@ -25,48 +55,74 @@
                     {{end}}
                 </div>
                 {{else}}
-                <h2>Files in {{.Message2}}/{{.Message3}}{{.Path}}</h2>
-                <br />
-                <hr class="linebreaker" />
-                <br />
-                <ul>
+                {{if .RepoList}}
+                <ul class="clean-list">
                     {{range $i, $entry := .RepoList}}
-                    <li>
-                        <div class="repolist">{{$entry}}</div>
+                    <li class="repo-card">
+                        <p class="repo-name">{{$entry}}</p>
                     </li>
                     {{end}}
                 </ul>
+                {{else}}
+                <div class="empty-state">
+                    <p>This folder is empty.</p>
+                    <small class="helper">Upload files with Inker or FtR tools to populate this repository.</small>
+                </div>
+                {{end}}
                 {{end}}
             </div>
-        </main>
-    </body>
-    <style>
-        main {
-            background-image: linear-gradient(
-                to bottom,
-                var(--primary),
-                var(--secondary)
-            );
-            width: 100%;
-            height: 100vh;
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            word-break: break-word;
-            overflow: auto;
-        }
+        </section>
+    </main>
+    <script>
+        (function () {
+            var root = document.documentElement;
+            var themeKey = "inkdrop-theme";
+            var themeButtons = document.querySelectorAll("[data-theme-set]");
 
-        h1.intro {
-            color: #fff;
-        }
+            function applyTheme(theme) {
+                var useTheme = theme === "dark" ? "dark" : "light";
+                root.setAttribute("data-theme", useTheme);
+                themeButtons.forEach(function (button) {
+                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === useTheme));
+                });
+            }
 
-        div.repolist {
-            background-color: var(--dark-grey);
-            border: 1px solid #fff;
-            border-radius: 7px;
-            padding: 7px;
-            margin: 4px;
-        }
-    </style>
+            var savedTheme = localStorage.getItem(themeKey);
+            applyTheme(savedTheme);
+            themeButtons.forEach(function (button) {
+                button.addEventListener("click", function () {
+                    var theme = button.getAttribute("data-theme-set");
+                    applyTheme(theme);
+                    localStorage.setItem(themeKey, theme);
+                });
+            });
+
+            var profileButton = document.getElementById("profileMenuButton");
+            var profileMenu = document.getElementById("profileMenu");
+
+            function closeMenu() {
+                profileMenu.hidden = true;
+                profileButton.setAttribute("aria-expanded", "false");
+            }
+
+            profileButton.addEventListener("click", function () {
+                var isHidden = profileMenu.hidden;
+                profileMenu.hidden = !isHidden;
+                profileButton.setAttribute("aria-expanded", String(isHidden));
+            });
+
+            document.addEventListener("click", function (event) {
+                if (!profileMenu.hidden && !event.target.closest(".profile-menu")) {
+                    closeMenu();
+                }
+            });
+
+            document.addEventListener("keydown", function (event) {
+                if (event.key === "Escape") {
+                    closeMenu();
+                }
+            });
+        })();
+    </script>
+</body>
 </html>

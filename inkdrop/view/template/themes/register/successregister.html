@@ -1,9 +1,10 @@
 {{define "content"}}
-<div class="message-box">
-    <h1>{{.Title}}</h1>
-    <br><br>
-    {{.Message}}
-    {{.Message2}}
-    {{.Message3}}
-</div>
+<section class="shell narrow">
+    <div class="panel center auth-card stack">
+        <h1 class="intro">{{.Title}}</h1>
+        <p>{{.Message}}</p>
+        <p>{{.Message2}}</p>
+        <p>{{.Message3}}</p>
+    </div>
+</section>
 {{end}}

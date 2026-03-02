@@ -15,6 +15,7 @@ func LoginMain(w http.ResponseWriter, r *http.Request) {
 	isloggedin := SS.GetBool(r.Context(), "isLoggedIn")
 	if name != "" && isloggedin == true {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
 	}
 
 	p := viewBackend.FrontEndParams{
@@ -42,7 +43,16 @@ func LoginMainPost(w http.ResponseWriter, r *http.Request) {
 	userPassword := strings.TrimSpace(r.FormValue("password"))
 
 	if userEmail == "" || userPassword == "" {
-		http.Error(w, "User details are required, but not provided", http.StatusBadRequest)
+		paramData := viewBackend.FrontEndParams{
+			Title:   "Login",
+			Message: "Log into an existing FtR account",
+			Error:   make(map[string]string),
+		}
+
+		paramData.Error["general"] = "Email and password are required."
+
+		viewBackend.LoginMain(w, paramData)
+		return
 	}
 
 	//future work: csrf https://github.com/gorilla/csrf

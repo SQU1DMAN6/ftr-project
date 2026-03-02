@@ -20,6 +20,7 @@ func IndexMain(w http.ResponseWriter, r *http.Request) {
 
 	if isLoggedIn != true || userName == "" {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
 	}
 
 	repoList, err := repository.ListUserRepositories(userName)
@@ -51,6 +52,7 @@ func IndexMainPost(w http.ResponseWriter, r *http.Request) {
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	if isLoggedIn != true || userName == "" {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
 	}
 	repoList, _ := repository.ListUserRepositories(userName)
 
@@ -63,7 +65,16 @@ func IndexMainPost(w http.ResponseWriter, r *http.Request) {
 	repoName := strings.TrimSpace(r.FormValue("reponame"))
 
 	if repoName == "" {
-		http.Error(w, "Repository name is required, but not provided", http.StatusBadRequest)
+		paramData := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Browse the InkDrop machine",
+			Name:            userName,
+			IsViewingPublic: false,
+			RepoList:        repoList,
+			Error:           make(map[string]string),
+		}
+		paramData.Error["general"] = "Repository name is required."
+		viewBackend.IndexMain(w, paramData)
 		return
 	}
 
@@ -119,6 +130,7 @@ func DeleteRepository(w http.ResponseWriter, r *http.Request) {
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	if isLoggedIn != true {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
 	}
 
 	repoName := chi.URLParam(r, "reponame")
@@ -153,6 +165,7 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 
 	if isLoggedIn != true || name == "" {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
 	}
 
 	repoName := chi.URLParam(r, "reponame")
@@ -198,8 +211,8 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 		paramData.Message = fmt.Sprintf("Browsing your repository '%s'", repoName)
 		paramData.UserOwnsRepository = true
 	} else {
-		paramData.Message = "You do not own this repository. You cannot upload or make edits."
-		paramData.UserOwnsRepository = true
+		paramData.Message = "You are viewing this repository in read-only mode."
+		paramData.UserOwnsRepository = false
 	}
 
 	directoryListing, err := repository.GetDirectoryListing(userName, repoName, path)

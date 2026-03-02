@@ -1,47 +1,71 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <link rel="stylesheet" href="/assets/root.css" />
-        <title>FtR InkDrop</title>
-    </head>
-    <body>
-        <main>
-            <h1 class="intro" style="color: white">
-                Welcome to InkDrop, the universal file deployment platform
-            </h1>
-            <br />
-            <hr class="linebreaker" />
-            <br />
-            {{if not .IsViewingPublic}}
-            <div class="main1 main">
-                <p style="font-size: 25pt">Welcome, {{.Name}}</p>
-                <br />
-                <nav>
-                    <a href="?view=public"
-                        ><button class="select">
-                            Browse Public Repositories
-                        </button></a
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/assets/root.css" />
+    <title>FtR InkDrop</title>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="topbar-brand">InkDrop</a>
+            <div class="topbar-right">
+                <div class="theme-switch" role="group" aria-label="Theme mode">
+                    <button type="button" data-theme-set="light" aria-pressed="false" style="cursor: pointer">Light</button>
+                    <button type="button" data-theme-set="dark" aria-pressed="false" style="cursor: pointer">Dark</button>
+                </div>
+                <div class="profile-menu">
+                    <button
+                        type="button"
+                        class="profile-button"
+                        id="profileMenuButton"
+                        aria-haspopup="menu"
+                        aria-expanded="false"
+                        aria-controls="profileMenu"
                     >
-                    <br />
-                    <a href="/logout"
-                        ><button class="redirect">Logout</button></a
-                    >
-                </nav>
-                <br />
-                <hr class="linebreaker" />
-                <br />
-                <form name="newrepo" method="POST" action="/">
+                        {{.Name}} ▾
+                    </button>
+                    <div id="profileMenu" class="profile-dropdown" role="menu" hidden>
+                        <p class="menu-label">Signed in as</p>
+                        <p class="menu-user">{{.Name}}</p>
+                        <a href="/logout" class="button-link danger small" role="menuitem">Log Out</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+    <main class="page">
+        {{if not .IsViewingPublic}}
+        <section class="shell stack-lg">
+            <div class="panel dark stack">
+                <h1 class="intro">InkDrop Workspace</h1>
+                <p class="subtle light">Signed in as <strong>{{.Name}}</strong>. Create a repository, then open it to browse files.</p>
+                <p class="subtle light">Fast path: create repository, open it, upload files from Inker/FtR.</p>
+                <div class="row">
+                    <a href="?view=public" class="button-link">Browse Public Repositories</a>
+                </div>
+            </div>
+
+            <div class="panel stack">
+                <h2 class="section">Create Repository</h2>
+                <p class="subtle">Use letters, numbers, underscores, and hyphens. Spaces are automatically converted to underscores.</p>
+                <form name="newrepo" method="POST" action="/" class="stack">
+                    <label for="reponame" class="field-label">Repository name</label>
                     <input
+                        id="reponame"
                         name="reponame"
                         type="text"
                         class="details"
-                        placeholder="Enter new repository name..."
+                        placeholder="example_repo"
+                        minlength="1"
+                        maxlength="64"
+                        pattern="[A-Za-z0-9_- ]+"
+                        required
                     />
-                    <button type="submit" class="select">
-                        Create Repository
-                    </button>
+                    <div class="row">
+                        <button type="submit" class="redirect">Create Repository</button>
+                    </div>
                 </form>
                 {{if .Error}}
                 <div class="alert">
@@ -51,70 +75,140 @@
                 </div>
                 {{end}}
             </div>
-            {{if .RepoList}}
-            <div class="main">
-                <p>Your repositories:</p>
-                <br />
-                <hr class="linebreaker" />
-                <br />
-                {{$parent := .}}
 
-                <ul>
+            <div class="panel stack">
+                <h2 class="section">Your Repositories</h2>
+                {{if .RepoList}}
+                {{$parent := .}}
+                <ul class="clean-list">
                     {{range $i, $reponame := .RepoList}}
-                    <li>
-                        <a href="/{{$parent.Name}}/{{$reponame}}">
-                            <div class="repolist">{{$reponame}}</div>
-                        </a>
+                    <li class="repo-card">
+                        <p class="repo-name">{{$reponame}}</p>
+                        <div class="row">
+                            <a href="/{{$parent.Name}}/{{$reponame}}" class="button-link small">Open</a>
+                            <button type="button" class="button-link small settings-trigger" data-dialog-target="repo-settings-{{$reponame}}">
+                                Settings
+                            </button>
+                        </div>
+
+                        <dialog id="repo-settings-{{$reponame}}" class="settings-modal">
+                            <form method="dialog" class="modal-card stack">
+                                <div class="row space">
+                                    <h3 class="section">Settings: {{$reponame}}</h3>
+                                    <button type="submit" value="cancel" class="button-link small">Close</button>
+                                </div>
+                                <p class="subtle">Repository owner: <strong>{{$parent.Name}}</strong></p>
+                                <p class="subtle">Use this panel for repository-level actions.</p>
+                                <div class="danger-zone stack">
+                                    <h4>Danger Zone</h4>
+                                    <p>Delete this repository and all of its files permanently.</p>
+                                    <a
+                                        href="/delete/{{$reponame}}"
+                                        class="button-link danger"
+                                        onclick="return confirm('Delete repository {{$reponame}}? This cannot be undone.');"
+                                    >
+                                        Delete Repository
+                                    </a>
+                                </div>
+                            </form>
+                        </dialog>
                     </li>
                     {{end}}
                 </ul>
+                {{else}}
+                <div class="empty-state">
+                    <p>No repositories yet.</p>
+                    <small class="helper">Create your first repository above to start sharing files.</small>
+                </div>
+                {{end}}
             </div>
-            {{else}}
-            <div class="main">
-                <p>
-                    You don't have any repositories yet. Consider making one to
-                    deploy and keep your files.
-                </p>
+        </section>
+        {{else}}
+        <section class="shell">
+            <div class="panel dark stack">
+                <h1 class="intro">Public Browser</h1>
+                <p class="subtle light">Public browsing is not fully wired yet. Return to your workspace to continue.</p>
+                <div class="row">
+                    <a href="/" class="button-link">Back to Workspace</a>
+                </div>
             </div>
-            {{end}} {{else}}
-            <div class="main3 main">
-                <a href="/"
-                    ><button class="redirect">Back to main page</button></a
-                >
-                <br /><br />
-                <h2>All users</h2>
-            </div>
-            {{end}}
-        </main>
-    </body>
-    <style>
-        main {
-            background-image: linear-gradient(
-                to bottom,
-                var(--primary),
-                var(--secondary)
-            );
-            width: 100%;
-            height: 100vh;
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            word-break: break-word;
-            overflow: auto;
-        }
+        </section>
+        {{end}}
+    </main>
+    <script>
+        (function () {
+            var root = document.documentElement;
+            var themeKey = "inkdrop-theme";
+            var themeButtons = document.querySelectorAll("[data-theme-set]");
 
-        div.repolist {
-            background-color: var(--dark-grey);
-            border: 1px solid white;
-            border-radius: 7px;
-            padding: 7px;
-            margin: 4px;
-        }
+            function applyTheme(theme) {
+                var useTheme = theme === "dark" ? "dark" : "light";
+                root.setAttribute("data-theme", useTheme);
+                themeButtons.forEach(function (button) {
+                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === useTheme));
+                });
+            }
 
-        a {
-            text-decoration: none;
-            color: white;
-        }
-    </style>
+            var savedTheme = localStorage.getItem(themeKey);
+            applyTheme(savedTheme);
+            themeButtons.forEach(function (button) {
+                button.addEventListener("click", function () {
+                    var theme = button.getAttribute("data-theme-set");
+                    applyTheme(theme);
+                    localStorage.setItem(themeKey, theme);
+                });
+            });
+
+            var profileButton = document.getElementById("profileMenuButton");
+            var profileMenu = document.getElementById("profileMenu");
+
+            function closeMenu() {
+                profileMenu.hidden = true;
+                profileButton.setAttribute("aria-expanded", "false");
+            }
+
+            profileButton.addEventListener("click", function () {
+                var isHidden = profileMenu.hidden;
+                profileMenu.hidden = !isHidden;
+                profileButton.setAttribute("aria-expanded", String(isHidden));
+            });
+
+            document.addEventListener("click", function (event) {
+                if (!profileMenu.hidden && !event.target.closest(".profile-menu")) {
+                    closeMenu();
+                }
+            });
+
+            document.addEventListener("keydown", function (event) {
+                if (event.key === "Escape") {
+                    closeMenu();
+                }
+            });
+
+            document.querySelectorAll("[data-dialog-target]").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    var id = button.getAttribute("data-dialog-target");
+                    var dialog = document.getElementById(id);
+                    if (dialog && typeof dialog.showModal === "function") {
+                        dialog.showModal();
+                    }
+                });
+            });
+
+            document.querySelectorAll("dialog.settings-modal").forEach(function (dialog) {
+                dialog.addEventListener("click", function (event) {
+                    var rect = dialog.getBoundingClientRect();
+                    var inDialog =
+                        event.clientX >= rect.left &&
+                        event.clientX <= rect.right &&
+                        event.clientY >= rect.top &&
+                        event.clientY <= rect.bottom;
+                    if (!inDialog) {
+                        dialog.close();
+                    }
+                });
+            });
+        })();
+    </script>
+</body>
 </html>

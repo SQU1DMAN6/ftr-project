@@ -21,6 +21,7 @@ func RegisterMain(w http.ResponseWriter, r *http.Request) {
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	if name != "" && isLoggedIn == true {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
 	}
 
 	viewBackend.RegisterMain(w, p)
@@ -43,7 +44,15 @@ func RegisterMainPost(w http.ResponseWriter, r *http.Request) {
 	userPassword := strings.TrimSpace(r.FormValue("password"))
 
 	if userEmail == "" || userPassword == "" || userNameRaw == "" {
-		http.Error(w, "User details are required, but not provided", http.StatusBadRequest)
+		paramData := viewBackend.FrontEndParams{
+			Title:   "Register",
+			Message: "Register for a new FtR account",
+			Error:   make(map[string]string),
+		}
+
+		paramData.Error["general"] = "Username, email, and password are required."
+
+		viewBackend.RegisterMain(w, paramData)
 		return
 	}
 
