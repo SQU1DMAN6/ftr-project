@@ -496,9 +496,9 @@ button.select:hover {
 }
 
 .danger {
-    background: linear-gradient(120deg, #cd3744, #b72934);
-    color: #fff;
-    border-color: var(--danger-dark);
+    background: linear-gradient(120deg, #cd3744, #b72934) !important;
+    color: #fff !important;
+    border-color: var(--danger-dark) !important;
 }
 
 .danger:hover {
