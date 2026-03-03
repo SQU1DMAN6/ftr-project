@@ -1,29 +1,27 @@
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/assets/root.css" />
     <title>FtR InkDrop</title>
 </head>
+
 <body>
     <header class="topbar">
         <div class="topbar-inner">
             <a href="/" class="topbar-brand">InkDrop</a>
             <div class="topbar-right">
                 <div class="theme-switch" role="group" aria-label="Theme mode">
-                    <button type="button" data-theme-set="light" aria-pressed="false" style="cursor: pointer">Light</button>
-                    <button type="button" data-theme-set="dark" aria-pressed="false" style="cursor: pointer">Dark</button>
+                    <button type="button" data-theme-set="light" aria-pressed="false"
+                        style="cursor: pointer">Light</button>
+                    <button type="button" data-theme-set="dark" aria-pressed="false"
+                        style="cursor: pointer">Dark</button>
                 </div>
                 <div class="profile-menu">
-                    <button
-                        type="button"
-                        class="profile-button"
-                        id="profileMenuButton"
-                        aria-haspopup="menu"
-                        aria-expanded="false"
-                        aria-controls="profileMenu"
-                    >
+                    <button type="button" class="profile-button" id="profileMenuButton" aria-haspopup="menu"
+                        aria-expanded="false" aria-controls="profileMenu">
                         {{.Name}} ▾
                     </button>
                     <div id="profileMenu" class="profile-dropdown" role="menu" hidden>
@@ -40,7 +38,8 @@
         <section class="shell stack-lg">
             <div class="panel dark stack">
                 <h1 class="intro">InkDrop Workspace</h1>
-                <p class="subtle light">Signed in as <strong>{{.Name}}</strong>. Create a repository, then open it to browse files.</p>
+                <p class="subtle light">Signed in as <strong>{{.Name}}</strong>. Create a repository, then open it to
+                    browse files.</p>
                 <p class="subtle light">Fast path: create repository, open it, upload files from Inker/FtR.</p>
                 <div class="row">
                     <a href="?view=public" class="button-link">Browse Public Repositories</a>
@@ -49,20 +48,12 @@
 
             <div class="panel stack">
                 <h2 class="section">Create Repository</h2>
-                <p class="subtle">Use letters, numbers, underscores, and hyphens. Spaces are automatically converted to underscores.</p>
+                <p class="subtle">Use letters, numbers, underscores, and hyphens. Spaces are automatically converted to
+                    underscores.</p>
                 <form name="newrepo" method="POST" action="/" class="stack">
                     <label for="reponame" class="field-label">Repository name</label>
-                    <input
-                        id="reponame"
-                        name="reponame"
-                        type="text"
-                        class="details"
-                        placeholder="example_repo"
-                        minlength="1"
-                        maxlength="64"
-                        pattern="[A-Za-z0-9_- ]+"
-                        required
-                    />
+                    <input id="reponame" name="reponame" type="text" class="details" placeholder="example_repo"
+                        minlength="1" maxlength="64" pattern="[A-Za-z0-9_- ]+" required />
                     <div class="row">
                         <button type="submit" class="redirect">Create Repository</button>
                     </div>
@@ -82,37 +73,12 @@
                 {{$parent := .}}
                 <ul class="clean-list">
                     {{range $i, $reponame := .RepoList}}
-                    <li class="repo-card">
-                        <p class="repo-name">{{$reponame}}</p>
-                        <div class="row">
-                            <a href="/{{$parent.Name}}/{{$reponame}}" class="button-link small">Open</a>
-                            <button type="button" class="button-link small settings-trigger" data-dialog-target="repo-settings-{{$reponame}}">
-                                Settings
-                            </button>
-                        </div>
 
-                        <dialog id="repo-settings-{{$reponame}}" class="settings-modal center">
-                            <form method="dialog" class="modal-card stack">
-                                <div class="row space">
-                                    <h3 class="section">Settings: {{$reponame}}</h3>
-                                    <button type="submit" value="cancel" class="button-link small">Close</button>
-                                </div>
-                                <p class="subtle">Repository owner: <strong>{{$parent.Name}}</strong></p>
-                                <p class="subtle">Use this panel for repository-level actions.</p>
-                                <div class="danger-zone stack">
-                                    <h4>Danger Zone</h4>
-                                    <p>Delete this repository and all of its files permanently.</p>
-                                    <a
-                                        href="/delete/{{$reponame}}"
-                                        class="button-link danger"
-                                        onclick="return confirm('Delete repository {{$reponame}}? This cannot be undone.');"
-                                    >
-                                        Delete Repository
-                                    </a>
-                                </div>
-                            </form>
-                        </dialog>
-                    </li>
+                    <a href="/{{$parent.Name}}/{{$reponame}}" class="repo-link">
+                        <li class="repo-card">
+                            <p class="repo-name">{{$reponame}}</p>
+                        </li>
+                    </a>
                     {{end}}
                 </ul>
                 {{else}}
@@ -127,7 +93,8 @@
         <section class="shell">
             <div class="panel dark stack">
                 <h1 class="intro">Public Browser</h1>
-                <p class="subtle light">Public browsing is not fully wired yet. Return to your workspace to continue.</p>
+                <p class="subtle light">Public browsing is not fully wired yet. Return to your workspace to continue.
+                </p>
                 <div class="row">
                     <a href="/" class="button-link">Back to Workspace</a>
                 </div>
@@ -211,4 +178,5 @@
         })();
     </script>
 </body>
+
 </html>

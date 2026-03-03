@@ -1,5 +1,12 @@
 package template
 
-import "text/template"
+import (
+	"strings"
+	"text/template"
+)
 
-var Funcs = template.FuncMap{}
+var Funcs = template.FuncMap{
+	"contains":  strings.Contains,
+	"hasPrefix": strings.HasPrefix,
+	"hasSuffix": strings.HasSuffix,
+}

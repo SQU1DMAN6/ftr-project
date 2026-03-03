@@ -3,6 +3,7 @@ package template
 import (
 	"embed"
 	"io/fs"
+	"path"
 	"text/template"
 )
 
@@ -10,8 +11,13 @@ import (
 var filesystem embed.FS
 
 func Parse(files ...string) *template.Template {
-	return template.Must(
-		template.ParseFS(filesystem, files...))
+	if len(files) == 0 {
+		panic("Parse requires at least one file")
+	}
+	name := path.Base(files[0])
+	t := template.New(name).Funcs(Funcs)
+	res := template.Must(t.ParseFS(filesystem, files...))
+	return res
 }
 
 func GetAssetsFS() fs.FS {
@@ -29,6 +35,10 @@ func ParseBackEndMessage(files ...string) *template.Template {
 		},
 		files...)
 
-	return template.Must(
-		template.New("").Funcs(Funcs).ParseFS(filesystem, allFiles...))
+	if len(allFiles) == 0 {
+		panic("template.ParseBackEndMessage called with no files")
+	}
+	name := path.Base(allFiles[0])
+	t := template.New(name).Funcs(Funcs)
+	return template.Must(t.ParseFS(filesystem, allFiles...))
 }

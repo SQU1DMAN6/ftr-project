@@ -1,10 +1,15 @@
 package viewBackend
 
 import (
+	"fmt"
 	"inkdrop/view/template"
 	"io"
 )
 
 func LoginMain(w io.Writer, p FrontEndParams) error {
-	return template.LoginMain.Execute(w, p)
+	err := template.LoginMain.Execute(w, p)
+	if err != nil {
+		fmt.Printf("[template] LoginMain error: %v\n", err)
+	}
+	return err
 }

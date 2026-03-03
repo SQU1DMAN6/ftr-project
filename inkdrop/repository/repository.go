@@ -55,6 +55,24 @@ func CreateNewUserRepository(username string, reponame string) error {
 	return nil
 }
 
+func CreateNewDirectory(userName, repoName, workingDir, folderName string) error {
+	if !strings.HasPrefix(workingDir, "/") {
+		workingDir = "/" + workingDir
+	}
+
+	if !strings.HasSuffix(workingDir, "/") {
+		workingDir = workingDir + "/"
+	}
+	var directoryToCreate string = fmt.Sprintf("%s/%s/%s%s/%s", GlobalInkDropRepoDir, userName, repoName, workingDir, folderName)
+
+	err := os.MkdirAll(directoryToCreate, 0755)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func ListUserRepositories(userName string) ([]string, error) {
 	var userRepoDir string = fmt.Sprintf("%s/%s", GlobalInkDropRepoDir, userName)
 	entries, err := os.ReadDir(userRepoDir)

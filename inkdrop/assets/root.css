@@ -147,8 +147,7 @@ main.page {
     border-radius: 16px;
     border: 1px solid #b7d1ed;
     background:
-        linear-gradient(145deg, #ffffffcc 0%, #eef6ffcd 100%),
-        #fff;
+        linear-gradient(145deg, #ffffffab 0%, #eef6ffab 100%);
     box-shadow: 0 14px 24px #13335226;
     backdrop-filter: blur(10px);
     padding: 10px 12px;
@@ -316,9 +315,7 @@ main.page::before {
 
 html[data-theme="dark"] .topbar-inner {
     border-color: #37608a;
-    background:
-        linear-gradient(145deg, #0f243ad4, #132f4bd4),
-        #10243f;
+    background: linear-gradient(145deg, #0f243a88, #132f4b88);
 }
 
 html[data-theme="dark"] .topbar-brand {
@@ -558,41 +555,81 @@ small.helper {
 ul.clean-list {
     list-style: none;
     display: grid;
-    gap: 10px;
+    gap: 12px;
     margin: 0;
     padding: 0;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    justify-items: center;
 }
 
 .repo-card {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    border: 1px solid #d4e2f4;
-    border-radius: 12px;
-    padding: 12px;
-    background:
-        radial-gradient(circle at 12% -40%, #7ec4ff33, transparent 56%),
-        #fff;
+    justify-content: center;
+    gap: 4px;
+    /* Finder-style: no visible box around the icon/name */
+    border: none;
+    padding: 8px;
     transition:
         transform 0.18s ease,
-        box-shadow 0.18s ease,
-        border-color 0.18s ease;
+        box-shadow 0.18s ease;
     animation: fadeUp 420ms ease both;
     position: relative;
     overflow: hidden;
+    cursor: pointer;
 }
 
-.repo-card::after {
-    content: "";
+.repo-card:hover {
+    transform: translateY(-2px);
+    /* subtle hover highlight */
+    box-shadow: 0 4px 8px #00000022;
+}
+
+.repo-card.selected {
+    outline: 2px solid var(--accent-cyan);
+    background: var(--light-blue);
+}
+
+.repo-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-decoration: none;
+    color: inherit;
+    width: 100%;
+}
+
+/* caret/menu icon */
+.entry-menu {
     position: absolute;
-    right: -22px;
-    top: -22px;
-    width: 68px;
-    height: 68px;
-    border-radius: 50%;
-    background: radial-gradient(circle, #9ad6ff61 0%, #9ad6ff00 70%);
-    transition: transform 0.24s ease;
+    top: 4px;
+    right: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--grey);
+    display: none;
+}
+
+.repo-card:hover .entry-menu {
+    display: block;
+}
+
+/* icon pseudo-elements for file/folder */
+.repo-card::before {
+    content: "\1F4C1"; /* 📁 folder by default */
+    font-size: 2.4rem;
+    display: block;
+    line-height: 1;
+    margin-bottom: 8px;
+}
+.repo-card.file::before {
+    content: "\1F4C4"; /* 📄 page icon for files */
+    color: #4b79a1;
+}
+
+.repo-card.folder::before {
+    color: #f4c814;
 }
 
 .repo-card:hover {
@@ -678,17 +715,25 @@ dialog.settings-modal {
     width: min(560px, 92vw);
     border: 1px solid #9ec5e9;
     border-radius: 18px;
-    padding: 0;
+    padding: 40px;
     background:
         radial-gradient(circle at 92% 8%, #ffd16638, #ffd16600 40%),
         radial-gradient(circle at 8% 95%, #72cbff38, #72cbff00 42%),
-        linear-gradient(165deg, #f8fcffed, #eef7ffeb);
+        linear-gradient(165deg, #0d2b46dd, #1c4d89dd);
     backdrop-filter: blur(12px);
     box-shadow: 0 30px 80px #0f2c4d66;
-    color: #0f2848;
+    color: #cde4ff;
     opacity: 0;
     transform: translateY(12px) scale(0.98);
     animation: modalIn 260ms ease forwards;
+}
+
+.always-dark {
+    color: #cde4ff;
+}
+
+.popup {
+    padding: 40px;
 }
 
 dialog.settings-modal::backdrop {
@@ -697,6 +742,28 @@ dialog.settings-modal::backdrop {
         #071625a8;
     backdrop-filter: blur(4px);
 }
+
+dialog.settings-modal.popup form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 0 8px;
+}
+
+dialog.settings-modal.popup form input[type="text"] {
+    padding: 8px;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    width: 100%;
+}
+
+dialog.settings-modal.popup form div {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
 
 .modal-card {
     padding: 18px;
@@ -742,10 +809,7 @@ html[data-theme="dark"] .subtle.light {
 }
 
 html[data-theme="dark"] .repo-card {
-    border-color: #3d648a;
-    background:
-        radial-gradient(circle at 12% -40%, #78bfff2b, transparent 56%),
-        #132b44;
+    background-color: #00000000 !important;
 }
 
 html[data-theme="dark"] .repo-name {

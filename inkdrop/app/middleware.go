@@ -1,11 +1,28 @@
 package app
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 func RegisterMiddleWares(r *chi.Mux) {
+	// default Chi logger prints status and response size (often 0 with redirects)
+	// we add a simple middleware that also reports incoming body size for POSTs
+	r.Use(RequestBodyLogger)
 	r.Use(middleware.Logger)
 	r.Use(middleware.StripSlashes)
+}
+
+// RequestBodyLogger logs the ContentLength of incoming requests with bodies.
+func RequestBodyLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > 0 {
+			// content length can be 0 when client doesn't send a body
+			// this helps diagnose why login seems to send "no data"
+			println("[req]", r.Method, r.URL.String(), "body len", r.ContentLength)
+		}
+		next.ServeHTTP(w, r)
+	})
 }

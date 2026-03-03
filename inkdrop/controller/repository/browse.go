@@ -170,7 +170,7 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 
 	repoName := chi.URLParam(r, "reponame")
 	userName := chi.URLParam(r, "user")
-	path := chi.URLParam(r, "path")
+	path := chi.URLParam(r, "*")
 	fmt.Println(repoName, userName, path)
 	if path == "" {
 		path = "/"
@@ -220,10 +220,43 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 		paramData.Error["general"] = fmt.Sprintf("Failed to get directory listing of %s/%s%s: %s", userName, repoName, path, err)
 	}
 	if directoryListing == nil {
-		paramData.Error["general"] = "The repository is empty. If you are the owner, consider uploading files."
+		if path == "/" {
+			paramData.Error["general"] = "The repository is empty. If you are the owner, consider uploading files."
+		}
 	}
 	paramData.RepoList = directoryListing
 
 	fmt.Printf("User %s tried to access repository %s/%s%s", name, userName, repoName, path)
 	viewBackend.IndexMainBrowseRepository(w, paramData)
+}
+
+func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Failed to parse user form. Try again.", http.StatusBadRequest)
+		return
+	}
+
+	folderName := r.FormValue("folderName")
+	repoName := r.FormValue("repository")
+	workingDir := r.FormValue("working-directory")
+
+	err = repository.CreateNewDirectory(userName, repoName, workingDir, folderName)
+	if err != nil {
+		http.Error(w, "Failed to create new folder. Go back and try again later.", http.StatusServiceUnavailable)
+	}
+
+	fmt.Printf("User %s created a new folder: '%s' at '%s' at '%s'\n", userName, folderName, repoName, workingDir)
+
+	http.Redirect(w, r, fmt.Sprintf("/%s/%s%s", userName, repoName, workingDir), http.StatusSeeOther)
 }

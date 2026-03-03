@@ -1,11 +1,13 @@
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/assets/root.css" />
     <title>{{ .Title }}</title>
 </head>
+
 <body>
     <header class="topbar">
         <div class="topbar-inner">
@@ -16,14 +18,8 @@
                     <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
                 </div>
                 <div class="profile-menu">
-                    <button
-                        type="button"
-                        class="profile-button"
-                        id="profileMenuButton"
-                        aria-haspopup="menu"
-                        aria-expanded="false"
-                        aria-controls="profileMenu"
-                    >
+                    <button type="button" class="profile-button" id="profileMenuButton" aria-haspopup="menu"
+                        aria-expanded="false" aria-controls="profileMenu">
                         {{.Name}} ▾
                     </button>
                     <div id="profileMenu" class="profile-dropdown" role="menu" hidden>
@@ -46,7 +42,7 @@
                 </div>
             </div>
 
-            <div class="panel stack">
+            <div class="panel stack" id="filePanel">
                 <h2 class="section">Repository Contents</h2>
                 {{if .Error}}
                 <div class="alert">
@@ -58,7 +54,9 @@
                 {{if .RepoList}}
                 <ul class="clean-list">
                     {{range $i, $entry := .RepoList}}
-                    <li class="repo-card">
+                    {{/* classify entry as file or folder based on presence of a dot in the name */}}
+                    <li class="repo-card {{if contains $entry "."}}file{{else}}folder{{end}}" data-name="{{$entry}}">
+                        <span class="entry-menu" title="Options">▾</span>
                         <p class="repo-name">{{$entry}}</p>
                     </li>
                     {{end}}
@@ -70,6 +68,37 @@
                 </div>
                 {{end}}
                 {{end}}
+
+                <div class="context-menu" id="contextMenu">
+                    <div class="menu-item" id="newFolderBtn">New Folder</div>
+                    <div class="menu-item" id="renameBtn">Rename</div>
+                    <div class="menu-item" id="settingsBtn">Settings</div>
+                </div>
+
+                <dialog class="settings-modal center popup" id="newFolderDialog">
+                    <form method="post" action="/new/dir">
+                        <h3>Create a new folder</h3>
+                        <br>
+                        <input type="text" name="folderName" placeholder="Folder Name" required>
+                        <input type="hidden" name="repository" value="{{.Message3}}">
+                        <input type="hidden" name="working-directory" value="{{.Path}}">
+                        <div>
+                            <button type="submit">Create</button>
+                            <button type="button" id="cancelDialog">Cancel</button>
+                        </div>
+                    </form>
+                </dialog>
+
+                <dialog class="settings-modal center popup" id="renameDialog">
+                    <form id="renameForm">
+                        <h3>Rename item</h3>
+                        <input type="text" name="newName" id="renameInput" placeholder="New name" required>
+                        <div>
+                            <button type="submit">Rename</button>
+                            <button type="button" id="cancelRename">Cancel</button>
+                        </div>
+                    </form>
+                </dialog>
             </div>
         </section>
     </main>
@@ -123,6 +152,208 @@
                 }
             });
         })();
+
+        // Temporary JS, may remove later as improvements settle in
+        const panel = document.getElementById("filePanel");
+        const contextMenu = document.getElementById("contextMenu");
+        const newFolderBtn = document.getElementById("newFolderBtn");
+        const renameBtn = document.getElementById("renameBtn");
+        const settingsBtn = document.getElementById("settingsBtn");
+        const dialog = document.getElementById("newFolderDialog");
+        const cancelDialog = document.getElementById("cancelDialog");
+        const renameDialog = document.getElementById("renameDialog");
+        const cancelRename = document.getElementById("cancelRename");
+        const renameForm = document.getElementById("renameForm");
+
+        // publish current path variables for navigation
+        const currentPath = "{{.Path}}";
+        const currentUser = "{{.Message2}}";
+        const currentRepo = "{{.Message3}}";
+        // for debugging: move contextMenu to body so it's not clipped and switch to fixed positioning
+        if (contextMenu && contextMenu.parentElement !== document.body) {
+            document.body.appendChild(contextMenu);
+            contextMenu.style.position = "fixed";
+        }
+
+        // global listener to see if any contextmenu events fire anywhere
+        document.addEventListener("contextmenu", (e) => {
+            console.log("[debug] document contextmenu target=", e.target, "defaultPrevented", e.defaultPrevented);
+        }, {capture: true});
+
+        // Safety check so it doesn't explode if DOM changes
+        if (panel && contextMenu && newFolderBtn) {
+            let selectedEntry = null;
+
+            function clearSelection() {
+                if (selectedEntry) selectedEntry.classList.remove('selected');
+                selectedEntry = null;
+            }
+
+            function showRenameDialog(element) {
+                const name = element.getAttribute('data-name');
+                const inp = document.getElementById('renameInput');
+                inp.value = name;
+                renameDialog.showModal();
+                inp.focus();
+                // store target in dataset for later
+                renameDialog.dataset.target = name;
+            }
+
+            function openEntry(element) {
+                const name = element.getAttribute('data-name');
+                // build new path
+                let base = window.location.pathname;
+                if (!base.endsWith('/')) base += '/';
+                window.location.href = base + encodeURIComponent(name);
+            }
+
+            panel.addEventListener('click', (e) => {
+                // left click
+                const li = e.target.closest('.repo-card');
+                if (!li) {
+                    // outside entries: show menu
+                    e.preventDefault();
+                    contextMenu.style.display = "block";
+                    contextMenu.style.left = `${e.clientX}px`;
+                    contextMenu.style.top = `${e.clientY}px`;
+                    selectedEntry = null;
+                    clearSelection();
+                    return;
+                }
+                // clicked on an entry
+                if (li.classList.contains('folder')) {
+                    // select
+                    clearSelection();
+                    selectedEntry = li;
+                    li.classList.add('selected');
+                } else {
+                    clearSelection();
+                }
+            });
+
+            panel.addEventListener('dblclick', (e) => {
+                const li = e.target.closest('.repo-card');
+                if (li && li.classList.contains('folder')) {
+                    openEntry(li);
+                }
+            });
+
+            panel.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const li = e.target.closest('.repo-card');
+                if (li) {
+                    // show context menu for this entry
+                    clearSelection();
+                    selectedEntry = li;
+                    li.classList.add('selected');
+                }
+                contextMenu.style.display = "block";
+                contextMenu.style.left = `${e.clientX}px`;
+                contextMenu.style.top = `${e.clientY}px`;
+            });
+
+            // remove duplicate listener further down by not including it
+
+            // keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (!selectedEntry) return;
+                if (e.key === 'Enter' || e.key === 'F2') {
+                    showRenameDialog(selectedEntry);
+                }
+                if (e.key === 'Delete') {
+                    console.log('delete', selectedEntry.getAttribute('data-name'));
+                }
+            });
+
+            // rest of existing listeners...
+
+            panel.addEventListener("contextmenu", (e) => {
+                console.log("[debug] panel contextmenu fired", e);
+                e.preventDefault();
+                e.stopPropagation();
+
+                contextMenu.style.display = "block";
+                contextMenu.style.left = `${e.clientX}px`;
+                contextMenu.style.top = `${e.clientY}px`;
+            });
+
+            document.addEventListener("click", (event) => {
+                if (!event) return;
+                if (event.button === 0) {
+                    contextMenu.style.display = "none";
+                }
+            });
+
+            newFolderBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                contextMenu.style.display = "none";
+                dialog.showModal();
+
+                const input = dialog.querySelector("input[name='folderName']");
+                if (input) input.focus();
+            });
+
+            renameBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                contextMenu.style.display = "none";
+                if (selectedEntry) showRenameDialog(selectedEntry);
+            });
+
+            settingsBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                contextMenu.style.display = "none";
+                if (selectedEntry) console.log("settings for", selectedEntry.getAttribute('data-name'));
+            });
+
+            cancelRename.addEventListener("click", () => {
+                renameDialog.close();
+            });
+
+            renameForm.addEventListener("submit", (e) => {
+                e.preventDefault();
+                const newName = document.getElementById('renameInput').value.trim();
+                console.log('rename', renameDialog.dataset.target, '->', newName);
+                renameDialog.close();
+            });
+
+            cancelDialog.addEventListener("click", () => {
+                dialog.close();
+            });
+
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") {
+                    contextMenu.style.display = "none";
+                }
+            });
+        }
     </script>
 </body>
+<style>
+    /* Temporary CSS, will remove later as improvements settle in */
+    .context-menu {
+        position: fixed; /* changed so moves relative to viewport, prevents clipping */
+        display: none;
+        background: #1e1e1e;
+        border: 1px solid #333;
+        padding: 6px;
+        border-radius: 6px;
+        z-index: 10000;
+    }
+
+    .context-menu button {
+        background: none;
+        border: none;
+        color: white;
+        padding: 6px 12px;
+        width: 100%;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .context-menu button:hover {
+        background: #333;
+    }
+</style>
+
 </html>

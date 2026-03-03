@@ -24,7 +24,10 @@ func LoginMain(w http.ResponseWriter, r *http.Request) {
 		Error:   make(map[string]string),
 	}
 
-	viewBackend.LoginMain(w, p)
+	if err := viewBackend.LoginMain(w, p); err != nil {
+		// if the template fails, propagate a generic error
+		http.Error(w, "Failed to render page", http.StatusInternalServerError)
+	}
 }
 
 func LoginMainPost(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +54,9 @@ func LoginMainPost(w http.ResponseWriter, r *http.Request) {
 
 		paramData.Error["general"] = "Email and password are required."
 
-		viewBackend.LoginMain(w, paramData)
+		if err := viewBackend.LoginMain(w, paramData); err != nil {
+			http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -72,7 +77,9 @@ func LoginMainPost(w http.ResponseWriter, r *http.Request) {
 
 		paramData.Error["general"] = fmt.Sprintf("Error logging in: %s", err)
 
-		viewBackend.LoginMain(w, paramData)
+		if err2 := viewBackend.LoginMain(w, paramData); err2 != nil {
+			http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		}
 		return
 	}
 
