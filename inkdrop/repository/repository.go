@@ -105,7 +105,24 @@ func GetDirectoryListing(userName string, repoName string, path string) ([]strin
 	return clean, nil
 }
 
-// func UploadFile(userName string, repoName string, fileName string, destPath string) ([]string, error)
+func RenameItem(userName, repoName, workingDir, oldName, newName string) error {
+	if !strings.HasPrefix(workingDir, "/") {
+		workingDir = "/" + workingDir
+	}
+	if workingDir != "/" && !strings.HasSuffix(workingDir, "/") {
+		workingDir = workingDir + "/"
+	}
+
+	oldPath := fmt.Sprintf("%s/%s/%s%s%s", GlobalInkDropRepoDir, userName, repoName, workingDir, oldName)
+	newPath := fmt.Sprintf("%s/%s/%s%s%s", GlobalInkDropRepoDir, userName, repoName, workingDir, newName)
+
+	err := os.Rename(oldPath, newPath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func DeleteUserRepository(userName string, repoName string) error {
 	var mainDirToRemove string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoDir, userName, repoName)

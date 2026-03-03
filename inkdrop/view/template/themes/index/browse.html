@@ -79,7 +79,7 @@
                     <form method="post" action="/new/dir">
                         <h3>Create a new folder</h3>
                         <br>
-                        <input type="text" name="folderName" placeholder="Folder Name" required>
+                        <input type="text" name="folderName" placeholder="Folder Name" pattern="[A-Za-z0-9_-]+" title="Letters, numbers, underscores or hyphens only" required>
                         <input type="hidden" name="repository" value="{{.Message3}}">
                         <input type="hidden" name="working-directory" value="{{.Path}}">
                         <div>
@@ -90,9 +90,12 @@
                 </dialog>
 
                 <dialog class="settings-modal center popup" id="renameDialog">
-                    <form id="renameForm">
+                    <form id="renameForm" method="post" action="/rename">
                         <h3>Rename item</h3>
-                        <input type="text" name="newName" id="renameInput" placeholder="New name" required>
+                        <input type="text" name="newName" id="renameInput" placeholder="New name" pattern="[A-Za-z0-9_-]+" title="Letters, numbers, underscores or hyphens only" required>
+                        <input type="hidden" name="oldName" id="renameOldName">
+                        <input type="hidden" name="repository" id="renameRepo">
+                        <input type="hidden" name="working-directory" id="renameWorkingDir">
                         <div>
                             <button type="submit">Rename</button>
                             <button type="button" id="cancelRename">Cancel</button>
@@ -191,12 +194,15 @@
 
             function showRenameDialog(element) {
                 const name = element.getAttribute('data-name');
+                if (name === '..') return;
                 const inp = document.getElementById('renameInput');
                 inp.value = name;
+                // populate hidden inputs
+                document.getElementById('renameOldName').value = name;
+                document.getElementById('renameRepo').value = currentRepo;
+                document.getElementById('renameWorkingDir').value = currentPath;
                 renameDialog.showModal();
                 inp.focus();
-                // store target in dataset for later
-                renameDialog.dataset.target = name;
             }
 
             function openEntry(element) {
@@ -247,6 +253,17 @@
                     clearSelection();
                     selectedEntry = li;
                     li.classList.add('selected');
+                    // hide rename/settings on parent entry
+                    if (li.getAttribute('data-name') === '..') {
+                        renameBtn.style.display = 'none';
+                        settingsBtn.style.display = 'none';
+                    } else {
+                        renameBtn.style.display = '';
+                        settingsBtn.style.display = '';
+                    }
+                } else {
+                    renameBtn.style.display = '';
+                    settingsBtn.style.display = '';
                 }
                 contextMenu.style.display = "block";
                 contextMenu.style.left = `${e.clientX}px`;
@@ -310,12 +327,8 @@
                 renameDialog.close();
             });
 
-            renameForm.addEventListener("submit", (e) => {
-                e.preventDefault();
-                const newName = document.getElementById('renameInput').value.trim();
-                console.log('rename', renameDialog.dataset.target, '->', newName);
-                renameDialog.close();
-            });
+            // no longer intercept rename submission; form will post to server
+            // renameForm.addEventListener("submit", ... removed
 
             cancelDialog.addEventListener("click", () => {
                 dialog.close();

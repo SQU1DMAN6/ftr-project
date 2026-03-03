@@ -25,5 +25,5 @@ func RegisterRoutes(r chi.Router) {
 	r.Get("/{user}/{reponame}/*", repository.IndexMainBrowseRepository)
 	r.Get("/{user}/{reponame}", repository.IndexMainBrowseRepository)
 	r.Post("/new/dir", repository.RepositoryCreateNewDirectory)
-	// r.Get("/successregister", register.SuccessRegister)
+	r.Post("/rename", repository.RepositoryRenameItem)
 }

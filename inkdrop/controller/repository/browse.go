@@ -6,6 +6,7 @@ import (
 	"inkdrop/repository"
 	viewBackend "inkdrop/view/connector"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -251,12 +252,93 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 	repoName := r.FormValue("repository")
 	workingDir := r.FormValue("working-directory")
 
+	// validate folderName
+	if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", folderName); !pass {
+		http.Error(w, "Invalid folder name. Only letters, numbers, underscores and hyphens allowed.", http.StatusBadRequest)
+		return
+	}
+
+	// build normalized working path (leading slash, trailing slash unless root)
+	if !strings.HasPrefix(workingDir, "/") {
+		workingDir = "/" + workingDir
+	}
+	if workingDir != "/" && !strings.HasSuffix(workingDir, "/") {
+		workingDir = workingDir + "/"
+	}
+
+	// perform creation
 	err = repository.CreateNewDirectory(userName, repoName, workingDir, folderName)
 	if err != nil {
 		http.Error(w, "Failed to create new folder. Go back and try again later.", http.StatusServiceUnavailable)
+		return
 	}
 
 	fmt.Printf("User %s created a new folder: '%s' at '%s' at '%s'\n", userName, folderName, repoName, workingDir)
 
-	http.Redirect(w, r, fmt.Sprintf("/%s/%s%s", userName, repoName, workingDir), http.StatusSeeOther)
+	// redirect into the newly created folder
+	// construct path without doubling slashes
+	wd := strings.TrimPrefix(workingDir, "/")
+	wd = strings.TrimSuffix(wd, "/")
+	var newPath string
+	if wd == "" {
+		newPath = fmt.Sprintf("/%s/%s/%s", userName, repoName, folderName)
+	} else {
+		newPath = fmt.Sprintf("/%s/%s/%s/%s", userName, repoName, wd, folderName)
+	}
+	http.Redirect(w, r, newPath, http.StatusSeeOther)
+}
+
+// RepositoryRenameItem handles renaming a file or directory within a repository.
+func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Failed to parse form data.", http.StatusBadRequest)
+		return
+	}
+
+	repoName := r.FormValue("repository")
+	workingDir := r.FormValue("working-directory")
+	oldName := r.FormValue("oldName")
+	newName := r.FormValue("newName")
+
+	// validate new name
+	if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", newName); !pass {
+		http.Error(w, "Invalid name. Only letters, numbers, underscores and hyphens allowed.", http.StatusBadRequest)
+		return
+	}
+
+	// normalize working directory same as other helpers
+	if !strings.HasPrefix(workingDir, "/") {
+		workingDir = "/" + workingDir
+	}
+	if workingDir != "/" && !strings.HasSuffix(workingDir, "/") {
+		workingDir = workingDir + "/"
+	}
+
+	err = repository.RenameItem(userName, repoName, workingDir, oldName, newName)
+	if err != nil {
+		http.Error(w, "Rename failed. Try again later.", http.StatusServiceUnavailable)
+		return
+	}
+
+	// stay in current directory after rename
+	wd := strings.TrimPrefix(workingDir, "/")
+	wd = strings.TrimSuffix(wd, "/")
+	var redirectPath string
+	if wd == "" {
+		redirectPath = fmt.Sprintf("/%s/%s", userName, repoName)
+	} else {
+		redirectPath = fmt.Sprintf("/%s/%s/%s", userName, repoName, wd)
+	}
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 }
