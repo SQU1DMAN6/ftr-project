@@ -93,15 +93,15 @@
                     <button type="button" class="menu-item danger-item" id="deleteBtn">Delete Folder</button>
                 </div>
 
-                <dialog class="settings-modal popup" id="newFolderDialog">
+                <dialog class="settings-modal center popup" id="newFolderDialog">
                     <form method="post" action="/new/dir" class="stack">
                         <h3 class="section">Create New Folder</h3>
                         <input
                             type="text"
                             name="folderName"
                             placeholder="Folder name"
-                            pattern="[A-Za-z0-9_-]+"
-                            title="Letters, numbers, underscores and hyphens only"
+                            pattern="[-A-Za-z0-9_ ]+"
+                            title="Letters, numbers, spaces, underscores and hyphens only"
                             required
                         />
                         <input type="hidden" name="repository" value="{{.Message3}}" />
@@ -113,7 +113,7 @@
                     </form>
                 </dialog>
 
-                <dialog class="settings-modal popup" id="renameDialog">
+                <dialog class="settings-modal center popup" id="renameDialog">
                     <form id="renameForm" method="post" action="/rename" class="stack">
                         <h3 class="section">Rename / Move Folder</h3>
                         <p class="subtle">You can move a folder by entering a destination path, for example: <code>archive/project_a</code>.</p>
@@ -218,6 +218,9 @@
 
             if (contextMenu) {
                 contextMenu.hidden = true;
+                if (contextMenu.parentElement !== document.body) {
+                    document.body.appendChild(contextMenu);
+                }
             }
 
             function normalizePath(pathValue) {
@@ -281,9 +284,23 @@
                 if (!contextMenu) return;
                 renameBtn.disabled = !canRename(selectedEntry);
                 deleteBtn.disabled = !canDelete(selectedEntry);
-                contextMenu.style.left = x + "px";
-                contextMenu.style.top = y + "px";
                 contextMenu.hidden = false;
+
+                var rect = contextMenu.getBoundingClientRect();
+                var pad = 8;
+                var left = x;
+                var top = y;
+                if (left + rect.width > window.innerWidth - pad) {
+                    left = window.innerWidth - rect.width - pad;
+                }
+                if (top + rect.height > window.innerHeight - pad) {
+                    top = window.innerHeight - rect.height - pad;
+                }
+                if (left < pad) left = pad;
+                if (top < pad) top = pad;
+
+                contextMenu.style.left = left + "px";
+                contextMenu.style.top = top + "px";
             }
 
             function hideContextMenu() {
@@ -316,6 +333,15 @@
                 if (!ok) return;
                 deleteItemName.value = folder;
                 deleteForm.submit();
+            }
+
+            function isTypingContext(target) {
+                if (!target) return false;
+                if (target.closest && target.closest("dialog[open]")) return true;
+                var tag = target.tagName;
+                if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+                if (target.isContentEditable) return true;
+                return false;
             }
 
             function isValidMovePath(candidate) {
@@ -352,7 +378,17 @@
                 });
             }
 
+            panel.addEventListener("contextmenu", function (event) {
+                if (event.target.closest(".repo-card")) return;
+                event.preventDefault();
+                selectEntry(null);
+                showContextMenu(event.clientX, event.clientY);
+            });
+
             panel.addEventListener("keydown", function (event) {
+                if (isTypingContext(event.target) || isTypingContext(document.activeElement)) {
+                    return;
+                }
                 if (!selectedEntry) return;
                 if (event.key === "Enter" || event.key === "F2") {
                     event.preventDefault();
@@ -393,6 +429,16 @@
                 if (event.key === "Escape") {
                     hideContextMenu();
                 }
+            });
+
+            window.addEventListener("resize", hideContextMenu);
+            window.addEventListener("scroll", hideContextMenu, true);
+
+            var newFolderForm = newFolderDialog.querySelector("form");
+            newFolderForm.addEventListener("submit", function () {
+                var input = newFolderDialog.querySelector("input[name='folderName']");
+                if (!input) return;
+                input.value = input.value.trim().replace(/\s+/g, "_");
             });
         })();
     </script>

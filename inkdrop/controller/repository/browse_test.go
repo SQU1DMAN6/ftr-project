@@ -47,8 +47,39 @@ func TestRepositoryCreateNewDirectory_Redirect(t *testing.T) {
 		t.Fatalf("expected 303 got %d", rr.Code)
 	}
 	loc := rr.Header().Get("Location")
-	if loc != "/testuser/testrepo/foo/abc" {
+	if loc != "/testuser/testrepo/foo" {
 		t.Errorf("redirect location wrong: %s", loc)
+	}
+}
+
+func TestRepositoryCreateNewDirectory_SpacesBecomeUnderscore(t *testing.T) {
+	prepareEnv(t)
+	SS := config.GetSessionManager()
+	base := filepath.Join(repo.GlobalInkDropRepoDir, "testuser", "testrepo")
+
+	form := url.Values{}
+	form.Set("folderName", "my folder")
+	form.Set("repository", "testrepo")
+	form.Set("working-directory", "/")
+
+	req := httptest.NewRequest(http.MethodPost, "/new/dir", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	ctx, _ := SS.Load(req.Context(), "")
+	SS.Put(ctx, "isLoggedIn", true)
+	SS.Put(ctx, "name", "testuser")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	RepositoryCreateNewDirectory(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 got %d", rr.Code)
+	}
+	if rr.Header().Get("Location") != "/testuser/testrepo" {
+		t.Fatalf("expected redirect to working directory root, got %s", rr.Header().Get("Location"))
+	}
+	if _, err := os.Stat(filepath.Join(base, "my_folder")); err != nil {
+		t.Fatalf("expected folder with underscore, got stat error: %v", err)
 	}
 }
 

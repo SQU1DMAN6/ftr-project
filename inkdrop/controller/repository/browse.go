@@ -255,6 +255,8 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 	repoName := r.FormValue("repository")
 	workingDir := r.FormValue("working-directory")
 	workingDir = normalizeBrowserPath(workingDir)
+	folderName = strings.TrimSpace(folderName)
+	folderName = strings.ReplaceAll(folderName, " ", "_")
 
 	if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", folderName); !pass {
 		http.Error(w, "Invalid folder name. Only letters, numbers, underscores and hyphens allowed.", http.StatusBadRequest)
@@ -271,13 +273,13 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 
 	wd := strings.TrimPrefix(workingDir, "/")
 	wd = strings.TrimSuffix(wd, "/")
-	var newPath string
 	if wd == "" {
-		newPath = fmt.Sprintf("/%s/%s/%s", userName, repoName, folderName)
+		http.Redirect(w, r, fmt.Sprintf("/%s/%s", userName, repoName), http.StatusSeeOther)
+		return
 	} else {
-		newPath = fmt.Sprintf("/%s/%s/%s/%s", userName, repoName, wd, folderName)
+		http.Redirect(w, r, fmt.Sprintf("/%s/%s/%s", userName, repoName, wd), http.StatusSeeOther)
+		return
 	}
-	http.Redirect(w, r, newPath, http.StatusSeeOther)
 }
 
 func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
