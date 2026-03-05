@@ -256,14 +256,11 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 	workingDir := r.FormValue("working-directory")
 	workingDir = normalizeBrowserPath(workingDir)
 
-	// validate folderName
 	if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", folderName); !pass {
 		http.Error(w, "Invalid folder name. Only letters, numbers, underscores and hyphens allowed.", http.StatusBadRequest)
 		return
 	}
 
-	// build normalized working path (leading slash, trailing slash unless root)
-	// perform creation
 	err = repository.CreateNewDirectory(userName, repoName, workingDir, folderName)
 	if err != nil {
 		http.Error(w, "Failed to create new folder. Go back and try again later.", http.StatusServiceUnavailable)
@@ -272,8 +269,6 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("User %s created a new folder: '%s' at '%s' at '%s'\n", userName, folderName, repoName, workingDir)
 
-	// redirect into the newly created folder
-	// construct path without doubling slashes
 	wd := strings.TrimPrefix(workingDir, "/")
 	wd = strings.TrimSuffix(wd, "/")
 	var newPath string
@@ -285,7 +280,6 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, newPath, http.StatusSeeOther)
 }
 
-// RepositoryRenameItem handles renaming a file or directory within a repository.
 func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	SS := config.GetSessionManager()
 
@@ -324,7 +318,6 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// stay in current directory after rename
 	wd := strings.TrimPrefix(workingDir, "/")
 	wd = strings.TrimSuffix(wd, "/")
 	var redirectPath string

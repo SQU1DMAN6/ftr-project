@@ -18,12 +18,12 @@ var (
 func DirExists(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err == nil {
-		return info.IsDir(), nil // Check if the path points to a directory
+		return info.IsDir(), nil
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil // Path does not exist
+		return false, nil
 	}
-	return false, err // Other error (e.g., permission issues)
+	return false, err
 }
 
 func ProcessRepoName(raw string) (string, error) {
