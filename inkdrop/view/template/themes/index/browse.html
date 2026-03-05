@@ -1,13 +1,11 @@
 <!doctype html>
 <html lang="en">
-
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/assets/root.css" />
     <title>{{ .Title }}</title>
 </head>
-
 <body>
     <header class="topbar">
         <div class="topbar-inner">
@@ -18,8 +16,14 @@
                     <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
                 </div>
                 <div class="profile-menu">
-                    <button type="button" class="profile-button" id="profileMenuButton" aria-haspopup="menu"
-                        aria-expanded="false" aria-controls="profileMenu">
+                    <button
+                        type="button"
+                        class="profile-button"
+                        id="profileMenuButton"
+                        aria-haspopup="menu"
+                        aria-expanded="false"
+                        aria-controls="profileMenu"
+                    >
                         {{.Name}} ▾
                     </button>
                     <div id="profileMenu" class="profile-dropdown" role="menu" hidden>
@@ -31,6 +35,7 @@
             </div>
         </div>
     </header>
+
     <main class="page">
         <section class="shell stack-lg">
             <div class="panel dark stack">
@@ -42,8 +47,13 @@
                 </div>
             </div>
 
-            <div class="panel stack" id="filePanel">
-                <h2 class="section">Repository Contents</h2>
+            <div class="panel stack" id="filePanel" tabindex="0" aria-label="Repository browser">
+                <div class="row space">
+                    <h2 class="section">Repository Contents</h2>
+                    <button type="button" class="button-link small" id="newFolderBtnInline">New Folder</button>
+                </div>
+                <p class="subtle">Tips: Double-click folder to open. Select a folder then press <strong>F2</strong> or <strong>Enter</strong> to rename/move, <strong>Del</strong> or <strong>Backspace</strong> to delete.</p>
+
                 {{if .Error}}
                 <div class="alert">
                     {{range $key, $msg := .Error}}
@@ -52,13 +62,21 @@
                 </div>
                 {{else}}
                 {{if .RepoList}}
-                <ul class="clean-list">
+                <ul class="clean-list browser-list" id="entryList">
                     {{range $i, $entry := .RepoList}}
-                    {{/* classify entry as file or folder based on presence of a dot in the name */}}
-                    <li class="repo-card {{if contains $entry "."}}file{{else}}folder{{end}}" data-name="{{$entry}}">
-                        <span class="entry-menu" title="Options">▾</span>
+                    {{if eq $entry ".."}}
+                    <li class="repo-card folder parent" data-kind="parent" data-name=".." tabindex="0">
+                        <p class="repo-name">..</p>
+                    </li>
+                    {{else if hasSuffix $entry "/"}}
+                    <li class="repo-card folder" data-kind="folder" data-name="{{trimSuffix $entry "/"}}" tabindex="0">
+                        <p class="repo-name">{{trimSuffix $entry "/"}}</p>
+                    </li>
+                    {{else}}
+                    <li class="repo-card file" data-kind="file" data-name="{{$entry}}" tabindex="0">
                         <p class="repo-name">{{$entry}}</p>
                     </li>
+                    {{end}}
                     {{end}}
                 </ul>
                 {{else}}
@@ -69,42 +87,63 @@
                 {{end}}
                 {{end}}
 
-                <div class="context-menu" id="contextMenu">
-                    <div class="menu-item" id="newFolderBtn">New Folder</div>
-                    <div class="menu-item" id="renameBtn">Rename</div>
-                    <div class="menu-item" id="settingsBtn">Settings</div>
+                <div class="context-menu" id="contextMenu" hidden>
+                    <button type="button" class="menu-item" id="newFolderBtn">New Folder</button>
+                    <button type="button" class="menu-item" id="renameBtn">Rename / Move</button>
+                    <button type="button" class="menu-item danger-item" id="deleteBtn">Delete Folder</button>
                 </div>
 
-                <dialog class="settings-modal center popup" id="newFolderDialog">
-                    <form method="post" action="/new/dir">
-                        <h3>Create a new folder</h3>
-                        <br>
-                        <input type="text" name="folderName" placeholder="Folder Name" pattern="[A-Za-z0-9_-]+" title="Letters, numbers, underscores or hyphens only" required>
-                        <input type="hidden" name="repository" value="{{.Message3}}">
-                        <input type="hidden" name="working-directory" value="{{.Path}}">
-                        <div>
-                            <button type="submit">Create</button>
-                            <button type="button" id="cancelDialog">Cancel</button>
+                <dialog class="settings-modal popup" id="newFolderDialog">
+                    <form method="post" action="/new/dir" class="stack">
+                        <h3 class="section">Create New Folder</h3>
+                        <input
+                            type="text"
+                            name="folderName"
+                            placeholder="Folder name"
+                            pattern="[A-Za-z0-9_-]+"
+                            title="Letters, numbers, underscores and hyphens only"
+                            required
+                        />
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="working-directory" value="{{.Path}}" />
+                        <div class="row">
+                            <button type="submit" class="redirect">Create</button>
+                            <button type="button" class="button-link" id="cancelDialog">Cancel</button>
                         </div>
                     </form>
                 </dialog>
 
-                <dialog class="settings-modal center popup" id="renameDialog">
-                    <form id="renameForm" method="post" action="/rename">
-                        <h3>Rename item</h3>
-                        <input type="text" name="newName" id="renameInput" placeholder="New name" pattern="[A-Za-z0-9_-]+" title="Letters, numbers, underscores or hyphens only" required>
-                        <input type="hidden" name="oldName" id="renameOldName">
-                        <input type="hidden" name="repository" id="renameRepo">
-                        <input type="hidden" name="working-directory" id="renameWorkingDir">
-                        <div>
-                            <button type="submit">Rename</button>
-                            <button type="button" id="cancelRename">Cancel</button>
+                <dialog class="settings-modal popup" id="renameDialog">
+                    <form id="renameForm" method="post" action="/rename" class="stack">
+                        <h3 class="section">Rename / Move Folder</h3>
+                        <p class="subtle">You can move a folder by entering a destination path, for example: <code>archive/project_a</code>.</p>
+                        <input
+                            type="text"
+                            name="newName"
+                            id="renameInput"
+                            placeholder="New name or destination path"
+                            title="Use folder names separated by /"
+                            required
+                        />
+                        <input type="hidden" name="oldName" id="renameOldName" />
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="working-directory" value="{{.Path}}" />
+                        <div class="row">
+                            <button type="submit" class="redirect">Apply</button>
+                            <button type="button" class="button-link" id="cancelRename">Cancel</button>
                         </div>
                     </form>
                 </dialog>
+
+                <form id="deleteForm" method="post" action="/delete/item" hidden>
+                    <input type="hidden" name="repository" value="{{.Message3}}" />
+                    <input type="hidden" name="working-directory" value="{{.Path}}" />
+                    <input type="hidden" name="itemName" id="deleteItemName" />
+                </form>
             </div>
         </section>
     </main>
+
     <script>
         (function () {
             var root = document.documentElement;
@@ -119,8 +158,7 @@
                 });
             }
 
-            var savedTheme = localStorage.getItem(themeKey);
-            applyTheme(savedTheme);
+            applyTheme(localStorage.getItem(themeKey));
             themeButtons.forEach(function (button) {
                 button.addEventListener("click", function () {
                     var theme = button.getAttribute("data-theme-set");
@@ -132,241 +170,231 @@
             var profileButton = document.getElementById("profileMenuButton");
             var profileMenu = document.getElementById("profileMenu");
 
-            function closeMenu() {
+            function closeProfileMenu() {
                 profileMenu.hidden = true;
                 profileButton.setAttribute("aria-expanded", "false");
             }
 
             profileButton.addEventListener("click", function () {
-                var isHidden = profileMenu.hidden;
-                profileMenu.hidden = !isHidden;
-                profileButton.setAttribute("aria-expanded", String(isHidden));
+                var willOpen = profileMenu.hidden;
+                profileMenu.hidden = !willOpen;
+                profileButton.setAttribute("aria-expanded", String(willOpen));
             });
 
             document.addEventListener("click", function (event) {
                 if (!profileMenu.hidden && !event.target.closest(".profile-menu")) {
-                    closeMenu();
+                    closeProfileMenu();
                 }
             });
 
             document.addEventListener("keydown", function (event) {
                 if (event.key === "Escape") {
-                    closeMenu();
+                    closeProfileMenu();
                 }
             });
-        })();
 
-        // Temporary JS, may remove later as improvements settle in
-        const panel = document.getElementById("filePanel");
-        const contextMenu = document.getElementById("contextMenu");
-        const newFolderBtn = document.getElementById("newFolderBtn");
-        const renameBtn = document.getElementById("renameBtn");
-        const settingsBtn = document.getElementById("settingsBtn");
-        const dialog = document.getElementById("newFolderDialog");
-        const cancelDialog = document.getElementById("cancelDialog");
-        const renameDialog = document.getElementById("renameDialog");
-        const cancelRename = document.getElementById("cancelRename");
-        const renameForm = document.getElementById("renameForm");
+            var currentPath = "{{.Path}}";
+            var currentUser = "{{.Message2}}";
+            var currentRepo = "{{.Message3}}";
 
-        // publish current path variables for navigation
-        const currentPath = "{{.Path}}";
-        const currentUser = "{{.Message2}}";
-        const currentRepo = "{{.Message3}}";
-        // for debugging: move contextMenu to body so it's not clipped and switch to fixed positioning
-        if (contextMenu && contextMenu.parentElement !== document.body) {
-            document.body.appendChild(contextMenu);
-            contextMenu.style.position = "fixed";
-        }
+            var panel = document.getElementById("filePanel");
+            var contextMenu = document.getElementById("contextMenu");
+            var entryList = document.getElementById("entryList");
+            var renameBtn = document.getElementById("renameBtn");
+            var deleteBtn = document.getElementById("deleteBtn");
+            var newFolderBtn = document.getElementById("newFolderBtn");
+            var newFolderBtnInline = document.getElementById("newFolderBtnInline");
+            var newFolderDialog = document.getElementById("newFolderDialog");
+            var renameDialog = document.getElementById("renameDialog");
+            var renameForm = document.getElementById("renameForm");
+            var renameInput = document.getElementById("renameInput");
+            var renameOldName = document.getElementById("renameOldName");
+            var cancelDialog = document.getElementById("cancelDialog");
+            var cancelRename = document.getElementById("cancelRename");
+            var deleteForm = document.getElementById("deleteForm");
+            var deleteItemName = document.getElementById("deleteItemName");
 
-        // global listener to see if any contextmenu events fire anywhere
-        document.addEventListener("contextmenu", (e) => {
-            console.log("[debug] document contextmenu target=", e.target, "defaultPrevented", e.defaultPrevented);
-        }, {capture: true});
+            var selectedEntry = null;
 
-        // Safety check so it doesn't explode if DOM changes
-        if (panel && contextMenu && newFolderBtn) {
-            let selectedEntry = null;
-
-            function clearSelection() {
-                if (selectedEntry) selectedEntry.classList.remove('selected');
-                selectedEntry = null;
+            if (contextMenu) {
+                contextMenu.hidden = true;
             }
 
-            function showRenameDialog(element) {
-                const name = element.getAttribute('data-name');
-                if (name === '..') return;
-                const inp = document.getElementById('renameInput');
-                inp.value = name;
-                // populate hidden inputs
-                document.getElementById('renameOldName').value = name;
-                document.getElementById('renameRepo').value = currentRepo;
-                document.getElementById('renameWorkingDir').value = currentPath;
-                renameDialog.showModal();
-                inp.focus();
+            function normalizePath(pathValue) {
+                var parts = String(pathValue || "/").split("/").filter(Boolean);
+                return "/" + parts.join("/");
             }
 
-            function openEntry(element) {
-                const name = element.getAttribute('data-name');
-                // build new path
-                let base = window.location.pathname;
-                if (!base.endsWith('/')) base += '/';
-                window.location.href = base + encodeURIComponent(name);
+            function parentPath(pathValue) {
+                var parts = normalizePath(pathValue).split("/").filter(Boolean);
+                if (parts.length === 0) return "/";
+                parts.pop();
+                return parts.length === 0 ? "/" : "/" + parts.join("/");
             }
 
-            panel.addEventListener('click', (e) => {
-                // left click
-                const li = e.target.closest('.repo-card');
-                if (!li) {
-                    // outside entries: show menu
-                    e.preventDefault();
-                    contextMenu.style.display = "block";
-                    contextMenu.style.left = `${e.clientX}px`;
-                    contextMenu.style.top = `${e.clientY}px`;
-                    selectedEntry = null;
-                    clearSelection();
+            function buildBrowseURL(pathValue) {
+                var safePath = normalizePath(pathValue);
+                var base = "/" + encodeURIComponent(currentUser) + "/" + encodeURIComponent(currentRepo);
+                if (safePath === "/") return base;
+                var encodedPath = safePath
+                    .split("/")
+                    .filter(Boolean)
+                    .map(encodeURIComponent)
+                    .join("/");
+                return base + "/" + encodedPath;
+            }
+
+            function selectEntry(entry) {
+                if (selectedEntry) selectedEntry.classList.remove("selected");
+                selectedEntry = entry || null;
+                if (selectedEntry) selectedEntry.classList.add("selected");
+            }
+
+            function entryKind(entry) {
+                return entry ? entry.getAttribute("data-kind") : "";
+            }
+
+            function canRename(entry) {
+                return entry && entryKind(entry) === "folder";
+            }
+
+            function canDelete(entry) {
+                return entry && entryKind(entry) === "folder";
+            }
+
+            function openEntry(entry) {
+                if (!entry) return;
+                var kind = entryKind(entry);
+                var name = entry.getAttribute("data-name");
+                if (kind === "parent") {
+                    window.location.href = buildBrowseURL(parentPath(currentPath));
                     return;
                 }
-                // clicked on an entry
-                if (li.classList.contains('folder')) {
-                    // select
-                    clearSelection();
-                    selectedEntry = li;
-                    li.classList.add('selected');
-                } else {
-                    clearSelection();
+                if (kind === "folder") {
+                    var base = normalizePath(currentPath);
+                    var next = base === "/" ? "/" + name : base + "/" + name;
+                    window.location.href = buildBrowseURL(next);
                 }
-            });
+            }
 
-            panel.addEventListener('dblclick', (e) => {
-                const li = e.target.closest('.repo-card');
-                if (li && li.classList.contains('folder')) {
-                    openEntry(li);
-                }
-            });
+            function showContextMenu(x, y) {
+                if (!contextMenu) return;
+                renameBtn.disabled = !canRename(selectedEntry);
+                deleteBtn.disabled = !canDelete(selectedEntry);
+                contextMenu.style.left = x + "px";
+                contextMenu.style.top = y + "px";
+                contextMenu.hidden = false;
+            }
 
-            panel.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const li = e.target.closest('.repo-card');
-                if (li) {
-                    // show context menu for this entry
-                    clearSelection();
-                    selectedEntry = li;
-                    li.classList.add('selected');
-                    // hide rename/settings on parent entry
-                    if (li.getAttribute('data-name') === '..') {
-                        renameBtn.style.display = 'none';
-                        settingsBtn.style.display = 'none';
-                    } else {
-                        renameBtn.style.display = '';
-                        settingsBtn.style.display = '';
-                    }
-                } else {
-                    renameBtn.style.display = '';
-                    settingsBtn.style.display = '';
-                }
-                contextMenu.style.display = "block";
-                contextMenu.style.left = `${e.clientX}px`;
-                contextMenu.style.top = `${e.clientY}px`;
-            });
+            function hideContextMenu() {
+                if (!contextMenu) return;
+                contextMenu.hidden = true;
+            }
 
-            // remove duplicate listener further down by not including it
-
-            // keyboard shortcuts
-            document.addEventListener('keydown', (e) => {
-                if (!selectedEntry) return;
-                if (e.key === 'Enter' || e.key === 'F2') {
-                    showRenameDialog(selectedEntry);
-                }
-                if (e.key === 'Delete') {
-                    console.log('delete', selectedEntry.getAttribute('data-name'));
-                }
-            });
-
-            // rest of existing listeners...
-
-            panel.addEventListener("contextmenu", (e) => {
-                console.log("[debug] panel contextmenu fired", e);
-                e.preventDefault();
-                e.stopPropagation();
-
-                contextMenu.style.display = "block";
-                contextMenu.style.left = `${e.clientX}px`;
-                contextMenu.style.top = `${e.clientY}px`;
-            });
-
-            document.addEventListener("click", (event) => {
-                if (!event) return;
-                if (event.button === 0) {
-                    contextMenu.style.display = "none";
-                }
-            });
-
-            newFolderBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                contextMenu.style.display = "none";
-                dialog.showModal();
-
-                const input = dialog.querySelector("input[name='folderName']");
+            function openNewFolderDialog() {
+                hideContextMenu();
+                newFolderDialog.showModal();
+                var input = newFolderDialog.querySelector("input[name='folderName']");
                 if (input) input.focus();
+            }
+
+            function openRenameDialog() {
+                if (!canRename(selectedEntry)) return;
+                hideContextMenu();
+                var oldName = selectedEntry.getAttribute("data-name");
+                renameOldName.value = oldName;
+                renameInput.value = oldName;
+                renameDialog.showModal();
+                renameInput.focus();
+                renameInput.select();
+            }
+
+            function deleteSelectedFolder() {
+                if (!canDelete(selectedEntry)) return;
+                var folder = selectedEntry.getAttribute("data-name");
+                var ok = window.confirm("Delete folder '" + folder + "'? This cannot be undone.");
+                if (!ok) return;
+                deleteItemName.value = folder;
+                deleteForm.submit();
+            }
+
+            function isValidMovePath(candidate) {
+                if (!candidate) return false;
+                if (candidate.startsWith("/") || candidate.includes("..")) return false;
+                var parts = candidate.split("/");
+                for (var i = 0; i < parts.length; i += 1) {
+                    if (!/^[A-Za-z0-9_-]+$/.test(parts[i])) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            if (entryList) {
+                entryList.addEventListener("click", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry) return;
+                    selectEntry(entry);
+                    panel.focus();
+                });
+
+                entryList.addEventListener("dblclick", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry) return;
+                    openEntry(entry);
+                });
+
+                entryList.addEventListener("contextmenu", function (event) {
+                    event.preventDefault();
+                    var entry = event.target.closest(".repo-card");
+                    selectEntry(entry);
+                    showContextMenu(event.clientX, event.clientY);
+                });
+            }
+
+            panel.addEventListener("keydown", function (event) {
+                if (!selectedEntry) return;
+                if (event.key === "Enter" || event.key === "F2") {
+                    event.preventDefault();
+                    openRenameDialog();
+                }
+                if (event.key === "Delete" || event.key === "Backspace") {
+                    event.preventDefault();
+                    deleteSelectedFolder();
+                }
             });
 
-            renameBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                contextMenu.style.display = "none";
-                if (selectedEntry) showRenameDialog(selectedEntry);
+            renameForm.addEventListener("submit", function (event) {
+                var value = renameInput.value.trim();
+                if (!isValidMovePath(value)) {
+                    event.preventDefault();
+                    window.alert("Invalid destination. Use letters/numbers/underscore/hyphen and optional / separators.");
+                }
             });
 
-            settingsBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                contextMenu.style.display = "none";
-                if (selectedEntry) console.log("settings for", selectedEntry.getAttribute('data-name'));
+            newFolderBtn.addEventListener("click", openNewFolderDialog);
+            newFolderBtnInline.addEventListener("click", openNewFolderDialog);
+            renameBtn.addEventListener("click", openRenameDialog);
+            deleteBtn.addEventListener("click", deleteSelectedFolder);
+            cancelDialog.addEventListener("click", function () {
+                newFolderDialog.close();
             });
-
-            cancelRename.addEventListener("click", () => {
+            cancelRename.addEventListener("click", function () {
                 renameDialog.close();
             });
 
-            // no longer intercept rename submission; form will post to server
-            // renameForm.addEventListener("submit", ... removed
-
-            cancelDialog.addEventListener("click", () => {
-                dialog.close();
-            });
-
-            document.addEventListener("keydown", (e) => {
-                if (e.key === "Escape") {
-                    contextMenu.style.display = "none";
+            document.addEventListener("click", function (event) {
+                if (!event.target.closest("#contextMenu")) {
+                    hideContextMenu();
                 }
             });
-        }
+
+            document.addEventListener("keydown", function (event) {
+                if (event.key === "Escape") {
+                    hideContextMenu();
+                }
+            });
+        })();
     </script>
 </body>
-<style>
-    /* Temporary CSS, will remove later as improvements settle in */
-    .context-menu {
-        position: fixed; /* changed so moves relative to viewport, prevents clipping */
-        display: none;
-        background: #1e1e1e;
-        border: 1px solid #333;
-        padding: 6px;
-        border-radius: 6px;
-        z-index: 10000;
-    }
-
-    .context-menu button {
-        background: none;
-        border: none;
-        color: white;
-        padding: 6px 12px;
-        width: 100%;
-        text-align: left;
-        cursor: pointer;
-    }
-
-    .context-menu button:hover {
-        background: #333;
-    }
-</style>
-
 </html>

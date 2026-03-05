@@ -6,6 +6,7 @@ import (
 	"inkdrop/repository"
 	viewBackend "inkdrop/view/connector"
 	"net/http"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -173,12 +174,7 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 	userName := chi.URLParam(r, "user")
 	path := chi.URLParam(r, "*")
 	fmt.Println(repoName, userName, path)
-	if path == "" {
-		path = "/"
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
+	path = normalizeBrowserPath(path)
 
 	if name == userName {
 		userOwnsRepo = true
@@ -225,6 +221,13 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 			paramData.Error["general"] = "The repository is empty. If you are the owner, consider uploading files."
 		}
 	}
+
+	if path != "/" && err == nil {
+		if directoryListing == nil {
+			directoryListing = []string{}
+		}
+		directoryListing = append([]string{".."}, directoryListing...)
+	}
 	paramData.RepoList = directoryListing
 
 	fmt.Printf("User %s tried to access repository %s/%s%s", name, userName, repoName, path)
@@ -251,6 +254,7 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 	folderName := r.FormValue("folderName")
 	repoName := r.FormValue("repository")
 	workingDir := r.FormValue("working-directory")
+	workingDir = normalizeBrowserPath(workingDir)
 
 	// validate folderName
 	if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", folderName); !pass {
@@ -259,13 +263,6 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// build normalized working path (leading slash, trailing slash unless root)
-	if !strings.HasPrefix(workingDir, "/") {
-		workingDir = "/" + workingDir
-	}
-	if workingDir != "/" && !strings.HasSuffix(workingDir, "/") {
-		workingDir = workingDir + "/"
-	}
-
 	// perform creation
 	err = repository.CreateNewDirectory(userName, repoName, workingDir, folderName)
 	if err != nil {
@@ -310,19 +307,15 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	workingDir := r.FormValue("working-directory")
 	oldName := r.FormValue("oldName")
 	newName := r.FormValue("newName")
+	workingDir = normalizeBrowserPath(workingDir)
 
-	// validate new name
-	if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", newName); !pass {
-		http.Error(w, "Invalid name. Only letters, numbers, underscores and hyphens allowed.", http.StatusBadRequest)
+	if oldName == "" || oldName == ".." {
+		http.Error(w, "Invalid source name.", http.StatusBadRequest)
 		return
 	}
-
-	// normalize working directory same as other helpers
-	if !strings.HasPrefix(workingDir, "/") {
-		workingDir = "/" + workingDir
-	}
-	if workingDir != "/" && !strings.HasSuffix(workingDir, "/") {
-		workingDir = workingDir + "/"
+	if !isValidMovePath(newName) {
+		http.Error(w, "Invalid destination path.", http.StatusBadRequest)
+		return
 	}
 
 	err = repository.RenameItem(userName, repoName, workingDir, oldName, newName)
@@ -341,4 +334,77 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 		redirectPath = fmt.Sprintf("/%s/%s/%s", userName, repoName, wd)
 	}
 	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+}
+
+func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Failed to parse form data.", http.StatusBadRequest)
+		return
+	}
+
+	repoName := r.FormValue("repository")
+	workingDir := normalizeBrowserPath(r.FormValue("working-directory"))
+	itemName := strings.TrimSpace(r.FormValue("itemName"))
+	if itemName == "" || itemName == ".." {
+		http.Error(w, "Invalid item for deletion.", http.StatusBadRequest)
+		return
+	}
+
+	err = repository.DeleteItem(userName, repoName, workingDir, itemName)
+	if err != nil {
+		http.Error(w, "Delete failed. Try again later.", http.StatusServiceUnavailable)
+		return
+	}
+
+	wd := strings.TrimPrefix(workingDir, "/")
+	wd = strings.TrimSuffix(wd, "/")
+	var redirectPath string
+	if wd == "" {
+		redirectPath = fmt.Sprintf("/%s/%s", userName, repoName)
+	} else {
+		redirectPath = fmt.Sprintf("/%s/%s/%s", userName, repoName, wd)
+	}
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+}
+
+func normalizeBrowserPath(raw string) string {
+	if raw == "" {
+		return "/"
+	}
+	clean := path.Clean("/" + raw)
+	if clean == "." || clean == "" {
+		return "/"
+	}
+	return clean
+}
+
+func isValidMovePath(raw string) bool {
+	candidate := strings.TrimSpace(raw)
+	if candidate == "" || strings.HasPrefix(candidate, "/") {
+		return false
+	}
+	if strings.Contains(candidate, "..") {
+		return false
+	}
+
+	parts := strings.Split(candidate, "/")
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", part); !pass {
+			return false
+		}
+	}
+	return true
 }

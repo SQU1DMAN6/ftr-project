@@ -555,40 +555,44 @@ small.helper {
 ul.clean-list {
     list-style: none;
     display: grid;
-    gap: 12px;
+    gap: 10px;
     margin: 0;
     padding: 0;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    justify-items: center;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    justify-items: stretch;
 }
 
 .repo-card {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    /* Finder-style: no visible box around the icon/name */
-    border: none;
-    padding: 8px;
+    gap: 10px;
+    border: 1px solid #b9d3ed;
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: linear-gradient(145deg, #ffffffbf, #f2f8ffbf);
+    box-shadow: 0 8px 16px #0e2f5014;
     transition:
         transform 0.18s ease,
-        box-shadow 0.18s ease;
+        box-shadow 0.18s ease,
+        border-color 0.18s ease;
     animation: fadeUp 420ms ease both;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     cursor: pointer;
 }
 
 .repo-card:hover {
     transform: translateY(-2px);
-    /* subtle hover highlight */
-    box-shadow: 0 4px 8px #00000022;
+    border-color: #83b7e6;
+    box-shadow: 0 12px 24px #1737611f;
 }
 
 .repo-card.selected {
     outline: 2px solid var(--accent-cyan);
-    background: var(--light-blue);
+    outline-offset: 1px;
+    background: linear-gradient(145deg, #e7f5ff, #d8edff);
 }
 
 .repo-link {
@@ -600,46 +604,23 @@ ul.clean-list {
     width: 100%;
 }
 
-/* caret/menu icon */
-.entry-menu {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: var(--grey);
-    display: none;
-}
-
-.repo-card:hover .entry-menu {
-    display: block;
-}
-
-/* icon pseudo-elements for file/folder */
 .repo-card::before {
-    content: "\1F4C1"; /* 📁 folder by default */
-    font-size: 2.4rem;
-    display: block;
-    line-height: 1;
-    margin-bottom: 8px;
+    content: "";
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: linear-gradient(130deg, #4a90d6, #1c66b2);
+    box-shadow: 0 0 0 2px #ffffff6f;
+    flex: 0 0 auto;
+}
+.repo-card.folder::before {
+    background: linear-gradient(130deg, #ffc95e, #f2a719);
+}
+.repo-card.parent::before {
+    background: linear-gradient(130deg, #78d6ba, #1eaa82);
 }
 .repo-card.file::before {
-    content: "\1F4C4"; /* 📄 page icon for files */
-    color: #4b79a1;
-}
-
-.repo-card.folder::before {
-    color: #f4c814;
-}
-
-.repo-card:hover {
-    transform: translateY(-2px);
-    border-color: #8cb7e4;
-    box-shadow: 0 12px 24px #1737611c;
-}
-
-.repo-card:hover::after {
-    transform: scale(1.25);
+    background: linear-gradient(130deg, #9cb3cf, #6585ac);
 }
 
 .clean-list li:nth-child(1) {
@@ -664,7 +645,117 @@ ul.clean-list {
 .repo-name {
     font-weight: 700;
     color: #183356;
-    word-break: break-all;
+    word-break: break-word;
+    text-align: left;
+}
+
+.context-menu {
+    position: fixed;
+    z-index: 120;
+    min-width: 210px;
+    border-radius: 12px;
+    border: 1px solid #9ec3e6;
+    background: linear-gradient(170deg, #fffffff4, #eef6fff4);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 18px 34px #16345638;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.context-menu[hidden] {
+    display: none !important;
+}
+
+.menu-item {
+    text-align: left;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #1a4777;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.menu-item:hover {
+    background: #e2effe;
+    border-color: #a6c7ea;
+}
+
+.menu-item:disabled {
+    color: #879db8;
+    cursor: not-allowed;
+    background: transparent;
+    border-color: transparent;
+}
+
+.menu-item.danger-item {
+    color: #a31f2d;
+}
+
+.menu-item.danger-item:hover {
+    background: #ffe5e8;
+    border-color: #e3a8b0;
+}
+
+.browser-list {
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    justify-items: center;
+}
+
+.browser-list .repo-card {
+    width: 110px;
+    min-height: 108px;
+    padding: 10px 8px 8px;
+    border: 1px solid #aac9e8;
+    border-radius: 14px;
+    background:
+        linear-gradient(170deg, #ffffffd8, #edf6ffd8),
+        #fff;
+    box-shadow: 0 10px 18px #1635571f;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.browser-list .repo-card::before {
+    width: auto;
+    height: auto;
+    border-radius: 0;
+    box-shadow: none;
+    font-size: 2rem;
+    line-height: 1;
+    background: none;
+}
+
+.browser-list .repo-card.folder::before {
+    content: "\1F4C1";
+}
+
+.browser-list .repo-card.file::before {
+    content: "\1F4C4";
+}
+
+.browser-list .repo-card.parent::before {
+    content: "\21A9";
+}
+
+.browser-list .repo-name {
+    max-width: 100%;
+    font-size: 0.9rem;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+.browser-list .repo-card.selected {
+    background: linear-gradient(170deg, #def2ff, #cce7ff);
+    box-shadow: 0 12px 22px #1f507e33;
 }
 
 .alert {
@@ -809,11 +900,27 @@ html[data-theme="dark"] .subtle.light {
 }
 
 html[data-theme="dark"] .repo-card {
-    background-color: #00000000 !important;
+    border-color: #456a90;
+    background: linear-gradient(150deg, #143150d6, #193a5dd6);
+    box-shadow: 0 10px 20px #06172855;
 }
 
 html[data-theme="dark"] .repo-name {
     color: #ebf4ff;
+}
+
+html[data-theme="dark"] .repo-card.selected {
+    background: linear-gradient(150deg, #1f4b76, #245783);
+}
+
+html[data-theme="dark"] .browser-list .repo-card {
+    border-color: #4f769f;
+    background: linear-gradient(165deg, #173556e3, #1c4066e3);
+    box-shadow: 0 12px 20px #04172773;
+}
+
+html[data-theme="dark"] .browser-list .repo-card.selected {
+    background: linear-gradient(165deg, #28557f, #2f6698);
 }
 
 html[data-theme="dark"] .empty-state {
@@ -849,6 +956,34 @@ html[data-theme="dark"] .settings-trigger {
     background:
         linear-gradient(120deg, #1e446d, #295b89),
         linear-gradient(120deg, #ffffff15, #ffffff00);
+}
+
+html[data-theme="dark"] .context-menu {
+    border-color: #466b92;
+    background: linear-gradient(170deg, #112a44ee, #163350ee);
+    box-shadow: 0 18px 34px #0413208a;
+}
+
+html[data-theme="dark"] .menu-item {
+    color: #d7eaff;
+}
+
+html[data-theme="dark"] .menu-item:hover {
+    background: #224b73;
+    border-color: #5d89b7;
+}
+
+html[data-theme="dark"] .menu-item:disabled {
+    color: #7fa1c3;
+}
+
+html[data-theme="dark"] .menu-item.danger-item {
+    color: #ffb3bb;
+}
+
+html[data-theme="dark"] .menu-item.danger-item:hover {
+    background: #61313c;
+    border-color: #98616b;
 }
 
 html[data-theme="dark"] .danger-zone {

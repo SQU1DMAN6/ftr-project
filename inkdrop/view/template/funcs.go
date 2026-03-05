@@ -6,7 +6,9 @@ import (
 )
 
 var Funcs = template.FuncMap{
-	"contains":  strings.Contains,
-	"hasPrefix": strings.HasPrefix,
-	"hasSuffix": strings.HasSuffix,
+	"contains":   strings.Contains,
+	"hasPrefix":  strings.HasPrefix,
+	"hasSuffix":  strings.HasSuffix,
+	"trimSuffix": strings.TrimSuffix,
+	"trimPrefix": strings.TrimPrefix,
 }
