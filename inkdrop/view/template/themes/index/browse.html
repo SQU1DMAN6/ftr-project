@@ -50,7 +50,10 @@
             <div class="panel stack" id="filePanel" tabindex="0" aria-label="Repository browser">
                 <div class="row space">
                     <h2 class="section">Repository Contents</h2>
-                    <button type="button" class="button-link small" id="newFolderBtnInline">New Folder</button>
+                    <div class="row">
+                        <button type="button" class="button-link small" id="newFolderBtnInline">New Folder</button>
+                        <button type="button" class="button-link small" id="uploadFileBtnInline">Upload Files</button>
+                    <div class="row">
                 </div>
                 <p class="subtle">Tips: Double-click folder to open. Select a folder then press <strong>F2</strong> or <strong>Enter</strong> to rename/move, <strong>Del</strong> or <strong>Backspace</strong> to delete.</p>
 
@@ -62,7 +65,7 @@
                 </div>
                 {{else}}
                 {{if .RepoList}}
-                <ul class="clean-list browser-list" id="entryList">
+                <div class="clean-list browser-list row" id="entryList">
                     {{range $i, $entry := .RepoList}}
                     {{if eq $entry ".."}}
                     <li class="repo-card folder parent" data-kind="parent" data-name=".." tabindex="0">
@@ -78,7 +81,7 @@
                     </li>
                     {{end}}
                     {{end}}
-                </ul>
+                </div>
                 {{else}}
                 <div class="empty-state">
                     <p>This folder is empty.</p>
@@ -91,6 +94,7 @@
                     <button type="button" class="menu-item" id="newFolderBtn">New Folder</button>
                     <button type="button" class="menu-item" id="renameBtn">Rename / Move</button>
                     <button type="button" class="menu-item danger-item" id="deleteBtn">Delete Folder</button>
+                    <button type="button" class="menu-item danger-item" id="deleteFileBtn">Delete File</button>
                 </div>
 
                 <dialog class="settings-modal center popup" id="newFolderDialog">
@@ -131,6 +135,23 @@
                         <div class="row">
                             <button type="submit" class="redirect">Apply</button>
                             <button type="button" class="button-link" id="cancelRename">Cancel</button>
+                        </div>
+                    </form>
+                </dialog>
+
+                <dialog class="settings-modal center popup" id="uploadDialog">
+                    <form method="post" action="/upload" name="uploadFile" class="stack" enctype="multipart/form-data">
+                        <h3 class="section">Upload Files to Repository</h3>
+                        <p class="subtle">Upload multiple files to the working directory {{.Name}}/{{.Message3}}{{.Path}}</p>
+                        <input type="hidden" name="working-directory" value="{{.Path}}" />
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <br />
+                        <label for="fileToUpload">Choose Files to Upload</label>
+                        <input type="file" name="fileToUpload" placeholder="Choose Files to Upload" id="uploadFile" multiple />
+                        <br />
+                        <div class="row">
+                            <button type="submit">Upload</button>
+                            <button type="button" class="button-link" id="cancelUpload">Cancel</button>
                         </div>
                     </form>
                 </dialog>
@@ -213,6 +234,10 @@
             var cancelRename = document.getElementById("cancelRename");
             var deleteForm = document.getElementById("deleteForm");
             var deleteItemName = document.getElementById("deleteItemName");
+            var uploadFileBtnInline = document.getElementById("uploadFileBtnInline");
+            var uploadDialog = document.getElementById("uploadDialog");
+            var cancelUpload = document.getElementById("cancelUpload");
+            var deleteFileBtn = document.getElementById("deleteFileBtn")
 
             var selectedEntry = null;
 
@@ -258,11 +283,15 @@
             }
 
             function canRename(entry) {
-                return entry && entryKind(entry) === "folder";
+                return entry && (entryKind(entry) === "folder" || entryKind(entry) === "file");
             }
 
             function canDelete(entry) {
                 return entry && entryKind(entry) === "folder";
+            }
+
+            function canDeleteFile(entry) {
+                return entry && entryKind(entry) === "file";
             }
 
             function openEntry(entry) {
@@ -284,6 +313,24 @@
                 if (!contextMenu) return;
                 renameBtn.disabled = !canRename(selectedEntry);
                 deleteBtn.disabled = !canDelete(selectedEntry);
+                deleteFileBtn.disabled = !canDeleteFile(selectedEntry);
+
+                if (canDelete(selectedEntry) === false) {
+                    deleteBtn.style.display = "none"
+                } else {
+                    deleteBtn.style.display = "block"
+                }
+                if (canRename(selectedEntry) === false) {
+                    renameBtn.style.display = "none"
+                } else {
+                    renameBtn.style.display = "block"
+                }
+                if (canDeleteFile(selectedEntry) === false) {
+                    deleteFileBtn.style.display = "none"
+                } else {
+                    deleteFileBtn.style.display = "block"
+                }
+
                 contextMenu.hidden = false;
 
                 var rect = contextMenu.getBoundingClientRect();
@@ -315,6 +362,13 @@
                 if (input) input.focus();
             }
 
+            function openUploadDialog() {
+                hideContextMenu();
+                uploadDialog.showModal();
+                var input = uploadDialog.querySelector("input[name='uploadFile']");
+                if (input) input.focus();
+            }
+
             function openRenameDialog() {
                 if (!canRename(selectedEntry)) return;
                 hideContextMenu();
@@ -335,6 +389,15 @@
                 deleteForm.submit();
             }
 
+            function deleteSelectedFile() {
+                if (!canDeleteFile(selectedEntry)) return;
+                var file = selectedEntry.getAttribute("data-name");
+                var ok = window.confirm("Delete file '" + file + "'? This cannot be undone.");
+                if (!ok) return;
+                deleteItemName.value = file;
+                deleteForm.submit();
+            }
+
             function isTypingContext(target) {
                 if (!target) return false;
                 if (target.closest && target.closest("dialog[open]")) return true;
@@ -345,14 +408,14 @@
             }
 
             function isValidMovePath(candidate) {
-                if (!candidate) return false;
-                if (candidate.startsWith("/") || candidate.includes("..")) return false;
-                var parts = candidate.split("/");
-                for (var i = 0; i < parts.length; i += 1) {
-                    if (!/^[A-Za-z0-9_-]+$/.test(parts[i])) {
-                        return false;
-                    }
-                }
+                // if (!candidate) return false;
+                // if (candidate.startsWith("/") || candidate.includes("..")) return false;
+                // var parts = candidate.split("/");
+                // for (var i = 0; i < parts.length; i += 1) {
+                //     if (!/^[A-Za-z0-9_-]+$/.test(parts[i])) {
+                //         return false;
+                //     }
+                // }
                 return true;
             }
 
@@ -397,6 +460,7 @@
                 if (event.key === "Delete" || event.key === "Backspace") {
                     event.preventDefault();
                     deleteSelectedFolder();
+                    deleteSelectedFile();
                 }
             });
 
@@ -410,13 +474,18 @@
 
             newFolderBtn.addEventListener("click", openNewFolderDialog);
             newFolderBtnInline.addEventListener("click", openNewFolderDialog);
+            uploadFileBtnInline.addEventListener("click", openUploadDialog);
             renameBtn.addEventListener("click", openRenameDialog);
             deleteBtn.addEventListener("click", deleteSelectedFolder);
+            deleteFileBtn.addEventListener("click", deleteSelectedFile);
             cancelDialog.addEventListener("click", function () {
                 newFolderDialog.close();
             });
             cancelRename.addEventListener("click", function () {
                 renameDialog.close();
+            });
+            cancelUpload.addEventListener("click", function () {
+                uploadDialog.close()
             });
 
             document.addEventListener("click", function (event) {

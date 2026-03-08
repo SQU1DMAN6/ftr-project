@@ -36,12 +36,7 @@ body {
 }
 
 body {
-    font-family:
-        "Open Sans",
-        "Segoe UI",
-        Tahoma,
-        Geneva,
-        sans-serif;
+    font-family: "Open Sans", "Segoe UI", Tahoma, Geneva, sans-serif;
     color: var(--ink);
     background: linear-gradient(
             170deg,
@@ -146,8 +141,7 @@ main.page {
     gap: 12px;
     border-radius: 16px;
     border: 1px solid #b7d1ed;
-    background:
-        linear-gradient(145deg, #ffffffab 0%, #eef6ffab 100%);
+    background: linear-gradient(145deg, #ffffffab 0%, #eef6ffab 100%);
     box-shadow: 0 14px 24px #13335226;
     backdrop-filter: blur(10px);
     padding: 10px 12px;
@@ -247,7 +241,13 @@ main.page::before {
     width: min(960px, 95vw);
     height: 120px;
     border-radius: 999px;
-    background: linear-gradient(90deg, #20b2ff2b, #ff8db12e, #ffd1662e, #22d6a92e);
+    background: linear-gradient(
+        90deg,
+        #20b2ff2b,
+        #ff8db12e,
+        #ffd1662e,
+        #22d6a92e
+    );
     filter: blur(30px);
     animation: huePulse 8s linear infinite;
     pointer-events: none;
@@ -704,6 +704,7 @@ ul.clean-list {
 .browser-list {
     grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
     justify-items: center;
+    gap: 20px;
 }
 
 .browser-list .repo-card {
@@ -712,9 +713,7 @@ ul.clean-list {
     padding: 10px 8px 8px;
     border: 1px solid #aac9e8;
     border-radius: 14px;
-    background:
-        linear-gradient(170deg, #ffffffd8, #edf6ffd8),
-        #fff;
+    background: linear-gradient(170deg, #ffffffd8, #edf6ffd8), #fff;
     box-shadow: 0 10px 18px #1635571f;
     display: flex;
     flex-direction: column;
@@ -772,9 +771,7 @@ ul.clean-list {
     border-radius: 12px;
     padding: 16px;
     text-align: center;
-    background:
-        linear-gradient(180deg, #fcfdff, #f2f8ff),
-        #f8fbff;
+    background: linear-gradient(180deg, #fcfdff, #f2f8ff), #f8fbff;
     color: #314866;
 }
 
@@ -829,8 +826,7 @@ dialog.settings-modal {
 
 dialog.settings-modal::backdrop {
     background:
-        radial-gradient(circle at 50% 20%, #89c9ff33, #0d1f3600 50%),
-        #071625a8;
+        radial-gradient(circle at 50% 20%, #89c9ff33, #0d1f3600 50%), #071625a8;
     backdrop-filter: blur(4px);
 }
 
@@ -855,7 +851,6 @@ dialog.settings-modal.popup form div {
     justify-content: flex-end;
 }
 
-
 .modal-card {
     padding: 18px;
 }
@@ -864,9 +859,7 @@ dialog.settings-modal.popup form div {
     margin-top: 8px;
     border-radius: 14px;
     border: 1px solid #ee9aa3;
-    background:
-        linear-gradient(145deg, #fff6f7, #ffedef),
-        #fff;
+    background: linear-gradient(145deg, #fff6f7, #ffedef), #fff;
     padding: 14px;
 }
 
@@ -925,9 +918,7 @@ html[data-theme="dark"] .browser-list .repo-card.selected {
 
 html[data-theme="dark"] .empty-state {
     border-color: #40668e;
-    background:
-        linear-gradient(180deg, #132b44, #10273f),
-        #13273e;
+    background: linear-gradient(180deg, #132b44, #10273f), #13273e;
     color: #cfe5ff;
 }
 
@@ -988,9 +979,7 @@ html[data-theme="dark"] .menu-item.danger-item:hover {
 
 html[data-theme="dark"] .danger-zone {
     border-color: #b96d77;
-    background:
-        linear-gradient(145deg, #4a1f2a, #3c1822),
-        #3a1721;
+    background: linear-gradient(145deg, #4a1f2a, #3c1822), #3a1721;
 }
 
 html[data-theme="dark"] .danger-zone h4 {

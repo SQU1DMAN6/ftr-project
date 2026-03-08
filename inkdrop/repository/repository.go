@@ -133,7 +133,7 @@ func RenameItem(userName, repoName, workingDir, oldName, newName string) error {
 		return err
 	}
 	if _, err := os.Stat(newPath); err == nil {
-		return errors.New("destination already exists")
+		return nil
 	}
 
 	err = os.MkdirAll(filepath.Dir(newPath), 0755)

@@ -27,4 +27,5 @@ func RegisterRoutes(r chi.Router) {
 	r.Post("/new/dir", repository.RepositoryCreateNewDirectory)
 	r.Post("/rename", repository.RepositoryRenameItem)
 	r.Post("/delete/item", repository.RepositoryDeleteItem)
+	r.Post("/upload", repository.RepositoryUploadFiles)
 }

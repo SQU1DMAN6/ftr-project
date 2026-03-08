@@ -5,7 +5,9 @@ import (
 	"inkdrop/config"
 	"inkdrop/repository"
 	viewBackend "inkdrop/view/connector"
+	"io"
 	"net/http"
+	"os"
 	"path"
 	"regexp"
 	"slices"
@@ -283,6 +285,11 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 }
 
 func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	SS := config.GetSessionManager()
 
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
@@ -316,7 +323,7 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 
 	err = repository.RenameItem(userName, repoName, workingDir, oldName, newName)
 	if err != nil {
-		http.Error(w, "Rename failed. Try again later.", http.StatusServiceUnavailable)
+		http.Error(w, fmt.Sprintf("Rename failed: %s", err), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -372,6 +379,90 @@ func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 }
 
+func RepositoryUploadFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return // ← also add return here, execution continues without it!
+	}
+
+	// ✅ ONE call only — this parses BOTH files AND form fields
+	err := r.ParseMultipartForm(5000 << 20)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse multipart form: %s", err), http.StatusBadRequest)
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+
+	// ✅ These now work correctly
+	repoName := r.FormValue("repository")
+	workingDir := r.FormValue("working-directory")
+
+	files := r.MultipartForm.File["fileToUpload"]
+	//WIP : because we upload multiple files, files is a slice of FileHeader
+
+	// Creat /tmp folder and save files to it
+
+	// for _, fileHeader := range files {
+	// 	ext := filepath.Ext(fileHeader.Filename)
+	// 	dst, err := os.CreateTemp("/tmp", "files-*"+ext)
+	// 	if err != nil {
+	// 		http.Error(w, fmt.Sprintf("Failed to create temp file: %s", err), http.StatusInternalServerError)
+	// 		return
+	// 	}
+	// 	defer dst.Close()
+	// 	src, err := fileHeader.Open()
+	// 	if err != nil {
+	// 		http.Error(w, fmt.Sprintf("Failed to open file: %s", err), http.StatusInternalServerError)
+	// 		return
+	// 	}
+	// 	defer src.Close()
+	// 	_, err = io.Copy(dst, src)
+	// 	if err != nil {
+	// 		http.Error(w, fmt.Sprintf("Failed to copy file: %s", err), http.StatusInternalServerError)
+	// 		return
+	// 	}
+	// 	fmt.Printf("Saved %s to %s\n", fileHeader.Filename, dst.Name())
+	// }
+
+	for _, fileHeader := range files {
+		fname := fileHeader.Filename
+		var destination string = fmt.Sprintf("%s/%s/%s%s", repository.GlobalInkDropRepoDir, userName, repoName, workingDir)
+		fmt.Println("Destination to copy files is", destination)
+		dst, err := os.Create(destination + "/" + fname)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create temporary file: %s", err), http.StatusServiceUnavailable)
+			return
+		}
+		defer dst.Close()
+		src, err := fileHeader.Open()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to open file %s: %s", fname, err), http.StatusServiceUnavailable)
+			return
+		}
+		defer src.Close()
+		_, err = io.Copy(dst, src)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to copy file %s: %s", fname, err), http.StatusServiceUnavailable)
+			return
+		}
+
+		fmt.Printf("Saved %s to %s\n", fname, dst.Name())
+	}
+
+	fmt.Printf("User '%s' upload to [ %s/%s%s ]\n", userName, userName, repoName, workingDir)
+	fmt.Printf("files=[%v]\n", files)
+
+	http.Redirect(w, r, fmt.Sprintf("/%s/%s%s", userName, repoName, workingDir), http.StatusSeeOther)
+}
+
 func normalizeBrowserPath(raw string) string {
 	if raw == "" {
 		return "/"
@@ -388,18 +479,21 @@ func isValidMovePath(raw string) bool {
 	if candidate == "" || strings.HasPrefix(candidate, "/") {
 		return false
 	}
-	if strings.Contains(candidate, "..") {
-		return false
-	}
+	// if strings.Contains(candidate, "..") {
+	// 	return false
+	// }
 
 	parts := strings.Split(candidate, "/")
-	for _, part := range parts {
-		if part == "" {
-			return false
-		}
-		if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", part); !pass {
-			return false
-		}
+	// for _, part := range parts {
+	// 	if part == "" {
+	// 		return false
+	// 	}
+	// 	// if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", part); !pass {
+	// 	// 	return false
+	// 	// }
+	// }
+	if slices.Contains(parts, "") {
+		return false
 	}
 	return true
 }
