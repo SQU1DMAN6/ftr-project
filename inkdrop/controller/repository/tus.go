@@ -6,76 +6,66 @@ import (
 	"inkdrop/repository"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/tus/tusd/v2/pkg/filelocker"
 	"github.com/tus/tusd/v2/pkg/filestore"
 	tusd "github.com/tus/tusd/v2/pkg/handler"
 )
 
-func RepositoryUploadFiles(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
+var (
+	tusOnce    sync.Once
+	tusHandler *tusd.Handler
+	tusErr     error
+)
 
-	SS := config.GetSessionManager()
+func TUSHandler() http.Handler {
+	tusOnce.Do(func() {
+		uploadDir := fmt.Sprintf("%s/tus_temp", repository.GlobalInkDropRepoDir)
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			tusErr = err
+			return
+		}
 
-	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
-	userName := SS.GetString(r.Context(), "name")
+		store := filestore.New(uploadDir)
+		locker := filelocker.New(uploadDir)
+		composer := tusd.NewStoreComposer()
+		store.UseIn(composer)
+		locker.UseIn(composer)
 
-	if isLoggedIn != true || userName == "" {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
+		h, err := tusd.NewHandler(tusd.Config{
+			BasePath:                "/",
+			StoreComposer:           composer,
+			NotifyCompleteUploads:   true,
+			RespectForwardedHeaders: true,
+		})
+		if err != nil {
+			tusErr = err
+			return
+		}
 
-	// if !strings.HasPrefix(workingDir, "/") {
-	// 	workingDir = "/" + workingDir
-	// }
+		go func() {
+			for event := range h.CompleteUploads {
+				fmt.Printf("Upload complete: ID=%s Filename=%s\n",
+					event.Upload.ID,
+					event.Upload.MetaData["filename"],
+				)
+			}
+		}()
 
-	// Handle TUS Upload For FtR (TUFF)
-
-	// var uploadDirRemote string = fmt.Sprintf("%s/%s/%s%s", repository.GlobalInkDropRepoDir, userName, repoName, workingDir)
-	uploadDirRemote := fmt.Sprintf("%s/%s/Test_Repository/", repository.GlobalInkDropRepoDir, userName)
-	fmt.Println("debuging, folder to upload: ", uploadDirRemote)
-
-	err := os.MkdirAll(uploadDirRemote, 0755)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create destination upload directory :%s", err), http.StatusServiceUnavailable)
-		fmt.Printf("Failed to create destination upload directory: %s\n", err)
-		return
-	}
-
-	store := filestore.New(uploadDirRemote)
-	locker := filelocker.New(uploadDirRemote)
-
-	composer := tusd.NewStoreComposer()
-	store.UseIn(composer)
-	locker.UseIn(composer)
-
-	tusHandler, err := tusd.NewHandler(tusd.Config{
-		BasePath:                "/upload/",
-		StoreComposer:           composer,
-		NotifyCompleteUploads:   true,
-		RespectForwardedHeaders: true,
+		tusHandler = h
 	})
 
-	fmt.Println("debuging, tus handler created")
-
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Unable to craete TUS handler: %v", err), http.StatusServiceUnavailable)
-		fmt.Printf("Unable to create TUS handler: %v\n", err)
-		return
-	}
-
-	go func() {
-		for event := range tusHandler.CompleteUploads {
-			fmt.Printf("Upload complete: ID '%s', Size '%d bytes', Filename '%s'",
-				event.Upload.ID,
-				event.Upload.Size,
-				event.Upload.MetaData["filename"],
-			)
-
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		SS := config.GetSessionManager()
+		if !SS.GetBool(r.Context(), "isLoggedIn") || SS.GetString(r.Context(), "name") == "" {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
 		}
-		fmt.Println("debugging, upload complete.")
-	}()
+		if tusErr != nil {
+			http.Error(w, tusErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		tusHandler.ServeHTTP(w, r)
+	})
 }
