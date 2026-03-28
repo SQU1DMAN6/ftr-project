@@ -11,14 +11,7 @@
         <label for="fileToUpload" style="text-decoration: underline">
             Choose Files to Upload
         </label>
-        <input
-            type="file"
-            name="fileToUpload"
-            placeholder="Choose Files to Upload"
-            id="uploadFile"
-            multiple
-            hidden
-        />
+        <input type="file" name="fileToUpload" placeholder="Choose Files to Upload" id="uploadFile" multiple hidden />
     </div>
     <br />
     <div class="row">
@@ -54,8 +47,7 @@
             metadata: {
                 filename: file.name,
                 filetype: file.type,
-                projectID: "abc",
-                hello: "Quan",
+                username: "{{.Name}}",
                 repository: "{{.Message3}}",
                 workingDirectory: "{{.Path}}",
             },
@@ -72,6 +64,8 @@
             onSuccess() {
                 progressBar.value = 100;
                 statusEl.textContent = `Upload completed. URL: ${upload.url}`;
+                // Reload after a short delay so the user sees the new file
+                setTimeout(() => window.location.reload(), 800);
             },
         });
 

@@ -6,16 +6,34 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 )
 
 var (
-	GlobalInkDropRepoDir        = "/ftr/userRepositories"
-	GlobalInkDropRepoMetaDir    = "/ftr/userRepositoryMetadata"
+	// Linux paths
+	GlobalInkDropRepoDir     = "/ftr/userRepositories"
+	GlobalInkDropRepoMetaDir = "/ftr/userRepositoryMetadata"
+
+	// macOS paths
 	GlobalInkDropRepoDirMac     = "/Users/vuongnguyen/Desktop/WORKSPACE/CODING/GOLANG/web-design-repo"
 	GlobalInkDropRepoMetaDirMac = "/Users/vuongnguyen/Desktop/WORKSPACE/CODING/GOLANG/web-design-data"
+
+	// Resolved at startup based on OS
+	RepoDir     string
+	RepoMetaDir string
 )
+
+func init() {
+	if runtime.GOOS == "darwin" {
+		RepoDir = GlobalInkDropRepoDirMac
+		RepoMetaDir = GlobalInkDropRepoMetaDirMac
+	} else {
+		RepoDir = GlobalInkDropRepoDir
+		RepoMetaDir = GlobalInkDropRepoMetaDir
+	}
+}
 
 func DirExists(path string) (bool, error) {
 	info, err := os.Stat(path)
@@ -41,8 +59,8 @@ func ProcessRepoName(raw string) (string, error) {
 }
 
 func CreateNewUserRepository(username string, reponame string) error {
-	var userRepoDir string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoDirMac, username, reponame)
-	var userRepoMetaDir string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoMetaDirMac, username, reponame)
+	var userRepoDir string = fmt.Sprintf("%s/%s/%s", RepoDir, username, reponame)
+	var userRepoMetaDir string = fmt.Sprintf("%s/%s/%s", RepoMetaDir, username, reponame)
 	exists1, err1 := DirExists(userRepoDir)
 	exists2, err2 := DirExists(userRepoMetaDir)
 	if err1 != nil || err2 != nil {
@@ -74,7 +92,7 @@ func CreateNewDirectory(userName, repoName, workingDir, folderName string) error
 }
 
 func ListUserRepositories(userName string) ([]string, error) {
-	var userRepoDir string = fmt.Sprintf("%s/%s", GlobalInkDropRepoDirMac, userName)
+	var userRepoDir string = fmt.Sprintf("%s/%s", RepoDir, userName)
 	entries, err := os.ReadDir(userRepoDir)
 	var clean []string
 	if err != nil {
@@ -165,7 +183,7 @@ func DeleteItem(userName, repoName, workingDir, name string) error {
 }
 
 func repositoryRoot(userName, repoName string) string {
-	return filepath.Clean(filepath.Join(GlobalInkDropRepoDirMac, userName, repoName))
+	return filepath.Clean(filepath.Join(RepoDir, userName, repoName))
 }
 
 func normalizeWorkingDir(path string) string {
@@ -213,9 +231,46 @@ func isWithinRoot(root, target string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
+// MoveUploadedFile moves a TUS-uploaded file into the user's repository at the
+// given working directory, using the original filename. It validates that the
+// destination stays within the repository root and cleans up the TUS .info sidecar.
+func MoveUploadedFile(userName, repoName, workingDir, filename, tusFilePath string) error {
+	root := repositoryRoot(userName, repoName)
+
+	// Ensure root exists
+	if ok, _ := DirExists(root); !ok {
+		return fmt.Errorf("repository %s/%s does not exist", userName, repoName)
+	}
+
+	destDir, err := resolvePathInRepo(root, workingDir, ".")
+	if err != nil {
+		return fmt.Errorf("invalid working directory: %w", err)
+	}
+
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	destPath := filepath.Join(destDir, filepath.Base(filename))
+	if !isWithinRoot(root, destPath) {
+		return fmt.Errorf("destination path escapes repository root")
+	}
+
+	// Move (rename) the uploaded blob to the final destination
+	if err := os.Rename(tusFilePath, destPath); err != nil {
+		return fmt.Errorf("failed to move uploaded file: %w", err)
+	}
+
+	// Clean up the TUS .info sidecar file
+	infoFile := tusFilePath + ".info"
+	os.Remove(infoFile)
+
+	return nil
+}
+
 func DeleteUserRepository(userName string, repoName string) error {
-	var mainDirToRemove string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoDirMac, userName, repoName)
-	var metaDirToRemove string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoMetaDirMac, userName, repoName)
+	var mainDirToRemove string = fmt.Sprintf("%s/%s/%s", RepoDir, userName, repoName)
+	var metaDirToRemove string = fmt.Sprintf("%s/%s/%s", RepoMetaDir, userName, repoName)
 
 	err1 := os.RemoveAll(mainDirToRemove)
 	err2 := os.RemoveAll(metaDirToRemove)

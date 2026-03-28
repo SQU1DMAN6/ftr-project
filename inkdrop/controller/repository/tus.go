@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"inkdrop/config"
 	"inkdrop/repository"
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/tus/tusd/v2/pkg/filelocker"
@@ -21,7 +23,7 @@ var (
 
 func TUSHandler() http.Handler {
 	tusOnce.Do(func() {
-		uploadDir := fmt.Sprintf("%s/tus_temp", repository.GlobalInkDropRepoDirMac)
+		uploadDir := fmt.Sprintf("%s/tus_temp", repository.RepoDir)
 		if err := os.MkdirAll(uploadDir, 0755); err != nil {
 			tusErr = err
 			return
@@ -46,10 +48,31 @@ func TUSHandler() http.Handler {
 
 		go func() {
 			for event := range h.CompleteUploads {
-				fmt.Printf("Upload complete: ID=%s Filename=%s\n",
-					event.Upload.ID,
-					event.Upload.MetaData["filename"],
-				)
+				id := event.Upload.ID
+				meta := event.Upload.MetaData
+				filename := meta["filename"]
+				userName := meta["username"]
+				repoName := meta["repository"]
+				workingDir := meta["workingDirectory"]
+
+				log.Printf("Upload complete: ID=%s Filename=%s User=%s Repo=%s Dir=%s\n",
+					id, filename, userName, repoName, workingDir)
+
+				if userName == "" || repoName == "" || filename == "" {
+					log.Printf("ERROR: missing metadata for upload %s (user=%q repo=%q file=%q), skipping move",
+						id, userName, repoName, filename)
+					continue
+				}
+
+				tusFilePath := filepath.Join(uploadDir, id)
+				err := repository.MoveUploadedFile(userName, repoName, workingDir, filename, tusFilePath)
+				if err != nil {
+					log.Printf("ERROR: failed to move upload %s to %s/%s%s/%s: %s",
+						id, userName, repoName, workingDir, filename, err)
+				} else {
+					log.Printf("Moved upload %s -> %s/%s%s/%s",
+						id, userName, repoName, workingDir, filename)
+				}
 			}
 		}()
 
