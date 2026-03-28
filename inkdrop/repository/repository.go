@@ -11,8 +11,10 @@ import (
 )
 
 var (
-	GlobalInkDropRepoDir     = "/ftr/userRepositories"
-	GlobalInkDropRepoMetaDir = "/ftr/userRepositoryMetadata"
+	GlobalInkDropRepoDir        = "/ftr/userRepositories"
+	GlobalInkDropRepoMetaDir    = "/ftr/userRepositoryMetadata"
+	GlobalInkDropRepoDirMac     = "/Users/vuongnguyen/Desktop/WORKSPACE/CODING/GOLANG/web-design-repo"
+	GlobalInkDropRepoMetaDirMac = "/Users/vuongnguyen/Desktop/WORKSPACE/CODING/GOLANG/web-design-data"
 )
 
 func DirExists(path string) (bool, error) {
@@ -39,8 +41,8 @@ func ProcessRepoName(raw string) (string, error) {
 }
 
 func CreateNewUserRepository(username string, reponame string) error {
-	var userRepoDir string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoDir, username, reponame)
-	var userRepoMetaDir string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoMetaDir, username, reponame)
+	var userRepoDir string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoDirMac, username, reponame)
+	var userRepoMetaDir string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoMetaDirMac, username, reponame)
 	exists1, err1 := DirExists(userRepoDir)
 	exists2, err2 := DirExists(userRepoMetaDir)
 	if err1 != nil || err2 != nil {
@@ -72,7 +74,7 @@ func CreateNewDirectory(userName, repoName, workingDir, folderName string) error
 }
 
 func ListUserRepositories(userName string) ([]string, error) {
-	var userRepoDir string = fmt.Sprintf("%s/%s", GlobalInkDropRepoDir, userName)
+	var userRepoDir string = fmt.Sprintf("%s/%s", GlobalInkDropRepoDirMac, userName)
 	entries, err := os.ReadDir(userRepoDir)
 	var clean []string
 	if err != nil {
@@ -163,7 +165,7 @@ func DeleteItem(userName, repoName, workingDir, name string) error {
 }
 
 func repositoryRoot(userName, repoName string) string {
-	return filepath.Clean(filepath.Join(GlobalInkDropRepoDir, userName, repoName))
+	return filepath.Clean(filepath.Join(GlobalInkDropRepoDirMac, userName, repoName))
 }
 
 func normalizeWorkingDir(path string) string {
@@ -212,8 +214,8 @@ func isWithinRoot(root, target string) bool {
 }
 
 func DeleteUserRepository(userName string, repoName string) error {
-	var mainDirToRemove string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoDir, userName, repoName)
-	var metaDirToRemove string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoMetaDir, userName, repoName)
+	var mainDirToRemove string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoDirMac, userName, repoName)
+	var metaDirToRemove string = fmt.Sprintf("%s/%s/%s", GlobalInkDropRepoMetaDirMac, userName, repoName)
 
 	err1 := os.RemoveAll(mainDirToRemove)
 	err2 := os.RemoveAll(metaDirToRemove)
