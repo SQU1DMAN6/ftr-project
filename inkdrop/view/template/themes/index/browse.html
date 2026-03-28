@@ -43,6 +43,7 @@
                 <p class="subtle light">{{ .Message }}</p>
                 <div class="row">
                     <a href="/" class="button-link">Back to Workspace</a>
+                    <button type="button" class="button-link small danger-item" id="deleteRepoBtnMenu">Delete Repository</button>
                     <p class="subtle light">Current path: <strong>{{.Message2}}/{{.Message3}}{{.Path}}</strong></p>
                 </div>
             </div>
@@ -93,6 +94,7 @@
                 <div class="context-menu" id="contextMenu" hidden>
                     <button type="button" class="menu-item" id="newFolderBtn">New Folder</button>
                     <button type="button" class="menu-item" id="renameBtn">Rename / Move</button>
+                    <button type="button" class="menu-item" id="downloadBtn">Download File</button>
                     <button type="button" class="menu-item danger-item" id="deleteBtn">Delete Folder</button>
                     <button type="button" class="menu-item danger-item" id="deleteFileBtn">Delete File</button>
                 </div>
@@ -139,12 +141,26 @@
                     </form>
                 </dialog>
 
+                <dialog class="settings-modal center popup" id="deleteRepoDialog">
+                    <form id="deleteRepoForm" method="post" action="/deleterepo">
+                        <p>Deleting a repository is irreversable. Think twice before doing so.</p>
+                        <input type="hidden" name="reponame" value="{{.Message3}}" />
+                        <button type="button" id="deleteRepoBtn">Delete Repository</button>
+                    </form>
+                </dialog>
+
                 {{template "uploadForm". }}
 
                 <form id="deleteForm" method="post" action="/delete/item" hidden>
                     <input type="hidden" name="repository" value="{{.Message3}}" />
                     <input type="hidden" name="working-directory" value="{{.Path}}" />
                     <input type="hidden" name="itemName" id="deleteItemName" />
+                </form>
+
+                <form id="downloadForm" method="post" action="/download" hidden>
+                    <input type="hidden" name="repository" value="{{.Message3}}" />
+                    <input type="hidden" name="working-directory" value="{{.Path}}" />
+                    <input type="hidden" name="itemName" id="downloadItemName">
                 </form>
             </div>
         </section>
@@ -225,6 +241,13 @@
             var uploadDialog = document.getElementById("uploadDialog");
             var cancelUpload = document.getElementById("cancelUpload");
             var deleteFileBtn = document.getElementById("deleteFileBtn")
+            var downloadBtn = document.getElementById("downloadBtn")
+            var downloadForm = document.getElementById("downloadForm")
+            var downloadItemName = document.getElementById("downloadItemName")
+            var deleteRepoBtn = document.getElementById("deleteRepoBtn")
+            var deleteRepoForm = document.getElementById("deleteRepoForm")
+            var deleteRepoBtnMenu = document.getElementById("deleteRepoBtnMenu")
+            var deleteRepoDialog = document.getElementById("deleteRepoDialog")
 
             var selectedEntry = null;
 
@@ -281,6 +304,10 @@
                 return entry && entryKind(entry) === "file";
             }
 
+            function canDownload(entry) {
+                return entry && entryKind(entry) === "file";
+            }
+
             function openEntry(entry) {
                 if (!entry) return;
                 var kind = entryKind(entry);
@@ -301,6 +328,7 @@
                 renameBtn.disabled = !canRename(selectedEntry);
                 deleteBtn.disabled = !canDelete(selectedEntry);
                 deleteFileBtn.disabled = !canDeleteFile(selectedEntry);
+                downloadBtn.disabled = !canDownload(selectedEntry)
 
                 if (canDelete(selectedEntry) === true) {
                     deleteBtn.style.display = "block"
@@ -316,6 +344,11 @@
                     deleteFileBtn.style.display = "block"
                 } else {
                     deleteFileBtn.style.display = "none"
+                }
+                if (canDownload(selectedEntry) === true) {
+                    downloadBtn.style.display = "block"
+                } else {
+                    downloadBtn.style.display = "none"
                 }
 
                 contextMenu.hidden = false;
@@ -347,6 +380,11 @@
                 newFolderDialog.showModal();
                 var input = newFolderDialog.querySelector("input[name='folderName']");
                 if (input) input.focus();
+            }
+
+            function openDeleteRepoDialog() {
+                hideContextMenu();
+                deleteRepoDialog.showModal();
             }
 
             function openUploadDialog() {
@@ -383,6 +421,13 @@
                 if (!ok) return;
                 deleteItemName.value = file;
                 deleteForm.submit();
+            }
+
+            function downloadSelectedFile() {
+                if (!canDownload(selectedEntry)) return;
+                var file = selectedEntry.getAttribute("data-name");
+                downloadItemName.value = file;
+                downloadForm.submit();
             }
 
             function isTypingContext(target) {
@@ -461,6 +506,7 @@
 
             newFolderBtn.addEventListener("click", openNewFolderDialog);
             newFolderBtnInline.addEventListener("click", openNewFolderDialog);
+            deleteRepoBtnMenu.addEventListener("click", openDeleteRepoDialog);
             uploadFileBtnInline.addEventListener("click", openUploadDialog);
             renameBtn.addEventListener("click", openRenameDialog);
             deleteBtn.addEventListener("click", deleteSelectedFolder);
@@ -474,6 +520,13 @@
             cancelUpload.addEventListener("click", function () {
                 uploadDialog.close()
             });
+            downloadBtn.addEventListener("click", downloadSelectedFile);
+
+            deleteRepoBtn.addEventListener("click", function () {
+                var ok = window.confirm("Delete repository {{.Message3}}? This action is irreversible.");
+                if (!ok) return
+                deleteRepoForm.submit()
+            })
 
             document.addEventListener("click", function (event) {
                 if (!event.target.closest("#contextMenu")) {

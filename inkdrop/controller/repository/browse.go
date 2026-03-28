@@ -9,6 +9,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -122,7 +123,7 @@ func IndexMainPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func DeleteRepository(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -135,8 +136,13 @@ func DeleteRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repoName := chi.URLParam(r, "reponame")
-	err := repository.DeleteUserRepository(userName, repoName)
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Failed to parse repo delete form", http.StatusServiceUnavailable)
+		return
+	}
+	repoName := r.FormValue("reponame")
+	err = repository.DeleteUserRepository(userName, repoName)
 	if err != nil {
 		repoList, _ := repository.ListUserRepositories(userName)
 		paramData := viewBackend.FrontEndParams{
@@ -492,4 +498,36 @@ func isValidMovePath(raw string) bool {
 		return false
 	}
 	return true
+}
+
+func RepositoryDownloadFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	userName := SS.GetString(r.Context(), "name")
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse download form: %s", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	repoName := r.FormValue("repository")
+	workingDir := r.FormValue("working-directory")
+	itemName := r.FormValue("itemName")
+
+	fmt.Printf("User %s tried to download %s at %s at %s\n", userName, itemName, workingDir, repoName)
+	var fileToDownload string = fmt.Sprintf("%s/%s/%s%s%s", repository.RepoDir, userName, repoName, workingDir, itemName)
+	fmt.Println("File to download: " + fileToDownload)
+	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(itemName))
+	http.ServeFile(w, r, fileToDownload)
 }

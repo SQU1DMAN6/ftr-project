@@ -21,12 +21,13 @@ func RegisterRoutes(r chi.Router) {
 	r.Get("/register", register.RegisterMain)
 	r.Post("/register", register.RegisterMainPost)
 	r.Get("/logout", login.Logout)
-	r.Get("/delete/{reponame}", repository.DeleteRepository)
+	r.Post("/deleterepo", repository.DeleteRepository)
 	r.Get("/{user}/{reponame}/*", repository.IndexMainBrowseRepository)
 	r.Get("/{user}/{reponame}", repository.IndexMainBrowseRepository)
 	r.Post("/new/dir", repository.RepositoryCreateNewDirectory)
 	r.Post("/rename", repository.RepositoryRenameItem)
 	r.Post("/delete/item", repository.RepositoryDeleteItem)
+	r.Post("/download", repository.RepositoryDownloadFile)
 }
 
 // NewTUSHandler returns the TUS upload handler wrapped with http.StripPrefix.
