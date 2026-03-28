@@ -21,7 +21,7 @@ var (
 
 func TUSHandler() http.Handler {
 	tusOnce.Do(func() {
-		uploadDir := fmt.Sprintf("%s/tus_temp", repository.GlobalInkDropRepoDir)
+		uploadDir := fmt.Sprintf("%s/tus_temp", repository.GlobalInkDropRepoDirMac)
 		if err := os.MkdirAll(uploadDir, 0755); err != nil {
 			tusErr = err
 			return
@@ -34,7 +34,7 @@ func TUSHandler() http.Handler {
 		locker.UseIn(composer)
 
 		h, err := tusd.NewHandler(tusd.Config{
-			BasePath:                "/",
+			BasePath:                "/upload/",
 			StoreComposer:           composer,
 			NotifyCompleteUploads:   true,
 			RespectForwardedHeaders: true,
@@ -59,7 +59,7 @@ func TUSHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		SS := config.GetSessionManager()
 		if !SS.GetBool(r.Context(), "isLoggedIn") || SS.GetString(r.Context(), "name") == "" {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		if tusErr != nil {

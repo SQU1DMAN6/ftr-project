@@ -27,7 +27,12 @@ func RegisterRoutes(r chi.Router) {
 	r.Post("/new/dir", repository.RepositoryCreateNewDirectory)
 	r.Post("/rename", repository.RepositoryRenameItem)
 	r.Post("/delete/item", repository.RepositoryDeleteItem)
+}
 
+// NewTUSHandler returns the TUS upload handler wrapped with http.StripPrefix.
+// It must be mounted outside the main chi router because the TUS protocol
+// requires trailing slashes, which conflicts with StripSlashes middleware.
+func NewTUSHandler() http.Handler {
 	tusH := repository.TUSHandler()
-	r.Mount("/upload", tusH)
+	return http.StripPrefix("/upload", tusH)
 }
