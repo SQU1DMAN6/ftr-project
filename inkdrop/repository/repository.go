@@ -15,12 +15,10 @@ import (
 
 var (
 	// Linux paths
-	GlobalInkDropRepoDir     = "/ftr/userRepositories"
-	GlobalInkDropRepoMetaDir = "/ftr/userRepositoryMetadata"
+	GlobalInkDropRepoDir = "/ftr/userRepositories"
 
 	// macOS paths
-	GlobalInkDropRepoDirMac     = "/Users/vuongnguyen/Desktop/WORKSPACE/CODING/GOLANG/web-design-repo"
-	GlobalInkDropRepoMetaDirMac = "/Users/vuongnguyen/Desktop/WORKSPACE/CODING/GOLANG/web-design-data"
+	GlobalInkDropRepoDirMac = "/Users/vuongnguyen/Desktop/WORKSPACE/CODING/GOLANG/web-design-repo"
 
 	// Resolved at startup based on OS
 	RepoDir     string
@@ -30,10 +28,8 @@ var (
 func init() {
 	if runtime.GOOS == "darwin" {
 		RepoDir = GlobalInkDropRepoDirMac
-		RepoMetaDir = GlobalInkDropRepoMetaDirMac
 	} else {
 		RepoDir = GlobalInkDropRepoDir
-		RepoMetaDir = GlobalInkDropRepoMetaDir
 	}
 }
 

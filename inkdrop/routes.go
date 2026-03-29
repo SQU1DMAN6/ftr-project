@@ -20,7 +20,7 @@ func RegisterRoutes(r chi.Router) {
 	r.Post("/login", login.LoginMainPost)
 	r.Get("/register", register.RegisterMain)
 	r.Post("/register", register.RegisterMainPost)
-	r.Get("/logout", login.Logout)
+	r.Get("/logout", login.LoginLogout)
 	r.Post("/deleterepo", repository.DeleteRepository)
 	r.Get("/{user}/{reponame}/*", repository.IndexMainBrowseRepository)
 	r.Get("/{user}/{reponame}", repository.IndexMainBrowseRepository)
@@ -31,9 +31,6 @@ func RegisterRoutes(r chi.Router) {
 	r.Get("/downloadrepo/{reponame}", repository.RepositoryDownloadRepositoryAsSQAR)
 }
 
-// NewTUSHandler returns the TUS upload handler wrapped with http.StripPrefix.
-// It must be mounted outside the main chi router because the TUS protocol
-// requires trailing slashes, which conflicts with StripSlashes middleware.
 func NewTUSHandler() http.Handler {
 	tusH := repository.TUSHandler()
 	return http.StripPrefix("/upload", tusH)
