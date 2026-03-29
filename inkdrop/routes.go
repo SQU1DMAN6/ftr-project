@@ -28,6 +28,7 @@ func RegisterRoutes(r chi.Router) {
 	r.Post("/rename", repository.RepositoryRenameItem)
 	r.Post("/delete/item", repository.RepositoryDeleteItem)
 	r.Post("/download", repository.RepositoryDownloadFile)
+	r.Get("/downloadrepo/{reponame}", repository.RepositoryDownloadRepositoryAsSQAR)
 }
 
 // NewTUSHandler returns the TUS upload handler wrapped with http.StripPrefix.

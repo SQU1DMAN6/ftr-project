@@ -3,7 +3,9 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -280,4 +282,33 @@ func DeleteUserRepository(userName string, repoName string) error {
 	}
 
 	return nil
+}
+
+func PackSQAR(in, user, out string) (string, error) {
+	os.MkdirAll(fmt.Sprintf("/ftr/tmp/%s", user), 0755)
+	fullArchivePath := fmt.Sprintf("/ftr/tmp/%s/%s.sqar", user, out)
+	err := filepath.WalkDir(in, func(path string, d fs.DirEntry, err2 error) error {
+		if err2 != nil {
+			return nil
+		}
+		if !d.IsDir() {
+			return fmt.Errorf("File found.")
+		}
+		return nil
+	})
+	if err == nil {
+		return "", fmt.Errorf("No files in repository.")
+	}
+	_, err = exec.Command("sqar", "pack", "-PCI", in, "-O", fullArchivePath).Output()
+	if err != nil {
+		return "", err
+	}
+
+	// Test if archive exists
+	_, err = os.Stat(fullArchivePath)
+	if err != nil {
+		return "", err
+	}
+
+	return fullArchivePath, nil
 }

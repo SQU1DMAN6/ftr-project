@@ -6,6 +6,7 @@ import (
 	"inkdrop/repository"
 	viewBackend "inkdrop/view/connector"
 	"net/http"
+	"os"
 	"path"
 	"regexp"
 	"slices"
@@ -530,4 +531,38 @@ func RepositoryDownloadFile(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("File to download: " + fileToDownload)
 	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(itemName))
 	http.ServeFile(w, r, fileToDownload)
+}
+
+func RepositoryDownloadRepositoryAsSQAR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	repoName := chi.URLParam(r, "reponame")
+
+	repoToDownload := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
+	fmt.Printf("User %s tried to download repository at %s\n", userName, repoToDownload)
+
+	archive, err := repository.PackSQAR(repoToDownload, userName, repoName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to pack archive into SQAR file: %s", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(repoName+".sqar"))
+	http.ServeFile(w, r, archive)
+	err = os.Remove(archive)
+	if err != nil {
+		fmt.Printf("Failed to cleanup file %s: %s\n", archive, err)
+	}
 }

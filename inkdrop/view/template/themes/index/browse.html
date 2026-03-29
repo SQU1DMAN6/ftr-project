@@ -43,9 +43,9 @@
                 <p class="subtle light">{{ .Message }}</p>
                 <div class="row">
                     <a href="/" class="button-link">Back to Workspace</a>
-                    <button type="button" class="button-link small danger-item" id="deleteRepoBtnMenu">Delete Repository</button>
                     <p class="subtle light">Current path: <strong>{{.Message2}}/{{.Message3}}{{.Path}}</strong></p>
                 </div>
+                <button type="button" class="menu-item danger-item small" id="deleteRepoBtnMenu" style="width: max-content">Delete Repository</button>
             </div>
 
             <div class="panel stack" id="filePanel" tabindex="0" aria-label="Repository browser">
@@ -54,6 +54,7 @@
                     <div class="row">
                         <button type="button" class="button-link small" id="newFolderBtnInline">New Folder</button>
                         <button type="button" class="button-link small" id="uploadFileBtnInline">Upload Files</button>
+                        <a href="/downloadrepo/{{.Message3}}"><button type="button" class="button-link small" id="downloadRepoInline">Download Repository</button></a>
                     <div class="row">
                 </div>
                 <p class="subtle">Tips: Double-click folder to open. Select a folder then press <strong>F2</strong> or <strong>Enter</strong> to rename/move, <strong>Del</strong> or <strong>Backspace</strong> to delete.</p>
@@ -145,7 +146,11 @@
                     <form id="deleteRepoForm" method="post" action="/deleterepo">
                         <p>Deleting a repository is irreversable. Think twice before doing so.</p>
                         <input type="hidden" name="reponame" value="{{.Message3}}" />
-                        <button type="button" id="deleteRepoBtn">Delete Repository</button>
+                        <br />
+                        <div class="row">
+                            <button type="button" id="cancelDeleteDialog" class="button-link">Cancel</button>
+                            <button type="button" id="deleteRepoBtn" class="danger-item menu-item button-link">Delete Repository</button>
+                        </div>
                     </form>
                 </dialog>
 
@@ -248,6 +253,7 @@
             var deleteRepoForm = document.getElementById("deleteRepoForm")
             var deleteRepoBtnMenu = document.getElementById("deleteRepoBtnMenu")
             var deleteRepoDialog = document.getElementById("deleteRepoDialog")
+            var cancelDeleteDialog = document.getElementById("cancelDeleteDialog")
 
             var selectedEntry = null;
 
@@ -520,6 +526,9 @@
             cancelUpload.addEventListener("click", function () {
                 uploadDialog.close()
             });
+            cancelDeleteDialog.addEventListener("click", function () {
+              deleteRepoDialog.close()
+            })
             downloadBtn.addEventListener("click", downloadSelectedFile);
 
             deleteRepoBtn.addEventListener("click", function () {
