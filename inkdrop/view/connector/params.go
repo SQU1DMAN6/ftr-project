@@ -19,4 +19,7 @@ type FrontEndParams struct {
 	UserOwnsRepository bool
 	Error              map[string]string
 	RepoList           []string
+	RepoDescription    string
+	RepoOwners         string
+	RepoPublic         bool
 }

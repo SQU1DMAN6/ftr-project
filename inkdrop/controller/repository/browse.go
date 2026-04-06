@@ -1,10 +1,12 @@
 package repository
 
 import (
+	"encoding/json"
 	"fmt"
 	"inkdrop/config"
 	"inkdrop/repository"
 	viewBackend "inkdrop/view/connector"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -237,8 +239,96 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 	}
 	paramData.RepoList = directoryListing
 
+	// Load repository metadata if present
+	if meta, err := repository.LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+		paramData.RepoDescription = meta.Description
+		paramData.RepoOwners = strings.Join(meta.Owners, ",")
+		paramData.RepoPublic = meta.Public
+	}
+
 	fmt.Printf("User %s tried to access repository %s/%s%s", name, userName, repoName, path)
 	viewBackend.IndexMainBrowseRepository(w, paramData)
+}
+
+// RepositorySettings handles updates to repository metadata (description, owners, permissions)
+func RepositorySettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	repoName := strings.TrimSpace(r.FormValue("repository"))
+	if repoName == "" {
+		http.Error(w, "Repository required", http.StatusBadRequest)
+		return
+	}
+
+	// load existing meta and enforce ownership
+	meta, _ := repository.LoadRepoMeta(userName, repoName)
+	// if meta not present, treat the user who owns the repo (path owner) as authorized
+	authorized := false
+	if meta != nil {
+		for _, o := range meta.Owners {
+			if o == userName {
+				authorized = true
+				break
+			}
+		}
+	} else {
+		// fallback: if current session user equals repo owner (path owner), allow
+		repoOwner := chi.URLParam(r, "user")
+		if repoOwner == "" {
+			repoOwner = userName
+		}
+		if repoOwner == userName {
+			authorized = true
+		}
+	}
+
+	if !authorized {
+		http.Error(w, "Forbidden - not an owner", http.StatusForbidden)
+		return
+	}
+
+	description := strings.TrimSpace(r.FormValue("description"))
+	ownersRaw := strings.TrimSpace(r.FormValue("owners"))
+	publicFlag := r.FormValue("public") == "1" || r.FormValue("public") == "on"
+
+	// Validate owners; if none valid, keep existing owners
+	owners, err := repository.ValidateOwners(ownersRaw)
+	if err != nil {
+		if meta != nil && len(meta.Owners) > 0 {
+			owners = meta.Owners
+		} else {
+			// as last resort, make current user the owner
+			owners = []string{userName}
+		}
+	}
+
+	newMeta := &repository.RepoMeta{
+		Owners:      owners,
+		Description: description,
+		Public:      publicFlag,
+	}
+	if err := repository.SaveRepoMeta(userName, repoName, newMeta); err != nil {
+		http.Error(w, "Failed to save metadata", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/%s/%s", userName, repoName), http.StatusSeeOther)
 }
 
 func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
@@ -361,16 +451,29 @@ func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
 
 	repoName := r.FormValue("repository")
 	workingDir := normalizeBrowserPath(r.FormValue("working-directory"))
-	itemName := strings.TrimSpace(r.FormValue("itemName"))
-	if itemName == "" || itemName == ".." {
+	itemNames := r.Form["itemName"]
+	if len(itemNames) == 0 {
+		trimmed := strings.TrimSpace(r.FormValue("itemName"))
+		if trimmed != "" {
+			itemNames = []string{trimmed}
+		}
+	}
+	if len(itemNames) == 0 {
 		http.Error(w, "Invalid item for deletion.", http.StatusBadRequest)
 		return
 	}
 
-	err = repository.DeleteItem(userName, repoName, workingDir, itemName)
-	if err != nil {
-		http.Error(w, "Delete failed. Try again later.", http.StatusServiceUnavailable)
-		return
+	for _, itemName := range itemNames {
+		itemName = strings.TrimSpace(itemName)
+		if itemName == "" || itemName == ".." {
+			http.Error(w, "Invalid item for deletion.", http.StatusBadRequest)
+			return
+		}
+		err = repository.DeleteItem(userName, repoName, workingDir, itemName)
+		if err != nil {
+			http.Error(w, "Delete failed. Try again later.", http.StatusServiceUnavailable)
+			return
+		}
 	}
 
 	wd := strings.TrimPrefix(workingDir, "/")
@@ -527,10 +630,249 @@ func RepositoryDownloadFile(w http.ResponseWriter, r *http.Request) {
 	itemName := r.FormValue("itemName")
 
 	fmt.Printf("User %s tried to download %s at %s at %s\n", userName, itemName, workingDir, repoName)
-	var fileToDownload string = fmt.Sprintf("%s/%s/%s%s%s", repository.RepoDir, userName, repoName, workingDir, itemName)
-	fmt.Println("File to download: " + fileToDownload)
+	fileToDownload, err := repository.GetItemPath(userName, repoName, workingDir, itemName)
+	if err != nil {
+		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+		return
+	}
+
+	file, err := os.Open(fileToDownload)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to open file: %s", err), http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil || !stat.Mode().IsRegular() {
+		http.Error(w, "Requested item is not a downloadable file.", http.StatusBadRequest)
+		return
+	}
+
+	buf := make([]byte, 512)
+	n, _ := file.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "Unable to read file.", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(itemName))
-	http.ServeFile(w, r, fileToDownload)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+}
+
+func RepositoryPreviewFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	userName := SS.GetString(r.Context(), "name")
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+
+	if isLoggedIn != true || userName == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	query := r.URL.Query()
+	repoName := query.Get("repository")
+	workingDir := query.Get("working-directory")
+	itemName := query.Get("itemName")
+
+	if itemName == "" {
+		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+		return
+	}
+
+	fileToPreview, err := repository.GetItemPath(userName, repoName, workingDir, itemName)
+	if err != nil {
+		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+		return
+	}
+
+	file, err := os.Open(fileToPreview)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to open file: %s", err), http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil || !stat.Mode().IsRegular() {
+		http.Error(w, "Requested item is not a previewable file.", http.StatusBadRequest)
+		return
+	}
+
+	buf := make([]byte, 512)
+	n, _ := file.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "Unable to read file.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func SessionConfirm(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+	if SS.GetBool(r.Context(), "isLoggedIn") {
+		w.Write([]byte("true"))
+		return
+	}
+	w.Write([]byte("false"))
+}
+
+func RepositoryIndex(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	searchQuery := strings.TrimSpace(query.Get("search"))
+	apiMode := query.Get("api") == "1"
+	if apiMode && searchQuery != "" {
+		matches, err := repository.SearchRepositories(searchQuery)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "matches": matches})
+		return
+	}
+	IndexMain(w, r)
+}
+
+func RepositoryAPI(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	repoName := query.Get("name")
+	userName := query.Get("user")
+	if repoName == "" || userName == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "user and repo are required"})
+		return
+	}
+
+	if query.Get("list") == "1" {
+		files, err := repository.ListRepositoryFilesRecursive(userName, repoName)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "files": files})
+		return
+	}
+
+	if query.Get("filemeta") == "1" {
+		fileName := query.Get("file")
+		if fileName == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "file parameter is required"})
+			return
+		}
+		filePath, err := repository.GetItemPath(userName, repoName, "/", fileName)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid file path"})
+			return
+		}
+		hash, err := repository.CalculateFileHash(filePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to compute file metadata"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "hash": hash, "flagged": "0", "encrypted": "0", "signature": ""})
+		return
+	}
+
+	if query.Get("meta") == "1" {
+		m, err := repository.LoadRepoMeta(userName, repoName)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		if m == nil {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "meta": map[string]interface{}{}})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "meta": m})
+		return
+	}
+
+	if downloadName := query.Get("download"); downloadName != "" {
+		// allow both POST and GET for compatibility
+		filePath, err := repository.GetItemPath(userName, repoName, "/", downloadName)
+		if err != nil {
+			http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+			return
+		}
+		file, err := os.Open(filePath)
+		if err != nil {
+			http.Error(w, "Failed to open file.", http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+
+		stat, err := file.Stat()
+		if err != nil || !stat.Mode().IsRegular() {
+			http.Error(w, "Requested item is not a downloadable file.", http.StatusBadRequest)
+			return
+		}
+
+		buf := make([]byte, 512)
+		n, _ := file.Read(buf)
+		contentType := http.DetectContentType(buf[:n])
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			http.Error(w, "Unable to read file.", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(downloadName))
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		if err := r.ParseMultipartForm(500 << 20); err == nil {
+			file, header, err := r.FormFile("upload")
+			if err == nil {
+				defer file.Close()
+				destDir := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
+				if ok, _ := repository.DirExists(destDir); !ok {
+					writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "repository does not exist"})
+					return
+				}
+				destPath := fmt.Sprintf("%s/%s", destDir, path.Base(header.Filename))
+				if !strings.HasPrefix(path.Clean(destPath), path.Clean(destDir)) {
+					writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid file name"})
+					return
+				}
+				out, err := os.Create(destPath)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to save file"})
+					return
+				}
+				defer out.Close()
+				if _, err := io.Copy(out, file); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to save file"})
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "message": "upload complete"})
+				return
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "unsupported api operation"})
 }
 
 func RepositoryDownloadRepositoryAsSQAR(w http.ResponseWriter, r *http.Request) {

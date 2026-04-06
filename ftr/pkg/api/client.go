@@ -23,11 +23,39 @@ import (
 	"time"
 )
 
-const (
+var (
 	BaseURL     = "https://quanthai.net"
-	RepoURL     = BaseURL + "/inkdrop/repos"
-	InkDropPath = "/inkdrop"
+	InkDropPath = ""
 )
+
+func init() {
+	if os.Getenv("FTR_TEST") == "true" {
+		BaseURL = "http://127.0.0.1:6767"
+	}
+}
+
+func RepoURL() string {
+	return BaseURL + "/repos"
+}
+
+func makeURL(resource string) string {
+	resource = strings.TrimSpace(resource)
+	base := strings.TrimRight(BaseURL, "/")
+	if resource == "" {
+		return base
+	}
+	return base + "/" + strings.TrimLeft(resource, "/")
+}
+
+func inkdropURL(resource string) string {
+	resource = strings.TrimSpace(resource)
+	inkdropPath := strings.TrimRight(InkDropPath, "/")
+	if inkdropPath == "" {
+		return makeURL(resource)
+	}
+	resource = strings.TrimLeft(resource, "/")
+	return makeURL(strings.TrimLeft(inkdropPath+"/"+resource, "/"))
+}
 
 type Client struct {
 	http      *http.Client
@@ -176,7 +204,7 @@ func (c *Client) Login(email, password string) error {
 	data.Set("email", email)
 	data.Set("password", password)
 
-	loginURL := BaseURL + "/login.php"
+	loginURL := inkdropURL("/login.php")
 	req, err := http.NewRequest("POST", loginURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create login request: %w", err)
@@ -184,7 +212,7 @@ func (c *Client) Login(email, password string) error {
 	// Typical browser-like headers to avoid server-side filtering
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36")
-	req.Header.Set("Referer", BaseURL+"/login.php")
+	req.Header.Set("Referer", makeURL("/login.php"))
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 
 	resp, err := c.http.Do(req)
@@ -284,7 +312,7 @@ func (c *Client) Login(email, password string) error {
 	}
 
 	// Verify session by accessing index.php in inkdrop
-	verifyReq, err := http.NewRequest("GET", BaseURL+InkDropPath+"/index.php", nil)
+	verifyReq, err := http.NewRequest("GET", inkdropURL("/index.php"), nil)
 	if err != nil {
 		return fmt.Errorf("failed to create verification request: %w", err)
 	}
@@ -336,9 +364,46 @@ func (c *Client) Login(email, password string) error {
 }
 
 func (c *Client) CreateRepo(user, repoName string) error {
-	if user != os.Getenv("USER") {
-		return fmt.Errorf("cannot create repository - not authorized")
+	if c.sessionID == "" {
+		return fmt.Errorf("not logged in")
 	}
+
+	baseURLParsed, _ := url.Parse(BaseURL)
+	// ensure cookie is present in jar
+	if c.sessionID != "" {
+		c.http.Jar.SetCookies(baseURLParsed, []*http.Cookie{{
+			Name:     "PHPSESSID",
+			Value:    c.sessionID,
+			Path:     "/",
+			Domain:   baseURLParsed.Hostname(),
+			Secure:   baseURLParsed.Scheme == "https",
+			HttpOnly: true,
+		}})
+	}
+
+	form := url.Values{}
+	form.Set("reponame", repoName)
+
+	req, err := http.NewRequest("POST", makeURL("/"), strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create repo request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if c.sessionID != "" {
+		req.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send create repo request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create repository: %s (HTTP %d)", strings.TrimSpace(string(b)), resp.StatusCode)
+	}
+
 	return nil
 }
 
@@ -389,7 +454,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 	}
 
 	// First verify our session is still valid
-	req, err := http.NewRequest("GET", BaseURL+InkDropPath+"/index.php", nil)
+	req, err := http.NewRequest("GET", inkdropURL("/index.php"), nil)
 	if err != nil {
 		return fmt.Errorf("failed to create verification request: %w", err)
 	}
@@ -420,27 +485,76 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 		}
 	}
 
-	// Repo check
-	repoReq, err := http.NewRequest("GET", fmt.Sprintf("%s%s/repo.php?name=%s&user=%s", BaseURL, InkDropPath, url.QueryEscape(repoName), url.QueryEscape(user)), nil)
-	if err != nil {
-		return fmt.Errorf("failed to create repo check request: %w", err)
-	}
-	if c.sessionID != "" {
-		repoReq.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
-	}
-	resp, err = c.http.Do(repoReq)
-	if err != nil {
-		return fmt.Errorf("failed to check repository: %w", err)
-	}
-	body, _ = io.ReadAll(resp.Body)
-	resp.Body.Close()
-
-	if bytes.Contains(body, []byte("repository is not found")) {
-		if loggedInUser != "" && loggedInUser != user {
-			return fmt.Errorf("repository does not exist and you are not the owner (logged in as '%s', trying to upload to '%s')", loggedInUser, user)
+	// Repo check - consult server metadata for pre-checks
+	if meta, _ := c.GetRepoMeta(user, repoName); meta != nil {
+		// if repo metadata exists and marks repo non-public, verify ownership
+		if pub, ok := meta["public"].(bool); ok && !pub {
+			if loggedInUser != "" {
+				// check owners list
+				if owners, ok := meta["owners"].([]interface{}); ok {
+					allowed := false
+					for _, o := range owners {
+						if s, ok := o.(string); ok && s == loggedInUser {
+							allowed = true
+							break
+						}
+					}
+					if !allowed {
+						return fmt.Errorf("repository is not public and you are not an owner (logged in as '%s')", loggedInUser)
+					}
+				}
+			} else {
+				return fmt.Errorf("repository is not public and you are not authenticated")
+			}
 		}
-		if os.Getenv("USER") != user {
-			return fmt.Errorf("repository does not exist and you are not the owner")
+	} else {
+		// Fallback: attempt to create repo when missing and authorized
+		// Repo check via legacy endpoint
+		repoReq, err := http.NewRequest("GET", inkdropURL(fmt.Sprintf("/repo.php?name=%s&user=%s", url.QueryEscape(repoName), url.QueryEscape(user))), nil)
+		if err != nil {
+			return fmt.Errorf("failed to create repo check request: %w", err)
+		}
+		if c.sessionID != "" {
+			repoReq.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+		}
+		resp, err = c.http.Do(repoReq)
+		if err != nil {
+			return fmt.Errorf("failed to check repository: %w", err)
+		}
+		body, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if bytes.Contains(body, []byte("repository is not found")) {
+			if loggedInUser != "" && loggedInUser != user {
+				return fmt.Errorf("repository does not exist and you are not the owner (logged in as '%s', trying to upload to '%s')", loggedInUser, user)
+			}
+			if os.Getenv("USER") != user && loggedInUser != user {
+				return fmt.Errorf("repository does not exist and you are not the owner")
+			}
+
+			// Attempt to create repository via API when authorized
+			if err := c.CreateRepo(user, repoName); err != nil {
+				return fmt.Errorf("repository does not exist and failed to create: %w", err)
+			}
+
+			// Re-run repo existence check
+			retryReq, err := http.NewRequest("GET", inkdropURL(fmt.Sprintf("/repo.php?name=%s&user=%s", url.QueryEscape(repoName), url.QueryEscape(user))), nil)
+			if err != nil {
+				return fmt.Errorf("failed to create repo check request: %w", err)
+			}
+			if c.sessionID != "" {
+				retryReq.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+			}
+			resp, err = c.http.Do(retryReq)
+			if err != nil {
+				return fmt.Errorf("failed to check repository after create: %w", err)
+			}
+			body, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			if bytes.Contains(body, []byte("repository is not found")) {
+				return fmt.Errorf("repository still not found after creation attempt")
+			}
 		}
 	}
 
@@ -560,7 +674,7 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 
 	w.Close()
 
-	uploadURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repoName), url.QueryEscape(user))
+	uploadURL := inkdropURL(fmt.Sprintf("/repo.php?name=%s&user=%s&api=1", url.QueryEscape(repoName), url.QueryEscape(user)))
 	uploadReq, err := http.NewRequest("POST", uploadURL, &b)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -663,7 +777,7 @@ func (c *Client) DownloadFile(downloadURL string, fileName string) (io.ReadClose
 }
 
 func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, error) {
-	metaURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&filemeta=1&file=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+	metaURL := inkdropURL(fmt.Sprintf("/repo.php?name=%s&user=%s&filemeta=1&file=%s&api=1", url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName)))
 	req, err := http.NewRequest("GET", metaURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metadata request: %w", err)
@@ -745,7 +859,7 @@ func (c *Client) GetFileMeta(user, repo, fileName string) (map[string]string, er
 
 // SearchRepos queries the server search API and returns a list of matches.
 func (c *Client) SearchRepos(query string) ([]map[string]string, error) {
-	searchURL := fmt.Sprintf("%s%s/index.php?search=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(query))
+	searchURL := inkdropURL(fmt.Sprintf("/index.php?search=%s&api=1", url.QueryEscape(query)))
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create search request: %w", err)
@@ -815,7 +929,7 @@ func (c *Client) SearchRepos(query string) ([]map[string]string, error) {
 
 // ListRepoFiles returns a recursive list of files in a repository via the API
 func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, error) {
-	listURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&list=1&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user))
+	listURL := inkdropURL(fmt.Sprintf("/repo.php?name=%s&user=%s&list=1&api=1", url.QueryEscape(repo), url.QueryEscape(user)))
 	req, err := http.NewRequest("GET", listURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create list request: %w", err)
@@ -876,6 +990,43 @@ func (c *Client) ListRepoFiles(user, repo string) ([]map[string]interface{}, err
 	return out, nil
 }
 
+// GetRepoMeta fetches repository metadata (owners, description, public flag) from server.
+func (c *Client) GetRepoMeta(user, repo string) (map[string]interface{}, error) {
+	metaURL := inkdropURL(fmt.Sprintf("/repo.php?name=%s&user=%s&meta=1&api=1", url.QueryEscape(repo), url.QueryEscape(user)))
+	req, err := http.NewRequest("GET", metaURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create meta request: %w", err)
+	}
+	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("meta request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read meta response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("meta request failed: %s", resp.Status)
+	}
+
+	var apiResp map[string]interface{}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse meta response: %w", err)
+	}
+
+	if ok, _ := apiResp["success"].(bool); !ok {
+		return nil, nil
+	}
+	if m, ok := apiResp["meta"].(map[string]interface{}); ok {
+		return m, nil
+	}
+	return nil, nil
+}
+
 func (c *Client) DownloadAndVerify(user string, repo string, fileName string, destPath string, progress func(float64)) error {
 
 	meta, _ := c.GetFileMeta(user, repo, fileName)
@@ -884,7 +1035,7 @@ func (c *Client) DownloadAndVerify(user string, repo string, fileName string, de
 		expectedHash = meta["hash"]
 	}
 
-	downloadURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&download=%s&api=1", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+	downloadURL := inkdropURL(fmt.Sprintf("/repo.php?name=%s&user=%s&download=%s&api=1", url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName)))
 	// If metadata indicates the file was flagged during upload, warn the user.
 	if meta != nil {
 		if note, ok := meta["flagged_note"]; ok && note != "" {
@@ -1083,14 +1234,51 @@ func (c *Client) DeleteRemoteFile(user, repo, fileName string) error {
 	if !c.IsLoggedIn() {
 		return errors.New("not logged in")
 	}
+	// Check metadata for owner-based permissions (fast-fail on client side)
+	if meta, _ := c.GetRepoMeta(user, repo); meta != nil {
+		if owners, ok := meta["owners"].([]interface{}); ok && len(owners) > 0 {
+			if c.username != "" {
+				allowed := false
+				for _, o := range owners {
+					if s, ok := o.(string); ok && s == c.username {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					return fmt.Errorf("you are not listed as an owner for %s/%s", user, repo)
+				}
+			}
+		}
+	}
+	// Use the server's POST /delete/item endpoint which expects a form:
+	// repository, working-directory, and one or more itemName fields.
+	baseURLParsed, _ := url.Parse(BaseURL)
+	if c.sessionID != "" {
+		c.http.Jar.SetCookies(baseURLParsed, []*http.Cookie{{
+			Name:     "PHPSESSID",
+			Value:    c.sessionID,
+			Path:     "/",
+			Domain:   baseURLParsed.Hostname(),
+			Secure:   baseURLParsed.Scheme == "https",
+			HttpOnly: true,
+		}})
+	}
 
-	deleteURL := fmt.Sprintf("%s%s/repo.php?name=%s&user=%s&delete=%s", BaseURL, InkDropPath, url.QueryEscape(repo), url.QueryEscape(user), url.QueryEscape(fileName))
+	form := url.Values{}
+	form.Set("repository", repo)
+	form.Set("working-directory", "/")
+	form.Add("itemName", fileName)
 
-	req, err := http.NewRequest("GET", deleteURL, nil)
+	req, err := http.NewRequest("POST", inkdropURL("/delete/item"), strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create delete request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-FTR-CLIENT", "FtR-CLI")
+	if c.sessionID != "" {
+		req.Header.Set("Cookie", "PHPSESSID="+c.sessionID)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -1103,11 +1291,9 @@ func (c *Client) DeleteRemoteFile(user, repo, fileName string) error {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned error: %s - %s", resp.Status, string(body))
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("server returned error: %s - %s", resp.Status, strings.TrimSpace(string(body)))
 	}
-
-	fmt.Println("Delete attempt complete.")
 
 	return nil
 }
@@ -1115,7 +1301,7 @@ func (c *Client) DeleteRemoteFile(user, repo, fileName string) error {
 // SessionConfirmed queries the sessionconfirm endpoint and returns true if
 // the remote server considers the current session valid.
 func (c *Client) SessionConfirmed() (bool, error) {
-	req, err := http.NewRequest("GET", BaseURL+"/sessionconfirm", nil)
+	req, err := http.NewRequest("GET", makeURL("/sessionconfirm"), nil)
 	if err != nil {
 		return false, fmt.Errorf("failed to create sessionconfirm request: %w", err)
 	}

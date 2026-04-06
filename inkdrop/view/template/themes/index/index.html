@@ -14,10 +14,8 @@
             <a href="/" class="topbar-brand">InkDrop</a>
             <div class="topbar-right">
                 <div class="theme-switch" role="group" aria-label="Theme mode">
-                    <button type="button" data-theme-set="light" aria-pressed="false"
-                        style="cursor: pointer">Light</button>
-                    <button type="button" data-theme-set="dark" aria-pressed="false"
-                        style="cursor: pointer">Dark</button>
+                    <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+                    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
                 </div>
                 <div class="profile-menu">
                     <button type="button" class="profile-button" id="profileMenuButton" aria-haspopup="menu"
@@ -104,27 +102,44 @@
     </main>
     <script>
         (function () {
-            var root = document.documentElement;
             var themeKey = "inkdrop-theme";
-            var themeButtons = document.querySelectorAll("[data-theme-set]");
 
-            function applyTheme(theme) {
-                var useTheme = theme === "dark" ? "dark" : "light";
-                root.setAttribute("data-theme", useTheme);
-                themeButtons.forEach(function (button) {
-                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === useTheme));
+            function setTheme(theme) {
+                var value = theme === "dark" ? "dark" : "light";
+                document.documentElement.setAttribute("data-theme", value);
+                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
+                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === value));
                 });
             }
 
-            var savedTheme = localStorage.getItem(themeKey);
-            applyTheme(savedTheme);
-            themeButtons.forEach(function (button) {
-                button.addEventListener("click", function () {
-                    var theme = button.getAttribute("data-theme-set");
-                    applyTheme(theme);
-                    localStorage.setItem(themeKey, theme);
+            function getSavedTheme() {
+                var stored = localStorage.getItem(themeKey);
+                if (stored === "dark" || stored === "light") {
+                    return stored;
+                }
+                if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+                    return "dark";
+                }
+                return "light";
+            }
+
+            function initTheme() {
+                setTheme(getSavedTheme());
+                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
+                    button.type = "button";
+                    button.addEventListener("click", function () {
+                        var theme = button.getAttribute("data-theme-set");
+                        setTheme(theme);
+                        localStorage.setItem(themeKey, theme);
+                    });
                 });
-            });
+            }
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", initTheme);
+            } else {
+                initTheme();
+            }
 
             var profileButton = document.getElementById("profileMenuButton");
             var profileMenu = document.getElementById("profileMenu");

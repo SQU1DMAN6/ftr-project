@@ -45,7 +45,14 @@
                     <a href="/" class="button-link">Back to Workspace</a>
                     <p class="subtle light">Current path: <strong>{{.Message2}}/{{.Message3}}{{.Path}}</strong></p>
                 </div>
-                <button type="button" class="menu-item danger-item small" id="deleteRepoBtnMenu" style="width: max-content">Delete Repository</button>
+                <div>
+                    <button type="button" class="menu-item settings-trigger small" id="openSettingsBtnMenu" style="width: max-content">Open Settings</button>
+                </div>
+                {{if .RepoDescription}}
+                <div class="panel stack">
+                    <p class="subtle">{{.RepoDescription}}</p>
+                </div>
+                {{end}}
             </div>
 
             <div class="panel stack" id="filePanel" tabindex="0" aria-label="Repository browser">
@@ -91,6 +98,21 @@
                 </div>
                 {{end}}
                 {{end}}
+
+                <div class="file-preview-panel" id="filePreviewPanel" aria-live="polite" aria-label="File preview">
+                    <div class="row space preview-header">
+                        <div>
+                            <h3 class="section">File Preview</h3>
+                        </div>
+                        <button type="button" class="button-link small" id="refreshPreviewBtn" disabled>Refresh</button>
+                    </div>
+                    <div class="preview-content" id="previewContent">
+                        <div class="preview-placeholder">
+                            <p class="subtle">No file selected yet.</p>
+                        </div>
+                    </div>
+                    <div class="preview-meta" id="previewMeta"></div>
+                </div>
 
                 <div class="context-menu" id="contextMenu" hidden>
                     <button type="button" class="menu-item" id="newFolderBtn">New Folder</button>
@@ -142,14 +164,36 @@
                     </form>
                 </dialog>
 
-                <dialog class="settings-modal center popup" id="deleteRepoDialog">
-                    <form id="deleteRepoForm" method="post" action="/deleterepo">
-                        <p>Deleting a repository is irreversable. Think twice before doing so.</p>
-                        <input type="hidden" name="reponame" value="{{.Message3}}" />
-                        <br />
+                <dialog class="settings-modal center popup" id="settingsDialog">
+                    <form id="settingsForm" method="post" action="/repo/settings" class="stack">
+                        <h3 class="section">Repository Settings</h3>
+                        <label class="field-label">Description</label>
+                        <textarea name="description" rows="3" class="details">{{.RepoDescription}}</textarea>
+
+                        <label class="field-label">Owners (comma-separated usernames)</label>
+                        <input type="text" name="owners" class="details" value="{{.RepoOwners}}" placeholder="e.g. alice,bob" />
+
+                        <label class="field-label">Public</label>
+                        <div>
+                            <label><input type="checkbox" name="public" value="1" {{if .RepoPublic}}checked{{end}} /> Allow read access to all users</label>
+                        </div>
+
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
                         <div class="row">
-                            <button type="button" id="cancelDeleteDialog" class="button-link">Cancel</button>
-                            <button type="button" id="deleteRepoBtn" class="danger-item menu-item button-link">Delete Repository</button>
+                            <button type="submit" class="redirect">Save</button>
+                            <button type="button" class="button-link" id="cancelSettings">Cancel</button>
+                        </div>
+
+                        <div class="danger-zone">
+                            <h4>Danger Zone</h4>
+                            <p>Deleting this repository will permanently remove all files and metadata. This action cannot be undone.</p>
+                            <form method="post" action="/deleterepo">
+                                <input type="hidden" name="reponame" value="{{.Message3}}" />
+                                <div class="row">
+                                    <button type="button" id="cancelDeleteSettings" class="button-link">Cancel</button>
+                                    <button type="submit" class="danger">Delete Repository</button>
+                                </div>
+                            </form>
                         </div>
                     </form>
                 </dialog>
@@ -175,26 +219,44 @@
 
     <script>
         (function () {
-            var root = document.documentElement;
             var themeKey = "inkdrop-theme";
-            var themeButtons = document.querySelectorAll("[data-theme-set]");
 
-            function applyTheme(theme) {
-                var useTheme = theme === "dark" ? "dark" : "light";
-                root.setAttribute("data-theme", useTheme);
-                themeButtons.forEach(function (button) {
-                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === useTheme));
+            function setTheme(theme) {
+                var value = theme === "dark" ? "dark" : "light";
+                document.documentElement.setAttribute("data-theme", value);
+                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
+                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === value));
                 });
             }
 
-            applyTheme(localStorage.getItem(themeKey));
-            themeButtons.forEach(function (button) {
-                button.addEventListener("click", function () {
-                    var theme = button.getAttribute("data-theme-set");
-                    applyTheme(theme);
-                    localStorage.setItem(themeKey, theme);
+            function getSavedTheme() {
+                var stored = localStorage.getItem(themeKey);
+                if (stored === "dark" || stored === "light") {
+                    return stored;
+                }
+                if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+                    return "dark";
+                }
+                return "light";
+            }
+
+            function initTheme() {
+                setTheme(getSavedTheme());
+                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
+                    button.type = "button";
+                    button.addEventListener("click", function () {
+                        var theme = button.getAttribute("data-theme-set");
+                        setTheme(theme);
+                        localStorage.setItem(themeKey, theme);
+                    });
                 });
-            });
+            }
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", initTheme);
+            } else {
+                initTheme();
+            }
 
             var profileButton = document.getElementById("profileMenuButton");
             var profileMenu = document.getElementById("profileMenu");
@@ -251,9 +313,16 @@
             var downloadItemName = document.getElementById("downloadItemName")
             var deleteRepoBtn = document.getElementById("deleteRepoBtn")
             var deleteRepoForm = document.getElementById("deleteRepoForm")
-            var deleteRepoBtnMenu = document.getElementById("deleteRepoBtnMenu")
-            var deleteRepoDialog = document.getElementById("deleteRepoDialog")
-            var cancelDeleteDialog = document.getElementById("cancelDeleteDialog")
+            var openSettingsBtnMenu = document.getElementById("openSettingsBtnMenu")
+            var settingsDialog = document.getElementById("settingsDialog")
+            var settingsForm = document.getElementById("settingsForm")
+            var cancelSettings = document.getElementById("cancelSettings")
+            var cancelDeleteSettings = document.getElementById("cancelDeleteSettings")
+            var previewPanel = document.getElementById("filePreviewPanel")
+            var previewContent = document.getElementById("previewContent")
+            var previewMeta = document.getElementById("previewMeta")
+            var previewRefreshBtn = document.getElementById("refreshPreviewBtn")
+            var previewBlobUrl = null
 
             var selectedEntry = null;
 
@@ -292,6 +361,129 @@
                 if (selectedEntry) selectedEntry.classList.remove("selected");
                 selectedEntry = entry || null;
                 if (selectedEntry) selectedEntry.classList.add("selected");
+                updatePreviewState();
+            }
+
+            function clearPreview() {
+                if (!previewContent) return;
+                if (previewBlobUrl) {
+                    URL.revokeObjectURL(previewBlobUrl);
+                    previewBlobUrl = null;
+                }
+                previewContent.innerHTML = '<div class="preview-placeholder"><p class="subtle">No file selected yet.</p></div>';
+                if (previewMeta) previewMeta.textContent = "";
+                if (previewRefreshBtn) previewRefreshBtn.disabled = true;
+            }
+
+            function setPreviewStatus(message) {
+                if (!previewContent) return;
+                previewContent.innerHTML = '<div class="preview-placeholder"><p class="subtle">' + message + '</p></div>';
+            }
+
+            function setPreviewMeta(fileName, contentType, size) {
+                if (!previewMeta) return;
+                var meta = '<span class="preview-badge"><strong>' + fileName + '</strong></span>';
+                meta += '<span class="preview-badge">' + contentType + '</span>';
+                if (size) {
+                    meta += '<span class="preview-badge">' + size + '</span>';
+                }
+                previewMeta.innerHTML = meta;
+            }
+
+            function formatBytes(bytes) {
+                if (!bytes || isNaN(bytes) || bytes <= 0) return "";
+                var units = ["B", "KB", "MB", "GB"];
+                var idx = 0;
+                var value = Number(bytes);
+                while (value >= 1024 && idx < units.length - 1) {
+                    value /= 1024;
+                    idx += 1;
+                }
+                return value.toFixed(1) + " " + units[idx];
+            }
+
+            function updatePreviewState() {
+                if (!previewRefreshBtn) return;
+                var canPreview = canDownload(selectedEntry);
+                previewRefreshBtn.disabled = !canPreview;
+                if (canPreview) {
+                    previewSelectedFile();
+                } else {
+                    clearPreview();
+                }
+            }
+
+            function renderPreviewText(text, mime) {
+                if (!previewContent) return;
+                previewContent.innerHTML = '<pre class="preview-text"></pre>';
+                var pre = previewContent.querySelector("pre");
+                pre.textContent = text.length > 32768 ? text.slice(0, 32768) + "\n\n…preview truncated" : text;
+            }
+
+            function renderPreviewBlob(blob, mime, fileName) {
+                if (!previewContent) return;
+                if (previewBlobUrl) {
+                    URL.revokeObjectURL(previewBlobUrl);
+                    previewBlobUrl = null;
+                }
+                previewBlobUrl = URL.createObjectURL(blob);
+                var markup = "";
+                if (mime.startsWith("image/")) {
+                    markup = '<img class="preview-image" src="' + previewBlobUrl + '" alt="Preview of ' + fileName + '">';
+                } else if (mime.startsWith("video/")) {
+                    markup = '<video controls class="preview-video"><source src="' + previewBlobUrl + '" type="' + mime + '">Your browser cannot play this preview.</video>';
+                } else if (mime.startsWith("audio/")) {
+                    markup = '<audio controls class="preview-audio"><source src="' + previewBlobUrl + '" type="' + mime + '">Your browser cannot play this preview.</audio>';
+                } else if (mime === "application/pdf") {
+                    markup = '<object class="preview-pdf" data="' + previewBlobUrl + '" type="application/pdf">Preview unavailable. <a href="' + previewBlobUrl + '">Open PDF</a></object>';
+                } else {
+                    markup = '<div class="preview-placeholder"><p class="subtle">This file cannot be previewed in-browser, but it is available for secure download.</p></div>';
+                }
+                previewContent.innerHTML = markup;
+            }
+
+            function previewSelectedFile() {
+                if (!canDownload(selectedEntry)) {
+                    clearPreview();
+                    return;
+                }
+                var file = selectedEntry.getAttribute("data-name");
+                if (!file) {
+                    clearPreview();
+                    return;
+                }
+                setPreviewStatus("Loading file preview...");
+                var params = new URLSearchParams({
+                    repository: currentRepo,
+                    "working-directory": currentPath,
+                    itemName: file,
+                });
+                fetch("/preview?" + params.toString(), { credentials: "same-origin" })
+                    .then(function (response) {
+                        if (!response.ok) {
+                            throw new Error(response.status + " " + response.statusText);
+                        }
+                        var contentType = response.headers.get("content-type") || "application/octet-stream";
+                        var mime = contentType.split(";")[0].trim();
+                        var contentLength = response.headers.get("content-length");
+                        setPreviewMeta(file, mime, contentLength ? formatBytes(Number(contentLength)) : "");
+                        if (mime.startsWith("text/") || mime === "application/json" || mime === "application/xml" || mime === "application/javascript") {
+                            return response.text().then(function (text) {
+                                renderPreviewText(text, mime);
+                                previewRefreshBtn.disabled = false;
+                            });
+                        }
+                        return response.blob().then(function (blob) {
+                            renderPreviewBlob(blob, mime, file);
+                            previewRefreshBtn.disabled = false;
+                        });
+                    })
+                    .catch(function (error) {
+                        setPreviewStatus("Preview unavailable.");
+                        if (previewMeta) previewMeta.textContent = "";
+                        if (previewRefreshBtn) previewRefreshBtn.disabled = false;
+                        console.warn("Preview failed:", error);
+                    });
             }
 
             function entryKind(entry) {
@@ -512,11 +704,19 @@
 
             newFolderBtn.addEventListener("click", openNewFolderDialog);
             newFolderBtnInline.addEventListener("click", openNewFolderDialog);
-            deleteRepoBtnMenu.addEventListener("click", openDeleteRepoDialog);
+            if (openSettingsBtnMenu) {
+                openSettingsBtnMenu.addEventListener("click", function () {
+                    hideContextMenu();
+                    if (settingsDialog) settingsDialog.showModal();
+                });
+            }
             uploadFileBtnInline.addEventListener("click", openUploadDialog);
             renameBtn.addEventListener("click", openRenameDialog);
             deleteBtn.addEventListener("click", deleteSelectedFolder);
             deleteFileBtn.addEventListener("click", deleteSelectedFile);
+            if (previewRefreshBtn) {
+                previewRefreshBtn.addEventListener("click", previewSelectedFile);
+            }
             cancelDialog.addEventListener("click", function () {
                 newFolderDialog.close();
             });
@@ -526,16 +726,19 @@
             cancelUpload.addEventListener("click", function () {
                 uploadDialog.close()
             });
-            cancelDeleteDialog.addEventListener("click", function () {
-              deleteRepoDialog.close()
-            })
+            if (cancelSettings) {
+                cancelSettings.addEventListener("click", function () {
+                    if (settingsDialog) settingsDialog.close()
+                })
+            }
+            if (cancelDeleteSettings) {
+                cancelDeleteSettings.addEventListener("click", function () {
+                    if (settingsDialog) settingsDialog.close()
+                })
+            }
             downloadBtn.addEventListener("click", downloadSelectedFile);
 
-            deleteRepoBtn.addEventListener("click", function () {
-                var ok = window.confirm("Delete repository {{.Message3}}? This action is irreversible.");
-                if (!ok) return
-                deleteRepoForm.submit()
-            })
+            // deletion is handled via the settings dialog's Danger Zone form
 
             document.addEventListener("click", function (event) {
                 if (!event.target.closest("#contextMenu")) {

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"ftr/pkg/boxlet"
 )
 
 // Builder handles the detection and building of different project types
@@ -36,6 +38,29 @@ func (b *Builder) run(cmd string) error {
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	return command.Run()
+}
+
+func (b *Builder) loadBuildMeta() (boxlet.MetaKeyValue, error) {
+	meta, err := boxlet.ReadMeta(b.WorkDir)
+	if err != nil {
+		return nil, err
+	}
+	return meta, nil
+}
+
+func metaOutputPath(meta boxlet.MetaKeyValue) string {
+	if meta == nil {
+		return ""
+	}
+	for _, key := range []string{"BUILD_OUTPUT", "OUTPUT", "ENTRY_POINT"} {
+		if value, ok := meta[key]; ok {
+			trimmed := strings.TrimSpace(value)
+			if trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
 }
 
 // scanForNewFiles finds all files modified after the given time in common install directories
@@ -99,6 +124,40 @@ func scanForNewFiles(after time.Time) []string {
 
 // DetectAndBuild tries to detect the project type and build it accordingly
 func (b *Builder) DetectAndBuild() (string, error) {
+	meta, _ := b.loadBuildMeta()
+	if meta != nil {
+		buildCmd, hasBuildCmd := meta["BUILD_COMMAND"]
+		installCmd, hasInstallCmd := meta["INSTALL_COMMAND"]
+		if hasBuildCmd && strings.TrimSpace(buildCmd) != "" {
+			fmt.Println("Detected BUILD/Meta.config custom build command.")
+			if err := b.run(buildCmd); err != nil {
+				return "", fmt.Errorf("custom build command failed: %w", err)
+			}
+		}
+
+		outputPath := metaOutputPath(meta)
+		if outputPath != "" {
+			resolved := filepath.Join(b.WorkDir, outputPath)
+			if _, err := os.Stat(resolved); err == nil {
+				return resolved, nil
+			}
+		}
+
+		if hasInstallCmd && strings.TrimSpace(installCmd) != "" {
+			fmt.Println("Detected BUILD/Meta.config install command.")
+			if err := b.run(installCmd); err != nil {
+				return "", fmt.Errorf("custom install command failed: %w", err)
+			}
+			if outputPath != "" {
+				resolved := filepath.Join(b.WorkDir, outputPath)
+				if _, err := os.Stat(resolved); err == nil {
+					return resolved, nil
+				}
+			}
+			return "", nil
+		}
+	}
+
 	// Check for install.sh first
 	if _, err := os.Stat(filepath.Join(b.WorkDir, "install.sh")); err == nil {
 		fmt.Println("\ninstall.sh found. Running and skipping default installer protocol...")

@@ -28,7 +28,7 @@ var buildCmd = &cobra.Command{
 	Example: ftr build myproject.sqar myproject`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fsdlFilePath := args[0]
+		sourcePath := args[0]
 		repoName := args[1]
 
 		// Use fixed temporary directory to mirror `ftr get` behavior
@@ -40,36 +40,49 @@ var buildCmd = &cobra.Command{
 		}
 		defer os.RemoveAll(tmpDir)
 
-		sourceFile, err := os.Open(fsdlFilePath)
+		var workDir string
+		inputInfo, err := os.Stat(sourcePath)
 		if err != nil {
-			return fmt.Errorf("failed to open source file '%s': %w", fsdlFilePath, err)
+			return fmt.Errorf("failed to inspect source path '%s': %w", sourcePath, err)
 		}
-		defer sourceFile.Close()
 
-		destinationFilePath := filepath.Join(tmpDir, filepath.Base(fsdlFilePath))
-		destinationFile, err := os.Create(destinationFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to create destination file '%s': %w", destinationFilePath, err)
-		}
-		if _, err := io.Copy(destinationFile, sourceFile); err != nil {
-			destinationFile.Close()
-			return fmt.Errorf("failed to copy source file to temporary directory: %w", err)
-		}
-		destinationFile.Close()
-
-		// Extract the contents of the package. Prefer SQAR if the file is a .sqar
-		if strings.HasSuffix(strings.ToLower(destinationFilePath), ".sqar") {
-			if err := extractSqar(destinationFilePath, tmpDir); err != nil {
-				return fmt.Errorf("failed to extract .sqar package: %w", err)
-			}
+		if inputInfo.IsDir() {
+			workDir = sourcePath
 		} else {
-			if err := fsdl.Extract(destinationFilePath, tmpDir); err != nil {
-				return fmt.Errorf("failed to extract .fsdl package: %w", err)
+			sourceFile, err := os.Open(sourcePath)
+			if err != nil {
+				return fmt.Errorf("failed to open source file '%s': %w", sourcePath, err)
+			}
+			defer sourceFile.Close()
+
+			destinationFilePath := filepath.Join(tmpDir, filepath.Base(sourcePath))
+			destinationFile, err := os.Create(destinationFilePath)
+			if err != nil {
+				return fmt.Errorf("failed to create temporary package file '%s': %w", destinationFilePath, err)
+			}
+			if _, err := io.Copy(destinationFile, sourceFile); err != nil {
+				destinationFile.Close()
+				return fmt.Errorf("failed to copy source file to temporary directory: %w", err)
+			}
+			destinationFile.Close()
+
+			if strings.HasSuffix(strings.ToLower(destinationFilePath), ".sqar") {
+				if err := extractSqar(destinationFilePath, tmpDir); err != nil {
+					return fmt.Errorf("failed to extract .sqar package: %w", err)
+				}
+				workDir = tmpDir
+			} else if strings.HasSuffix(strings.ToLower(destinationFilePath), ".fsdl") {
+				if err := fsdl.Extract(destinationFilePath, tmpDir); err != nil {
+					return fmt.Errorf("failed to extract .fsdl package: %w", err)
+				}
+				workDir = tmpDir
+			} else {
+				return fmt.Errorf("unsupported source type '%s'; use a directory, .sqar or .fsdl package", sourcePath)
 			}
 		}
 
-		// After extraction: determine target arch/os from filename and BUILD/Meta.config
-		filename := filepath.Base(destinationFilePath)
+		// After extraction or directory selection: determine target arch/os from filename and BUILD/Meta.config
+		filename := filepath.Base(sourcePath)
 		ext := filepath.Ext(filename)
 		base := strings.TrimSuffix(filename, ext)
 		fileTargetArch := ""
@@ -84,7 +97,7 @@ var buildCmd = &cobra.Command{
 		}
 
 		// Read BUILD/Meta.config if present
-		meta, merr := boxlet.ReadMeta(tmpDir)
+		meta, merr := boxlet.ReadMeta(workDir)
 		metaArch := ""
 		metaOS := ""
 		if merr == nil && meta != nil {
@@ -156,7 +169,7 @@ var buildCmd = &cobra.Command{
 		}
 
 		// Initialize the builder with repo name and working directory
-		b := builder.New(repoName, tmpDir)
+		b := builder.New(repoName, workDir)
 
 		// Detect and build the project
 		binaryPath, err := b.DetectAndBuild()

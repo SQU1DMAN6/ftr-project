@@ -20,9 +20,11 @@
         </button>
     </div>
 
-    <div id="progressWrap">
-        <progress id="progressBar" value="0" max="100"></progress>
-        <div id="status">Uploading...</div>
+    <div id="progressWrap" class="upload-progress-panel" hidden>
+        <div id="uploadSummary" class="upload-summary" hidden>
+            Uploading <span id="uploadCount">0</span> files...
+        </div>
+        <div id="progressList" class="upload-progress-list"></div>
     </div>
 </dialog>
 {{end}}
@@ -33,12 +35,66 @@
     const dropZone = document.querySelector(".drop-zone");
     const fileInput = document.querySelector("#uploadFile");
     const progressWrap = document.querySelector("#progressWrap");
-    const progressBar = document.querySelector("#progressBar");
-    const statusEl = document.querySelector("#status");
+    const progressList = document.querySelector("#progressList");
+    const uploadSummary = document.querySelector("#uploadSummary");
+    const uploadCount = document.querySelector("#uploadCount");
+
+    const maxConcurrentUploads = 3;
+    const uploadQueue = [];
+    let activeUploads = 0;
+    let pendingUploads = 0;
+
+    function createProgressItem(fileName) {
+        const container = document.createElement("div");
+        container.className = "upload-progress-item";
+
+        const label = document.createElement("div");
+        label.className = "upload-progress-label";
+        label.textContent = fileName;
+
+        const progressBar = document.createElement("progress");
+        progressBar.className = "upload-progress-bar";
+        progressBar.value = 0;
+        progressBar.max = 100;
+
+        const statusEl = document.createElement("div");
+        statusEl.className = "upload-progress-status";
+        statusEl.textContent = "Queued";
+
+        container.appendChild(label);
+        container.appendChild(progressBar);
+        container.appendChild(statusEl);
+
+        return {container, progressBar, statusEl};
+    }
+
+    function updateUploadSummary() {
+        uploadSummary.hidden = pendingUploads === 0;
+        uploadCount.textContent = pendingUploads;
+        progressWrap.hidden = pendingUploads === 0;
+    }
+
+    function processUploadQueue() {
+        while (activeUploads < maxConcurrentUploads && uploadQueue.length > 0) {
+            const nextFile = uploadQueue.shift();
+            startUpload(nextFile);
+        }
+        updateUploadSummary();
+    }
+
+    function enqueueUpload(file) {
+        uploadQueue.push(file);
+        pendingUploads += 1;
+        progressWrap.hidden = false;
+        updateUploadSummary();
+        processUploadQueue();
+    }
 
     function startUpload(file) {
-        progressWrap.style.display = "block";
-        statusEl.textContent = `Uploading ${file.name}`;
+        activeUploads += 1;
+        const item = createProgressItem(file.name);
+        progressList.appendChild(item.container);
+        item.statusEl.textContent = "Preparing...";
 
         const upload = new tus.Upload(file, {
             endpoint: "/upload/",
@@ -52,31 +108,35 @@
                 workingDirectory: "{{.Path}}",
             },
             onError(error) {
-                statusEl.textContent = `Error: ${error.message}`;
+                item.statusEl.textContent = `Error: ${error.message}`;
                 console.error("Upload error:", error);
+                activeUploads -= 1;
+                pendingUploads -= 1;
+                updateUploadSummary();
+                processUploadQueue();
             },
             onProgress(bytesUploaded, bytesTotal) {
-                console.log("Running onPress: ", bytesUploaded, bytesTotal);
                 const pct = ((bytesUploaded / bytesTotal) * 100).toFixed(2);
-                progressBar.value = pct;
-                statusEl.textContent = `${pct}% - ${(bytesUploaded / 1024 / 1024).toFixed(2)} / ${(bytesTotal / 1024 / 1024).toFixed(2)} MB`;
+                item.progressBar.value = pct;
+                item.statusEl.textContent = `${pct}% • ${(bytesUploaded / 1024 / 1024).toFixed(2)} / ${(bytesTotal / 1024 / 1024).toFixed(2)} MB`;
             },
             onSuccess() {
-                progressBar.value = 100;
-                statusEl.textContent = `Upload completed. URL: ${upload.url}`;
-                // Reload after a short delay so the user sees the new file
-                setTimeout(() => window.location.reload(), 800);
+                item.progressBar.value = 100;
+                item.statusEl.textContent = "Completed";
+                activeUploads -= 1;
+                pendingUploads -= 1;
+                updateUploadSummary();
+                processUploadQueue();
+                if (activeUploads === 0 && uploadQueue.length === 0) {
+                    setTimeout(() => window.location.reload(), 800);
+                }
             },
         });
-
-        // debug
-        //
-        console.log("start uploading?");
 
         upload.findPreviousUploads().then((prev) => {
             if (prev.length > 0) {
                 upload.resumeFromPreviousUpload(prev[0]);
-                statusEl.textContent = `Resuming upload from ${((prev[0].uploadLengthDeferred || 0) / 1024 / 1024).toFixed(2)} MB ...`;
+                item.statusEl.textContent = "Resuming upload...";
             }
             upload.start();
         });
@@ -84,10 +144,12 @@
 
     dropZone.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", (e) => {
-        if (e.target.files[0]) {
-            for (let i = 0; i < e.target.files.length; i++) {
-                startUpload(e.target.files[i]);
-            }
+        const files = e.target.files;
+        if (!files) {
+            return;
+        }
+        for (let i = 0; i < files.length; i++) {
+            enqueueUpload(files[i]);
         }
     });
 
@@ -95,17 +157,16 @@
         e.preventDefault();
         dropZone.classList.add("hover");
     });
-    dropZone.addEventListener("dragleave", () =>
-        dropZone.classList.remove("hover"),
-    );
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("hover"));
     dropZone.addEventListener("drop", (e) => {
         e.preventDefault();
         dropZone.classList.remove("hover");
         const files = e.dataTransfer.files;
-        if (files[0]) {
-            for (let i = 0; i < files.length; i++) {
-                startUpload(files[i]);
-            }
+        if (!files) {
+            return;
+        }
+        for (let i = 0; i < files.length; i++) {
+            enqueueUpload(files[i]);
         }
     });
 </script>

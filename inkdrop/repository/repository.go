@@ -1,8 +1,11 @@
 package repository
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -14,11 +17,11 @@ import (
 )
 
 var (
-	// Linux paths
-	GlobalInkDropRepoDir = "/ftr/userRepositories"
+	// Linux paths (use /tmp for local development to avoid permission issues)
+	GlobalInkDropRepoDir = "/tmp/ftr/userRepositories"
 
-	// macOS paths
-	GlobalInkDropRepoDirMac = "/Users/vuongnguyen/Desktop/WORKSPACE/CODING/GOLANG/web-design-repo"
+	// macOS paths (local dev fallback)
+	GlobalInkDropRepoDirMac = "/tmp/ftr/userRepositories"
 
 	// Resolved at startup based on OS
 	RepoDir     string
@@ -31,6 +34,8 @@ func init() {
 	} else {
 		RepoDir = GlobalInkDropRepoDir
 	}
+	// RepoMetaDir stores per-repository metadata (meta.json files)
+	RepoMetaDir = filepath.Join(RepoDir, "_meta")
 }
 
 func DirExists(path string) (bool, error) {
@@ -104,6 +109,90 @@ func ListUserRepositories(userName string) ([]string, error) {
 	}
 
 	return clean, nil
+}
+
+func SearchRepositories(query string) ([]map[string]string, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, nil
+	}
+
+	query = strings.ToLower(query)
+	var results []map[string]string
+
+	users, err := os.ReadDir(RepoDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, userDir := range users {
+		if !userDir.IsDir() {
+			continue
+		}
+		userName := userDir.Name()
+		repoDir := filepath.Join(RepoDir, userName)
+		repos, err := os.ReadDir(repoDir)
+		if err != nil {
+			continue
+		}
+		for _, repoDirEntry := range repos {
+			if !repoDirEntry.IsDir() {
+				continue
+			}
+			repoName := repoDirEntry.Name()
+			if strings.Contains(strings.ToLower(userName), query) || strings.Contains(strings.ToLower(repoName), query) {
+				results = append(results, map[string]string{"user": userName, "repo": repoName, "description": ""})
+			}
+		}
+	}
+
+	return results, nil
+}
+
+func ListRepositoryFilesRecursive(userName, repoName string) ([]map[string]interface{}, error) {
+	root := repositoryRoot(userName, repoName)
+	if ok, err := DirExists(root); err != nil || !ok {
+		return nil, fmt.Errorf("repository %s/%s not found", userName, repoName)
+	}
+
+	var files []map[string]interface{}
+	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		files = append(files, map[string]interface{}{"path": filepath.ToSlash(rel), "size": info.Size(), "modified": info.ModTime().Unix()})
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+
+	return files, nil
+}
+
+func CalculateFileHash(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func GetDirectoryListing(userName string, repoName string, path string) ([]string, error) {
@@ -219,6 +308,14 @@ func resolvePathInRepo(root, workingDir, name string) (string, error) {
 	}
 
 	return target, nil
+}
+
+func GetItemPath(userName, repoName, workingDir, itemName string) (string, error) {
+	if itemName == "" || itemName == "." || itemName == ".." {
+		return "", errors.New("invalid file name")
+	}
+	root := repositoryRoot(userName, repoName)
+	return resolvePathInRepo(root, workingDir, itemName)
 }
 
 func isWithinRoot(root, target string) bool {
