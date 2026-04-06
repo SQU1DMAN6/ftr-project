@@ -112,11 +112,13 @@ func ListUserRepositories(userName string) ([]string, error) {
 }
 
 func SearchRepositories(query string) ([]map[string]string, error) {
-	if strings.TrimSpace(query) == "" {
+	q := strings.TrimSpace(query)
+	if q == "" {
 		return nil, nil
 	}
 
-	query = strings.ToLower(query)
+	all := q == "/" || q == "*"
+	q = strings.ToLower(q)
 	var results []map[string]string
 
 	users, err := os.ReadDir(RepoDir)
@@ -129,6 +131,10 @@ func SearchRepositories(query string) ([]map[string]string, error) {
 			continue
 		}
 		userName := userDir.Name()
+		if strings.HasPrefix(userName, "_") {
+			// skip internal/system dirs such as _meta
+			continue
+		}
 		repoDir := filepath.Join(RepoDir, userName)
 		repos, err := os.ReadDir(repoDir)
 		if err != nil {
@@ -138,9 +144,18 @@ func SearchRepositories(query string) ([]map[string]string, error) {
 			if !repoDirEntry.IsDir() {
 				continue
 			}
+			// skip internal dirs
+			if strings.HasPrefix(repoDirEntry.Name(), "_") {
+				continue
+			}
 			repoName := repoDirEntry.Name()
-			if strings.Contains(strings.ToLower(userName), query) || strings.Contains(strings.ToLower(repoName), query) {
-				results = append(results, map[string]string{"user": userName, "repo": repoName, "description": ""})
+			// Load meta description if available
+			desc := ""
+			if meta, err := LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+				desc = meta.Description
+			}
+			if all || strings.Contains(strings.ToLower(userName), q) || strings.Contains(strings.ToLower(repoName), q) || strings.Contains(strings.ToLower(desc), q) {
+				results = append(results, map[string]string{"user": userName, "repo": repoName, "description": desc})
 			}
 		}
 	}

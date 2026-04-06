@@ -134,6 +134,7 @@
                             required
                         />
                         <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="user" value="{{.Message2}}" />
                         <input type="hidden" name="working-directory" value="{{.Path}}" />
                         <div class="row">
                             <button type="submit" class="redirect">Create</button>
@@ -156,6 +157,7 @@
                         />
                         <input type="hidden" name="oldName" id="renameOldName" />
                         <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="user" value="{{.Message2}}" />
                         <input type="hidden" name="working-directory" value="{{.Path}}" />
                         <div class="row">
                             <button type="submit" class="redirect">Apply</button>
@@ -203,12 +205,14 @@
                 <form id="deleteForm" method="post" action="/delete/item" hidden>
                     <input type="hidden" name="repository" value="{{.Message3}}" />
                     <input type="hidden" name="working-directory" value="{{.Path}}" />
+                    <input type="hidden" name="user" value="{{.Message2}}" />
                     <input type="hidden" name="itemName" id="deleteItemName" />
                 </form>
 
                 <form id="downloadForm" method="post" action="/download" hidden>
                     <input type="hidden" name="repository" value="{{.Message3}}" />
                     <input type="hidden" name="working-directory" value="{{.Path}}" />
+                    <input type="hidden" name="user" value="{{.Message2}}" />
                     <input type="hidden" name="itemName" id="downloadItemName">
                 </form>
             </div>
@@ -455,6 +459,7 @@
                 setPreviewStatus("Loading file preview...");
                 var params = new URLSearchParams({
                     repository: currentRepo,
+                    user: currentUser,
                     "working-directory": currentPath,
                     itemName: file,
                 });

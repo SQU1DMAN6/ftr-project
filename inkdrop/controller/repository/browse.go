@@ -174,11 +174,6 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	name := SS.GetString(r.Context(), "name")
 
-	if isLoggedIn != true || name == "" {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-
 	repoName := chi.URLParam(r, "reponame")
 	userName := chi.URLParam(r, "user")
 	path := chi.URLParam(r, "*")
@@ -198,10 +193,26 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine if repository is publicly viewable via metadata; allow anonymous access if so.
+	isPublic := false
+	if meta, err := repository.LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+		if meta.Public {
+			isPublic = true
+		}
+	}
+
 	if !slices.Contains(repoListing, repoName) {
 		fmt.Printf("User %s tried to access repository %s/%s, but was inaccessible.\n", name, userName, repoName)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
+	}
+
+	// If repository is not public, require login
+	if !isPublic {
+		if isLoggedIn != true || name == "" {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
 	}
 
 	paramData := viewBackend.FrontEndParams{
@@ -212,6 +223,13 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 		Message3: repoName,
 		Path:     path,
 	}
+
+	// Friendly name for unauthenticated viewers
+	if paramData.Name == "" {
+		paramData.Name = "Guest"
+	}
+
+	paramData.IsViewingPublic = isPublic
 
 	if userOwnsRepo == true {
 		paramData.Message = fmt.Sprintf("Browsing your repository '%s'", repoName)
@@ -609,15 +627,9 @@ func RepositoryDownloadFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
 	SS := config.GetSessionManager()
 	userName := SS.GetString(r.Context(), "name")
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
-
-	if isLoggedIn != true || userName == "" {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
 
 	err := r.ParseForm()
 	if err != nil {
@@ -628,9 +640,47 @@ func RepositoryDownloadFile(w http.ResponseWriter, r *http.Request) {
 	repoName := r.FormValue("repository")
 	workingDir := r.FormValue("working-directory")
 	itemName := r.FormValue("itemName")
+	owner := r.FormValue("user")
+	if owner == "" {
+		owner = userName
+	}
+
+	// Check repo metadata for public access
+	isPublic := false
+	if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
+		if meta.Public {
+			isPublic = true
+		}
+	}
+
+	if !isPublic {
+		if isLoggedIn != true || userName == "" {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		// only owners (or listed owners) may download when not public
+		if userName != owner {
+			if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
+				allowed := false
+				for _, o := range meta.Owners {
+					if o == userName {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+			} else {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+	}
 
 	fmt.Printf("User %s tried to download %s at %s at %s\n", userName, itemName, workingDir, repoName)
-	fileToDownload, err := repository.GetItemPath(userName, repoName, workingDir, itemName)
+	fileToDownload, err := repository.GetItemPath(owner, repoName, workingDir, itemName)
 	if err != nil {
 		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
 		return
@@ -673,22 +723,57 @@ func RepositoryPreviewFile(w http.ResponseWriter, r *http.Request) {
 	userName := SS.GetString(r.Context(), "name")
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 
-	if isLoggedIn != true || userName == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	query := r.URL.Query()
 	repoName := query.Get("repository")
 	workingDir := query.Get("working-directory")
 	itemName := query.Get("itemName")
+	owner := query.Get("user")
+
+	if owner == "" {
+		// fall back to session user if owner not provided
+		owner = userName
+	}
+
+	// Check repo metadata for public access
+	isPublic := false
+	if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
+		if meta.Public {
+			isPublic = true
+		}
+	}
+
+	if !isPublic {
+		if isLoggedIn != true || userName == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// If logged in but not the repo owner, ensure the user is listed in owners
+		if userName != owner {
+			if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
+				allowed := false
+				for _, o := range meta.Owners {
+					if o == userName {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+			} else {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+	}
 
 	if itemName == "" {
 		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
 		return
 	}
 
-	fileToPreview, err := repository.GetItemPath(userName, repoName, workingDir, itemName)
+	fileToPreview, err := repository.GetItemPath(owner, repoName, workingDir, itemName)
 	if err != nil {
 		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
 		return
@@ -747,7 +832,17 @@ func RepositoryIndex(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "matches": matches})
+		// Filter out internal/system users (e.g. _meta) from search results
+		filtered := []map[string]string{}
+		for _, m := range matches {
+			if u, ok := m["user"]; ok {
+				if strings.HasPrefix(u, "_") {
+					continue
+				}
+			}
+			filtered = append(filtered, m)
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "matches": filtered})
 		return
 	}
 	IndexMain(w, r)
@@ -796,6 +891,13 @@ func RepositoryAPI(w http.ResponseWriter, r *http.Request) {
 		m, err := repository.LoadRepoMeta(userName, repoName)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		// Ensure repository directory exists; return not-found if missing so clients
+		// can decide to create the repository when authorized.
+		repoPath := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
+		if ok, _ := repository.DirExists(repoPath); !ok {
+			writeJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "repository is not found"})
 			return
 		}
 		if m == nil {
