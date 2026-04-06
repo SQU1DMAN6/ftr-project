@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"debug/elf"
 	"fmt"
 	"os"
 	"os/exec"
@@ -186,6 +187,19 @@ func (b *Builder) DetectAndBuild() (string, error) {
 
 		// Return the binary path if found
 		return foundBinary, nil
+	}
+
+	// Check for pre-built binary (ELF, follows repository name)
+	_, err := os.Stat(filepath.Join(b.WorkDir, b.RepoName))
+	if err == nil {
+		if f, err := elf.Open(filepath.Join(b.WorkDir, b.RepoName)); err == nil {
+			fmt.Println("Binary found. Checking binary...")
+			binaryPath := filepath.Join(b.WorkDir, b.RepoName)
+			if f.Type == elf.ET_EXEC || f.Type == elf.ET_DYN {
+				fmt.Println("Proceeding to install binary file...")
+				return binaryPath, nil
+			}
+		}
 	}
 
 	// Check for Makefile

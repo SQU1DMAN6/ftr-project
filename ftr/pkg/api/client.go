@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	BaseURL     = "https://quanthai.net"
+	BaseURL     = "https://inkdrop.quanthai.net"
 	InkDropPath = ""
 )
 
