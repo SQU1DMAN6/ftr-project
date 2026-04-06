@@ -101,6 +101,12 @@ func NewClient() (*Client, error) {
 		configDir: configDir,
 	}
 
+	// Wrap transport to collect simple stats (bytes and elapsed time) for requests.
+	if client.http.Transport == nil {
+		client.http.Transport = http.DefaultTransport
+	}
+	client.http.Transport = &StatsTransport{rt: client.http.Transport}
+
 	// Try to load existing session
 	if err := client.loadSession(); err == nil {
 		// Pre-populate cookie jar with saved session
@@ -131,6 +137,50 @@ func NewClient() (*Client, error) {
 	}
 
 	return client, nil
+}
+
+// StatsTransport wraps an underlying RoundTripper and attaches a counting
+// ReadCloser to responses so we can print simple transfer statistics when the
+// response body is closed.
+type StatsTransport struct {
+	rt http.RoundTripper
+}
+
+type countingReadCloser struct {
+	io.ReadCloser
+	start   time.Time
+	method  string
+	url     string
+	reqSize int64
+	read    int64
+}
+
+func (t *StatsTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	reqSize := req.ContentLength
+	if t.rt == nil {
+		t.rt = http.DefaultTransport
+	}
+	resp, err := t.rt.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+	if resp.Body != nil {
+		resp.Body = &countingReadCloser{ReadCloser: resp.Body, start: start, method: req.Method, url: req.URL.String(), reqSize: reqSize}
+	}
+	return resp, nil
+}
+
+func (c *countingReadCloser) Read(p []byte) (n int, err error) {
+	n, err = c.ReadCloser.Read(p)
+	c.read += int64(n)
+	return
+}
+
+func (c *countingReadCloser) Close() error {
+	elapsed := time.Since(c.start)
+	fmt.Printf("[ftr-stats] %s %s req=%dB resp=%dB elapsed=%s\n", c.method, c.url, c.reqSize, c.read, elapsed)
+	return c.ReadCloser.Close()
 }
 
 func (c *Client) loadSession() error {
@@ -487,24 +537,29 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 
 	// Repo check - consult server metadata for pre-checks
 	if meta, _ := c.GetRepoMeta(user, repoName); meta != nil {
-		// if repo metadata exists and marks repo non-public, verify ownership
-		if pub, ok := meta["public"].(bool); ok && !pub {
-			if loggedInUser != "" {
-				// check owners list
-				if owners, ok := meta["owners"].([]interface{}); ok {
-					allowed := false
-					for _, o := range owners {
-						if s, ok := o.(string); ok && s == loggedInUser {
-							allowed = true
-							break
-						}
-					}
-					if !allowed {
-						return fmt.Errorf("repository is not public and you are not an owner (logged in as '%s')", loggedInUser)
-					}
+		// If metadata contains an owners list, require the logged-in user to be an owner.
+		if owners, ok := meta["owners"].([]interface{}); ok && len(owners) > 0 {
+			if loggedInUser == "" {
+				return fmt.Errorf("repository upload requires authentication as an owner")
+			}
+			allowed := false
+			for _, o := range owners {
+				if s, ok := o.(string); ok && s == loggedInUser {
+					allowed = true
+					break
 				}
-			} else {
-				return fmt.Errorf("repository is not public and you are not authenticated")
+			}
+			if !allowed {
+				return fmt.Errorf("you are not listed as an owner for %s/%s", user, repoName)
+			}
+		} else {
+			// No explicit owners listed: fall back to path ownership (session or local user)
+			if loggedInUser != "" {
+				if loggedInUser != user {
+					return fmt.Errorf("you are not the owner of %s/%s (logged in as '%s')", user, repoName, loggedInUser)
+				}
+			} else if os.Getenv("USER") != user {
+				return fmt.Errorf("repository upload requires owner privileges")
 			}
 		}
 	} else {
