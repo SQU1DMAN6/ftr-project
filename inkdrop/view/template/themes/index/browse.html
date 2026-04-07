@@ -56,13 +56,13 @@
             </div>
 
             <div class="panel stack" id="filePanel" tabindex="0" aria-label="Repository browser">
-                <div class="row space">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
                     <h2 class="section">Repository Manager</h2>
                     <div class="row">
                         <button type="button" class="button-link small" id="newFolderBtnInline">New Folder</button>
                         <button type="button" class="button-link small" id="uploadFileBtnInline">Upload Files</button>
                         <a href="/downloadrepo/{{.Message3}}"><button type="button" class="button-link small" id="downloadRepoInline">Download Repository</button></a>
-                    <div class="row">
+                    </div>
                 </div>
                 <p class="subtle">Tips: Double-click folder to open. Select a folder then press <strong>F2</strong> or <strong>Enter</strong> to rename/move, <strong>Del</strong> or <strong>Backspace</strong> to delete.</p>
 
@@ -170,7 +170,7 @@
                     <form id="settingsForm" method="post" action="/repo/settings" class="stack">
                         <h3 class="section">Repository Settings</h3>
                         <label class="field-label">Description</label>
-                        <textarea name="description" rows="3" class="details">{{.RepoDescription}}</textarea>
+                        <textarea name="description" rows="3" class="details" style="resize: none; padding: 8px; border-radius: 7px;">{{.RepoDescription}}</textarea>
 
                         <label class="field-label">Owners (comma-separated usernames)</label>
                         <input type="text" name="owners" class="details" value="{{.RepoOwners}}" placeholder="e.g. alice,bob" />
@@ -189,13 +189,10 @@
                         <div class="danger-zone">
                             <h4>Danger Zone</h4>
                             <p>Deleting this repository will permanently remove all files and metadata. This action cannot be undone.</p>
-                            <form method="post" action="/deleterepo">
-                                <input type="hidden" name="reponame" value="{{.Message3}}" />
-                                <div class="row">
-                                    <button type="button" id="cancelDeleteSettings" class="button-link">Cancel</button>
-                                    <button type="submit" class="danger">Delete Repository</button>
-                                </div>
-                            </form>
+                            <div class="row">
+                                <button type="button" id="cancelDeleteSettings" class="button-link" style="width: 100%;">Cancel</button>
+                                <button type="button" id="confirmDeleteRepo" class="danger-item menu-item button-link" style="width: 100%;">Delete Repository</button>
+                            </div>
                         </div>
                     </form>
                 </dialog>
@@ -214,6 +211,12 @@
                     <input type="hidden" name="working-directory" value="{{.Path}}" />
                     <input type="hidden" name="user" value="{{.Message2}}" />
                     <input type="hidden" name="itemName" id="downloadItemName">
+                </form>
+
+                <!-- Hidden top-level form used to delete the entire repository. Kept outside the settings form to avoid nested-form issues. -->
+                <form id="deleteRepoForm" method="post" action="/deleterepo" hidden>
+                    <input type="hidden" name="reponame" value="{{.Message3}}" />
+                    <input type="hidden" name="user" value="{{.Message2}}" />
                 </form>
             </div>
         </section>
@@ -740,6 +743,15 @@
                 cancelDeleteSettings.addEventListener("click", function () {
                     if (settingsDialog) settingsDialog.close()
                 })
+            }
+            var confirmDeleteRepoBtn = document.getElementById("confirmDeleteRepo");
+            var deleteRepoFormElem = document.getElementById("deleteRepoForm");
+            if (confirmDeleteRepoBtn && deleteRepoFormElem) {
+                confirmDeleteRepoBtn.addEventListener("click", function () {
+                    if (window.confirm("Delete repository '{{.Message2}}/{{.Message3}}'? This cannot be undone.")) {
+                        deleteRepoFormElem.submit();
+                    }
+                });
             }
             downloadBtn.addEventListener("click", downloadSelectedFile);
 

@@ -130,7 +130,7 @@ func (b *Builder) DetectAndBuild() (string, error) {
 		buildCmd, hasBuildCmd := meta["BUILD_COMMAND"]
 		installCmd, hasInstallCmd := meta["INSTALL_COMMAND"]
 		if hasBuildCmd && strings.TrimSpace(buildCmd) != "" {
-			fmt.Println("Detected BUILD/Meta.config custom build command.")
+			fmt.Println("Detected custom build command.")
 			if err := b.run(buildCmd); err != nil {
 				return "", fmt.Errorf("custom build command failed: %w", err)
 			}
@@ -145,7 +145,7 @@ func (b *Builder) DetectAndBuild() (string, error) {
 		}
 
 		if hasInstallCmd && strings.TrimSpace(installCmd) != "" {
-			fmt.Println("Detected BUILD/Meta.config install command.")
+			fmt.Println("Detected install command.")
 			if err := b.run(installCmd); err != nil {
 				return "", fmt.Errorf("custom install command failed: %w", err)
 			}

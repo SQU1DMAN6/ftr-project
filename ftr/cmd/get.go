@@ -486,7 +486,7 @@ Example: ftr get user/myapp`,
 					return nil
 				}
 				base := filepath.Base(p)
-				if base == "install.sh" || base == "Makefile" || strings.HasPrefix(base, "main.") || base == "BUILD" || base == "Meta.config" {
+				if base == "install.sh" || base == "Makefile" || strings.HasPrefix(base, "main.") || base == "BUILD" || base == "fsdlbuild.ftr" || base == "Meta.config" {
 					workDir = filepath.Dir(p)
 					return filepath.SkipDir
 				}
@@ -529,7 +529,7 @@ Example: ftr get user/myapp`,
 				}
 			}
 
-			// Determine installed version: prefer BUILD/Meta.config VERSION, then requested version
+			// Determine installed version: prefer BUILD/fsdlbuild.ftr (or Meta.config) VERSION, then requested version
 			installedVersion := version
 			if meta != nil {
 				if v, ok := meta["VERSION"]; ok && strings.TrimSpace(v) != "" {
