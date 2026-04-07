@@ -528,7 +528,8 @@ small.helper {
 
 ul.clean-list {
     list-style: none;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 10px;
     margin: 0;
     padding: 0;
@@ -921,6 +922,41 @@ dialog.settings-modal.popup form div {
     color: #8a1c26;
     letter-spacing: 0.02em;
 }
+    .owners-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+    .owner-token {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #eff6ff;
+        border: 1px solid #c6daf0;
+        color: #114073;
+        font-weight: 700;
+    }
+    .owner-token .remove-owner {
+        border: none;
+        background: transparent;
+        color: #a31f2d;
+        font-weight: 700;
+        border-radius: 6px;
+        padding: 2px 6px;
+        cursor: pointer;
+    }
+    .owner-token .remove-owner:hover {
+        background: #ffecec;
+    }
+
+    html[data-theme="dark"] .owner-token {
+        background: linear-gradient(120deg, #163556, #1c4060);
+        border-color: #3f668f;
+        color: #e8f2ff;
+    }
 
 .danger-zone p {
     color: #5f2330;

@@ -172,8 +172,17 @@
                         <label class="field-label">Description</label>
                         <textarea name="description" rows="3" class="details" style="resize: none; padding: 8px; border-radius: 7px;">{{.RepoDescription}}</textarea>
 
-                        <label class="field-label">Owners (comma-separated usernames)</label>
-                        <input type="text" name="owners" class="details" value="{{.RepoOwners}}" placeholder="e.g. alice,bob" />
+                        <label class="field-label">Owners</label>
+                        <div id="ownersWidget" class="stack">
+                            <div id="ownersList" class="owners-list" aria-live="polite" aria-label="Repository owners list">
+                                <!-- owner tokens are rendered by JS -->
+                            </div>
+                            <div class="row" style="gap:8px; align-items:center;">
+                                <input type="text" id="newOwnerInput" class="details" placeholder="Type a username and press +" />
+                                <button type="button" id="addOwnerBtn" class="button-link small">+</button>
+                            </div>
+                            <input type="hidden" name="owners" id="ownersHidden" value="{{.RepoOwners}}" />
+                        </div>
 
                         <label class="field-label">Public</label>
                         <div>
@@ -778,6 +787,100 @@
                 if (!input) return;
                 input.value = input.value.trim().replace(/\s+/g, "_");
             });
+
+            // Owners widget: render tokens, allow add/remove, and populate hidden owners field on submit
+            (function () {
+                var ownersListElem = document.getElementById("ownersList");
+                var ownersHidden = document.getElementById("ownersHidden");
+                var newOwnerInput = document.getElementById("newOwnerInput");
+                var addOwnerBtn = document.getElementById("addOwnerBtn");
+
+                if (!ownersListElem || !ownersHidden) return;
+
+                function parseOwnersValue(val) {
+                    if (!val) return [];
+                    return val
+                        .split(",")
+                        .map(function (s) {
+                            return s.trim();
+                        })
+                        .filter(Boolean);
+                }
+
+                function renderOwners() {
+                    var owners = parseOwnersValue(ownersHidden.value);
+                    ownersListElem.innerHTML = "";
+                    if (owners.length === 0) {
+                        var p = document.createElement("p");
+                        p.className = "subtle";
+                        p.textContent = "No owners listed.";
+                        ownersListElem.appendChild(p);
+                        return;
+                    }
+                    owners.forEach(function (o) {
+                        var span = document.createElement("span");
+                        span.className = "owner-token";
+                        span.setAttribute("data-owner", o);
+                        var txt = document.createElement("span");
+                        txt.textContent = o;
+                        txt.style.marginRight = "8px";
+                        var btn = document.createElement("button");
+                        btn.type = "button";
+                        btn.className = "remove-owner";
+                        btn.setAttribute("aria-label", "Remove " + o);
+                        btn.textContent = "−";
+                        btn.addEventListener("click", function () {
+                            removeOwner(o);
+                        });
+                        span.appendChild(txt);
+                        span.appendChild(btn);
+                        ownersListElem.appendChild(span);
+                    });
+                }
+
+                function addOwner(o) {
+                    o = String(o || "").trim();
+                    if (!o) return;
+                    var owners = parseOwnersValue(ownersHidden.value);
+                    if (owners.indexOf(o) !== -1) return;
+                    owners.push(o);
+                    ownersHidden.value = owners.join(",");
+                    renderOwners();
+                }
+
+                function removeOwner(o) {
+                    var owners = parseOwnersValue(ownersHidden.value);
+                    owners = owners.filter(function (x) {
+                        return x !== o;
+                    });
+                    ownersHidden.value = owners.join(",");
+                    renderOwners();
+                }
+
+                addOwnerBtn.addEventListener("click", function () {
+                    addOwner(newOwnerInput.value);
+                    newOwnerInput.value = "";
+                    newOwnerInput.focus();
+                });
+
+                newOwnerInput.addEventListener("keydown", function (e) {
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        addOwner(newOwnerInput.value);
+                        newOwnerInput.value = "";
+                    }
+                });
+
+                if (settingsForm) {
+                    settingsForm.addEventListener("submit", function () {
+                        var owners = parseOwnersValue(ownersHidden.value);
+                        ownersHidden.value = owners.join(",");
+                    });
+                }
+
+                // initial render
+                renderOwners();
+            })();
         })();
     </script>
 </body>
