@@ -248,7 +248,22 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 
 	if !slices.Contains(repoListing, repoName) && !isPublic {
 		fmt.Printf("User %s tried to access repository %s/%s, but was inaccessible.\n", name, userName, repoName)
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		// Render a permission message instead of silently redirecting.
+		param := viewBackend.FrontEndParams{
+			Title:    fmt.Sprintf("%s/%s - InkDrop", userName, repoName),
+			Name:     name,
+			Error:    make(map[string]string),
+			Message:  "Repository Unavailable",
+			Message2: userName,
+			Message3: repoName,
+			Path:     path,
+		}
+		if param.Name == "" {
+			param.Name = "Guest"
+		}
+		param.Error["general"] = "You do not have permission to view this repository."
+		w.WriteHeader(http.StatusForbidden)
+		viewBackend.IndexMainBrowseRepository(w, param)
 		return
 	}
 

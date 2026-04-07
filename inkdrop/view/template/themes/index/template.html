@@ -39,6 +39,12 @@
     const uploadSummary = document.querySelector("#uploadSummary");
     const uploadCount = document.querySelector("#uploadCount");
 
+    // session and repository context provided by server
+    const sessionUser = "{{.Name}}";
+    const repoOwner = "{{.Message2}}";
+    const repoName = "{{.Message3}}";
+    const repoWorkingDir = "{{.Path}}";
+
     const maxConcurrentUploads = 3;
     const uploadQueue = [];
     let activeUploads = 0;
@@ -96,17 +102,29 @@
         progressList.appendChild(item.container);
         item.statusEl.textContent = "Preparing...";
 
-        const upload = new tus.Upload(file, {
-            endpoint: "/upload/",
-            retryDelays: [0, 1000, 2000, 3000, 4000, 5000],
-            chunkSize: 5 * 1024 * 1024,
-            metadata: {
-                filename: file.name,
-                filetype: file.type,
-                username: "{{.Name}}",
-                repository: "{{.Message3}}",
-                workingDirectory: "{{.Path}}",
-            },
+        // Before creating the upload, verify we have permission to upload to the target repo.
+        checkUploadAllowed(repoOwner, repoName).then(function (allowed) {
+            if (!allowed) {
+                item.statusEl.textContent = `Permission denied to upload to ${repoOwner}/${repoName}`;
+                activeUploads -= 1;
+                pendingUploads -= 1;
+                updateUploadSummary();
+                processUploadQueue();
+                return;
+            }
+
+            const upload = new tus.Upload(file, {
+                endpoint: "/upload/",
+                retryDelays: [0, 1000, 2000, 3000, 4000, 5000],
+                chunkSize: 5 * 1024 * 1024,
+                metadata: {
+                    filename: file.name,
+                    filetype: file.type,
+                    // TUS handler expects the repository owner in the username field
+                    username: repoOwner,
+                    repository: repoName,
+                    workingDirectory: repoWorkingDir,
+                },
             onError(error) {
                 item.statusEl.textContent = `Error: ${error.message}`;
                 console.error("Upload error:", error);
@@ -133,13 +151,42 @@
             },
         });
 
-        upload.findPreviousUploads().then((prev) => {
-            if (prev.length > 0) {
-                upload.resumeFromPreviousUpload(prev[0]);
-                item.statusEl.textContent = "Resuming upload...";
-            }
-            upload.start();
+            upload.findPreviousUploads().then((prev) => {
+                if (prev.length > 0) {
+                    upload.resumeFromPreviousUpload(prev[0]);
+                    item.statusEl.textContent = "Resuming upload...";
+                }
+                upload.start();
+            });
         });
+    }
+
+    // Check whether the current session user is allowed to upload to the named repo.
+    function checkUploadAllowed(owner, repo) {
+        // If not logged in, deny.
+        if (!sessionUser || sessionUser === "") return Promise.resolve(false);
+        const params = new URLSearchParams({ name: repo, user: owner, meta: "1", api: "1" });
+        return fetch(`/repo.php?${params.toString()}`, { credentials: "same-origin", headers: { Accept: "application/json" } })
+            .then((resp) => {
+                if (!resp.ok) {
+                    // If repository not found, only the path owner may create it.
+                    if (resp.status === 404) return sessionUser === owner;
+                    return false;
+                }
+                return resp.json().then((j) => {
+                    if (!j || !j.success) return false;
+                    const m = j.meta || {};
+                    const owners = m.owners || [];
+                    if (Array.isArray(owners) && owners.length > 0) {
+                        for (let i = 0; i < owners.length; i++) {
+                            if (owners[i] === sessionUser) return true;
+                        }
+                        return sessionUser === owner;
+                    }
+                    return sessionUser === owner;
+                }).catch(() => false);
+            })
+            .catch(() => false);
     }
 
     dropZone.addEventListener("click", () => fileInput.click());

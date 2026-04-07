@@ -478,7 +478,14 @@
                 fetch("/preview?" + params.toString(), { credentials: "same-origin" })
                     .then(function (response) {
                         if (!response.ok) {
-                            throw new Error(response.status + " " + response.statusText);
+                            // Try to display server-provided error details
+                            return response.text().then(function (bodyText) {
+                                var message = bodyText || (response.status + " " + response.statusText);
+                                setPreviewStatus(message);
+                                if (previewMeta) previewMeta.textContent = "";
+                                if (previewRefreshBtn) previewRefreshBtn.disabled = false;
+                                throw new Error(message);
+                            });
                         }
                         var contentType = response.headers.get("content-type") || "application/octet-stream";
                         var mime = contentType.split(";")[0].trim();
@@ -496,8 +503,10 @@
                         });
                     })
                     .catch(function (error) {
-                        setPreviewStatus("Preview unavailable.");
-                        if (previewMeta) previewMeta.textContent = "";
+                        if (!error || !error.message) {
+                            setPreviewStatus("Preview unavailable.");
+                        }
+                        if (previewMeta && !previewMeta.textContent) previewMeta.textContent = "";
                         if (previewRefreshBtn) previewRefreshBtn.disabled = false;
                         console.warn("Preview failed:", error);
                     });
