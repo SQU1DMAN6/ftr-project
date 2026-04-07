@@ -354,9 +354,15 @@ func RepositorySettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// load existing meta and enforce ownership
-	meta, _ := repository.LoadRepoMeta(userName, repoName)
-	// if meta not present, treat the user who owns the repo (path owner) as authorized
+	// Determine the repository owner from the form (may be different from
+	// the session user when editing a shared repository).
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
+	if repoOwner == "" {
+		repoOwner = userName
+	}
+
+	// load existing meta for the repo owner and enforce ownership
+	meta, _ := repository.LoadRepoMeta(repoOwner, repoName)
 	authorized := false
 	if meta != nil {
 		for _, o := range meta.Owners {
@@ -366,11 +372,7 @@ func RepositorySettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		// fallback: if current session user equals repo owner (path owner), allow
-		repoOwner := chi.URLParam(r, "user")
-		if repoOwner == "" {
-			repoOwner = userName
-		}
+		// If no meta exists, only the path owner may update settings
 		if repoOwner == userName {
 			authorized = true
 		}
@@ -385,14 +387,13 @@ func RepositorySettings(w http.ResponseWriter, r *http.Request) {
 	ownersRaw := strings.TrimSpace(r.FormValue("owners"))
 	publicFlag := r.FormValue("public") == "1" || r.FormValue("public") == "on"
 
-	// Validate owners; if none valid, keep existing owners
+	// Validate owners; if none valid, keep existing owners or fall back to repoOwner
 	owners, err := repository.ValidateOwners(ownersRaw)
 	if err != nil {
 		if meta != nil && len(meta.Owners) > 0 {
 			owners = meta.Owners
 		} else {
-			// as last resort, make current user the owner
-			owners = []string{userName}
+			owners = []string{repoOwner}
 		}
 	}
 
@@ -401,12 +402,12 @@ func RepositorySettings(w http.ResponseWriter, r *http.Request) {
 		Description: description,
 		Public:      publicFlag,
 	}
-	if err := repository.SaveRepoMeta(userName, repoName, newMeta); err != nil {
+	if err := repository.SaveRepoMeta(repoOwner, repoName, newMeta); err != nil {
 		http.Error(w, "Failed to save metadata", http.StatusInternalServerError)
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/%s/%s", userName, repoName), http.StatusSeeOther)
+	http.Redirect(w, r, fmt.Sprintf("/%s/%s", repoOwner, repoName), http.StatusSeeOther)
 }
 
 func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
@@ -428,6 +429,8 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 
 	folderName := r.FormValue("folderName")
 	repoName := r.FormValue("repository")
+	// 'user' form field is the repository owner (may differ from session user)
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
 	workingDir := r.FormValue("working-directory")
 	workingDir = normalizeBrowserPath(workingDir)
 	folderName = strings.TrimSpace(folderName)
@@ -438,21 +441,57 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = repository.CreateNewDirectory(userName, repoName, workingDir, folderName)
+	// Determine repo owner; fallback to session user
+	if repoOwner == "" {
+		repoOwner = userName
+	}
+
+	// Ensure repository exists
+	root := fmt.Sprintf("%s/%s/%s", repository.RepoDir, repoOwner, repoName)
+	ok, derr := repository.DirExists(root)
+	if derr != nil {
+		http.Error(w, "Failed to verify repository existence", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
+	// Permission check: allow if session user is the repo owner, or if listed in owners
+	allowed := false
+	if repoOwner == userName {
+		allowed = true
+	} else {
+		if meta, _ := repository.LoadRepoMeta(repoOwner, repoName); meta != nil {
+			for _, o := range meta.Owners {
+				if o == userName {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	if !allowed {
+		http.Error(w, "You do not have permission to modify this repository", http.StatusForbidden)
+		return
+	}
+
+	err = repository.CreateNewDirectory(repoOwner, repoName, workingDir, folderName)
 	if err != nil {
 		http.Error(w, "Failed to create new folder. Go back and try again later.", http.StatusServiceUnavailable)
 		return
 	}
 
-	fmt.Printf("User %s created a new folder: '%s' at '%s' at '%s'\n", userName, folderName, repoName, workingDir)
+	fmt.Printf("User %s created a new folder: '%s' at '%s' in %s/%s\n", userName, folderName, workingDir, repoOwner, repoName)
 
 	wd := strings.TrimPrefix(workingDir, "/")
 	wd = strings.TrimSuffix(wd, "/")
 	if wd == "" {
-		http.Redirect(w, r, fmt.Sprintf("/%s/%s", userName, repoName), http.StatusSeeOther)
+		http.Redirect(w, r, fmt.Sprintf("/%s/%s", repoOwner, repoName), http.StatusSeeOther)
 		return
 	} else {
-		http.Redirect(w, r, fmt.Sprintf("/%s/%s/%s", userName, repoName, wd), http.StatusSeeOther)
+		http.Redirect(w, r, fmt.Sprintf("/%s/%s/%s", repoOwner, repoName, wd), http.StatusSeeOther)
 		return
 	}
 }
@@ -480,6 +519,8 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	repoName := r.FormValue("repository")
+	// optional repo owner when acting on someone else's repository
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
 	workingDir := r.FormValue("working-directory")
 	oldName := r.FormValue("oldName")
 	newName := r.FormValue("newName")
@@ -494,7 +535,40 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = repository.RenameItem(userName, repoName, workingDir, oldName, newName)
+	if strings.TrimSpace(repoOwner) == "" {
+		repoOwner = userName
+	}
+
+	// Ensure repo exists
+	repoPath := fmt.Sprintf("%s/%s/%s", repository.RepoDir, repoOwner, repoName)
+	if ok, derr := repository.DirExists(repoPath); derr != nil {
+		http.Error(w, "Failed to verify repository existence", http.StatusInternalServerError)
+		return
+	} else if !ok {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
+	// Permission: allow if session user is owner or listed in repo metadata
+	allowed := false
+	if repoOwner == userName {
+		allowed = true
+	} else {
+		if meta, _ := repository.LoadRepoMeta(repoOwner, repoName); meta != nil {
+			for _, o := range meta.Owners {
+				if o == userName {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	if !allowed {
+		http.Error(w, "You do not have permission to modify this repository", http.StatusForbidden)
+		return
+	}
+
+	err = repository.RenameItem(repoOwner, repoName, workingDir, oldName, newName)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Rename failed: %s", err), http.StatusServiceUnavailable)
 		return
@@ -504,9 +578,9 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	wd = strings.TrimSuffix(wd, "/")
 	var redirectPath string
 	if wd == "" {
-		redirectPath = fmt.Sprintf("/%s/%s", userName, repoName)
+		redirectPath = fmt.Sprintf("/%s/%s", repoOwner, repoName)
 	} else {
-		redirectPath = fmt.Sprintf("/%s/%s/%s", userName, repoName, wd)
+		redirectPath = fmt.Sprintf("/%s/%s/%s", repoOwner, repoName, wd)
 	}
 	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 }
@@ -521,13 +595,13 @@ func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := r.ParseForm()
-	if err != nil {
+	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Failed to parse form data.", http.StatusBadRequest)
 		return
 	}
 
 	repoName := r.FormValue("repository")
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
 	workingDir := normalizeBrowserPath(r.FormValue("working-directory"))
 	itemNames := r.Form["itemName"]
 	if len(itemNames) == 0 {
@@ -541,14 +615,48 @@ func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine the repository owner (path owner or provided owner)
+	owner := userName
+	if repoOwner != "" {
+		owner = repoOwner
+	}
+
+	// Ensure repository exists
+	repoPath := fmt.Sprintf("%s/%s/%s", repository.RepoDir, owner, repoName)
+	if ok, derr := repository.DirExists(repoPath); derr != nil {
+		http.Error(w, "Failed to verify repository existence", http.StatusInternalServerError)
+		return
+	} else if !ok {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
+	// Permission check: owners or listed owners can delete items
+	allowed := false
+	if owner == userName {
+		allowed = true
+	} else {
+		if meta, _ := repository.LoadRepoMeta(owner, repoName); meta != nil {
+			for _, o := range meta.Owners {
+				if o == userName {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	if !allowed {
+		http.Error(w, "You do not have permission to modify this repository", http.StatusForbidden)
+		return
+	}
+
 	for _, itemName := range itemNames {
 		itemName = strings.TrimSpace(itemName)
 		if itemName == "" || itemName == ".." {
 			http.Error(w, "Invalid item for deletion.", http.StatusBadRequest)
 			return
 		}
-		err = repository.DeleteItem(userName, repoName, workingDir, itemName)
-		if err != nil {
+		if err := repository.DeleteItem(owner, repoName, workingDir, itemName); err != nil {
 			http.Error(w, "Delete failed. Try again later.", http.StatusServiceUnavailable)
 			return
 		}
@@ -558,9 +666,9 @@ func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
 	wd = strings.TrimSuffix(wd, "/")
 	var redirectPath string
 	if wd == "" {
-		redirectPath = fmt.Sprintf("/%s/%s", userName, repoName)
+		redirectPath = fmt.Sprintf("/%s/%s", owner, repoName)
 	} else {
-		redirectPath = fmt.Sprintf("/%s/%s/%s", userName, repoName, wd)
+		redirectPath = fmt.Sprintf("/%s/%s/%s", owner, repoName, wd)
 	}
 	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 }
