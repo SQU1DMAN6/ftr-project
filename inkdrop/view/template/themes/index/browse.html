@@ -61,7 +61,7 @@
                     <div class="row">
                         <button type="button" class="button-link small" id="newFolderBtnInline">New Folder</button>
                         <button type="button" class="button-link small" id="uploadFileBtnInline">Upload Files</button>
-                        <a href="/downloadrepo/{{.Message3}}"><button type="button" class="button-link small" id="downloadRepoInline">Download Repository</button></a>
+                        <a href="/downloadrepo/{{.Message2}}/{{.Message3}}"><button type="button" class="button-link small" id="downloadRepoInline">Download Repository</button></a>
                     </div>
                 </div>
                 <p class="subtle">Tips: Double-click folder to open. Select a folder then press <strong>F2</strong> or <strong>Enter</strong> to rename/move, <strong>Del</strong> or <strong>Backspace</strong> to delete.</p>
@@ -190,6 +190,7 @@
                         </div>
 
                         <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="user" value="{{.Message2}}" />
                         <div class="row">
                             <button type="submit" class="redirect">Save</button>
                             <button type="button" class="button-link" id="cancelSettings">Cancel</button>

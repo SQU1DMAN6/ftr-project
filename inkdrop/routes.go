@@ -43,7 +43,7 @@ func RegisterRoutes(r chi.Router) {
 	r.Post("/repo/settings", repository.RepositorySettings)
 	r.Post("/download", repository.RepositoryDownloadFile)
 	r.Get("/preview", repository.RepositoryPreviewFile)
-	r.Get("/downloadrepo/{reponame}", repository.RepositoryDownloadRepositoryAsSQAR)
+	r.Get("/downloadrepo/{user}/{reponame}", repository.RepositoryDownloadRepositoryAsSQAR)
 }
 
 func NewTUSHandler() http.Handler {

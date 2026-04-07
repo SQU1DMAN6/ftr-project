@@ -1008,16 +1008,67 @@ func RepositoryAPI(w http.ResponseWriter, r *http.Request) {
 			file, header, err := r.FormFile("upload")
 			if err == nil {
 				defer file.Close()
-				destDir := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
-				if ok, _ := repository.DirExists(destDir); !ok {
-					writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "repository does not exist"})
+
+				// Require authentication for uploads
+				SS := config.GetSessionManager()
+				sessionUser := SS.GetString(r.Context(), "name")
+				isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+				if !isLoggedIn || sessionUser == "" {
+					writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "authentication required"})
 					return
 				}
+
+				destDir := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
+
+				ok, derr := repository.DirExists(destDir)
+				if derr != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to verify repository"})
+					return
+				}
+
+				if !ok {
+					// repository missing: only path owner may create it via upload
+					if sessionUser != userName {
+						writeJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "repository does not exist"})
+						return
+					}
+					if err := os.MkdirAll(destDir, 0755); err != nil {
+						writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to create repository"})
+						return
+					}
+				} else {
+					// repository exists: enforce owner or listed-owner write permission
+					if meta, err := repository.LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+						if !meta.Public {
+							if sessionUser != userName {
+								allowed := false
+								for _, o := range meta.Owners {
+									if o == sessionUser {
+										allowed = true
+										break
+									}
+								}
+								if !allowed {
+									writeJSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "permission denied"})
+									return
+								}
+							}
+						}
+					} else {
+						// no metadata: default to path owner only
+						if sessionUser != userName {
+							writeJSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "permission denied"})
+							return
+						}
+					}
+				}
+
 				destPath := fmt.Sprintf("%s/%s", destDir, path.Base(header.Filename))
 				if !strings.HasPrefix(path.Clean(destPath), path.Clean(destDir)) {
 					writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid file name"})
 					return
 				}
+
 				out, err := os.Create(destPath)
 				if err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to save file"})
