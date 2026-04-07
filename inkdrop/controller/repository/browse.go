@@ -24,6 +24,51 @@ func IndexMain(w http.ResponseWriter, r *http.Request) {
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	userName := SS.GetString(r.Context(), "name")
 
+	// Support alternate views via ?view=public and ?view=shared
+	viewParam := r.URL.Query().Get("view")
+	if viewParam == "public" {
+		// Public browsing: allow anonymous access
+		matches, err := repository.ListPublicRepositories()
+		p := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Browse public repositories",
+			Name:            userName,
+			IsViewingPublic: true,
+			RepoMatches:     matches,
+			Error:           make(map[string]string),
+		}
+		if err != nil {
+			p.Error["general"] = fmt.Sprintf("Failed to get public repositories: %s", err)
+		}
+		// Friendly name for unauthenticated viewers
+		if p.Name == "" {
+			p.Name = "Guest"
+		}
+		viewBackend.IndexMain(w, p)
+		return
+	}
+	if viewParam == "shared" {
+		// Shared with me: require login
+		if isLoggedIn != true || userName == "" {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		matches, err := repository.ListSharedRepositories(userName)
+		p := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Repositories shared with you",
+			Name:            userName,
+			IsViewingPublic: true,
+			RepoMatches:     matches,
+			Error:           make(map[string]string),
+		}
+		if err != nil {
+			p.Error["general"] = fmt.Sprintf("Failed to get shared repositories: %s", err)
+		}
+		viewBackend.IndexMain(w, p)
+		return
+	}
+
 	if isLoggedIn != true || userName == "" {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
@@ -201,7 +246,7 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if !slices.Contains(repoListing, repoName) {
+	if !slices.Contains(repoListing, repoName) && !isPublic {
 		fmt.Printf("User %s tried to access repository %s/%s, but was inaccessible.\n", name, userName, repoName)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return

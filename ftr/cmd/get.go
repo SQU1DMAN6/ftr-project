@@ -415,7 +415,7 @@ Example: ftr get user/myapp`,
 				}
 			}
 
-			// After extraction: determine target arch/os from filename and BUILD/Meta.config
+			// After extraction: determine target arch/os from filename and BUILD/fsdlbuild.ftr (or Meta.config)
 			filename := filepath.Base(downloadedPath)
 			ext := filepath.Ext(filename)
 			base := strings.TrimSuffix(filename, ext)
@@ -430,7 +430,7 @@ Example: ftr get user/myapp`,
 				}
 			}
 
-			// Read BUILD/Meta.config if present
+			// Read BUILD/fsdlbuild.ftr (or Meta.config) if present
 			meta, merr := boxlet.ReadMeta(tmpDir)
 			metaArch := ""
 			metaOS := ""
@@ -537,10 +537,22 @@ Example: ftr get user/myapp`,
 				}
 			}
 			// Register package in registry (without install paths - remove will use remove.sh or defaults)
+			desc := ""
+			if meta != nil {
+				if d, ok := meta["DESCRIPTION"]; ok && strings.TrimSpace(d) != "" {
+					desc = strings.TrimSpace(d)
+				} else if d, ok := meta["description"]; ok && strings.TrimSpace(d) != "" {
+					desc = strings.TrimSpace(d)
+				} else if d, ok := meta["Description"]; ok && strings.TrimSpace(d) != "" {
+					desc = strings.TrimSpace(d)
+				}
+			}
+
 			regInfo := registry.PackageInfo{
-				Name:    repoName,
-				Version: installedVersion,
-				Source:  repoPath,
+				Name:        repoName,
+				Version:     installedVersion,
+				Source:      repoPath,
+				Description: desc,
 				// Note: InstallPath is NOT recorded - removal uses remove.sh or standard paths
 				BinaryPath: installedBinaryPath,
 			}

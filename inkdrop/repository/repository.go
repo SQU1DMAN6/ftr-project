@@ -163,6 +163,90 @@ func SearchRepositories(query string) ([]map[string]string, error) {
 	return results, nil
 }
 
+// ListPublicRepositories returns a list of repositories that have their
+// metadata Public flag set. Each item contains 'user', 'repo' and 'description'.
+func ListPublicRepositories() ([]map[string]string, error) {
+	var results []map[string]string
+
+	users, err := os.ReadDir(RepoDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, u := range users {
+		if !u.IsDir() {
+			continue
+		}
+		userName := u.Name()
+		if strings.HasPrefix(userName, "_") {
+			continue
+		}
+		repos, err := os.ReadDir(filepath.Join(RepoDir, userName))
+		if err != nil {
+			continue
+		}
+		for _, re := range repos {
+			if !re.IsDir() {
+				continue
+			}
+			repoName := re.Name()
+			if strings.HasPrefix(repoName, "_") {
+				continue
+			}
+			if meta, err := LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+				if meta.Public {
+					results = append(results, map[string]string{"user": userName, "repo": repoName, "description": meta.Description})
+				}
+			}
+		}
+	}
+
+	return results, nil
+}
+
+// ListSharedRepositories returns repositories where the given username is
+// listed as an owner in the repo metadata. Returns items with 'user', 'repo', 'description'.
+func ListSharedRepositories(username string) ([]map[string]string, error) {
+	var results []map[string]string
+	users, err := os.ReadDir(RepoDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, u := range users {
+		if !u.IsDir() {
+			continue
+		}
+		userName := u.Name()
+		if strings.HasPrefix(userName, "_") {
+			continue
+		}
+		repos, err := os.ReadDir(filepath.Join(RepoDir, userName))
+		if err != nil {
+			continue
+		}
+		for _, re := range repos {
+			if !re.IsDir() {
+				continue
+			}
+			repoName := re.Name()
+			if strings.HasPrefix(repoName, "_") {
+				continue
+			}
+			if meta, err := LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+				for _, o := range meta.Owners {
+					if o == username {
+						results = append(results, map[string]string{"user": userName, "repo": repoName, "description": meta.Description})
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return results, nil
+}
+
 func ListRepositoryFilesRecursive(userName, repoName string) ([]map[string]interface{}, error) {
 	root := repositoryRoot(userName, repoName)
 	if ok, err := DirExists(root); err != nil || !ok {

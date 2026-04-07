@@ -41,6 +41,7 @@
                 <p class="subtle light">Fast path: create repository, open it, upload files from Inker/FtR.</p>
                 <div class="row">
                     <a href="?view=public" class="button-link">Browse Public Repositories</a>
+                    <a href="?view=shared" class="button-link">Repositories Shared With Me</a>
                 </div>
             </div>
 
@@ -91,11 +92,32 @@
         <section class="shell">
             <div class="panel dark stack">
                 <h1 class="intro">Public Browser</h1>
-                <p class="subtle light">Public browsing is not fully wired yet. Return to your workspace to continue.
-                </p>
+                <p class="subtle light">Browse repositories that have been marked public by their owners.</p>
                 <div class="row">
                     <a href="/" class="button-link">Back to Workspace</a>
                 </div>
+            </div>
+
+            <div class="panel stack">
+                <h2 class="section">Repositories</h2>
+                {{if .RepoMatches}}
+                {{$parent := .}}
+                <ul class="clean-list">
+                    {{range $i, $m := .RepoMatches}}
+                    <a href="/{{$m.user}}/{{$m.repo}}" class="repo-link">
+                        <li class="repo-card">
+                            <p class="repo-name">{{$m.repo}}</p>
+                            <p class="subtle">{{$m.user}} — {{$m.description}}</p>
+                        </li>
+                    </a>
+                    {{end}}
+                </ul>
+                {{else}}
+                <div class="empty-state">
+                    <p>No public repositories found.</p>
+                    <small class="helper">Try again later or return to your workspace.</small>
+                </div>
+                {{end}}
             </div>
         </section>
         {{end}}

@@ -1,9 +1,0 @@
-Steps to implement in FtR 3.0:
-- TUS + Chunking Uploads in InkDrop uploads
-- Dedicated upload and download routes
-- Upload progress bars
-- File downloads
-- Updated FtR file management
-- Updated FtR build system
-- Updated Inker file management
-- Updated Inker build system (MSI-based for Windows)

@@ -81,7 +81,7 @@ var buildCmd = &cobra.Command{
 			}
 		}
 
-		// After extraction or directory selection: determine target arch/os from filename and BUILD/Meta.config
+		// After extraction or directory selection: determine target arch/os from filename and BUILD/fsdlbuild.ftr (or Meta.config)
 		filename := filepath.Base(sourcePath)
 		ext := filepath.Ext(filename)
 		base := strings.TrimSuffix(filename, ext)
@@ -96,7 +96,7 @@ var buildCmd = &cobra.Command{
 			}
 		}
 
-		// Read BUILD/Meta.config if present
+		// Read BUILD/fsdlbuild.ftr (or Meta.config) if present
 		meta, merr := boxlet.ReadMeta(workDir)
 		metaArch := ""
 		metaOS := ""
@@ -188,10 +188,22 @@ var buildCmd = &cobra.Command{
 		}
 
 		// Register package in the local registry
+		desc := ""
+		if meta != nil {
+			if d, ok := meta["DESCRIPTION"]; ok && strings.TrimSpace(d) != "" {
+				desc = strings.TrimSpace(d)
+			} else if d, ok := meta["description"]; ok && strings.TrimSpace(d) != "" {
+				desc = strings.TrimSpace(d)
+			} else if d, ok := meta["Description"]; ok && strings.TrimSpace(d) != "" {
+				desc = strings.TrimSpace(d)
+			}
+		}
+
 		regInfo := registry.PackageInfo{
 			Name:        repoName,
 			Version:     "",
 			Source:      "",
+			Description: desc,
 			InstallPath: installedSharePath,
 			BinaryPath:  installedBinaryPath,
 		}

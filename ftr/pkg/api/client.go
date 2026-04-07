@@ -539,6 +539,16 @@ func (c *Client) UploadFile(repoPath string, fileName string, reader io.Reader, 
 	if meta, _ := c.GetRepoMeta(user, repoName); meta != nil {
 		// If metadata contains an owners list, require the logged-in user to be an owner.
 		if owners, ok := meta["owners"].([]interface{}); ok && len(owners) > 0 {
+			// If the server's index page doesn't include a username, fall back to
+			// the saved username from the client or the local USER env var so
+			// CLI-only sessions can still be recognized as the owner.
+			if loggedInUser == "" {
+				if c.username != "" {
+					loggedInUser = c.username
+				} else if envUser := os.Getenv("USER"); envUser != "" {
+					loggedInUser = envUser
+				}
+			}
 			if loggedInUser == "" {
 				return fmt.Errorf("repository upload requires authentication as an owner")
 			}

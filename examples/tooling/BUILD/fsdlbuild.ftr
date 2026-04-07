@@ -1,5 +1,0 @@
-PACKAGE_NAME=tooling
-VERSION=0.0.1
-TARGET_ARCHITECTURE=all
-TARGET_OS=linux
-DESCRIPTION=Example tooling repo for Fsdl build testing
