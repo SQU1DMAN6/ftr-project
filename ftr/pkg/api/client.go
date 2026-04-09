@@ -115,8 +115,6 @@ func NewClient() (*Client, error) {
 			return nil, fmt.Errorf("failed to parse base URL: %w", err)
 		}
 
-		// Session loaded
-
 		expiration := time.Now().Add(90 * 24 * time.Hour)
 		jar.SetCookies(baseURLParsed, []*http.Cookie{{
 			Name:     "PHPSESSID",
@@ -128,10 +126,7 @@ func NewClient() (*Client, error) {
 			Expires:  expiration,
 		}})
 
-		// Also load user info if available
 		_ = client.loadUserInfo()
-
-		// Cookies and user info restored into jar
 
 		return client, nil
 	}
@@ -1385,7 +1380,23 @@ func (c *Client) SessionConfirmed() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to read sessionconfirm response: %w", err)
 	}
-	s := strings.TrimSpace(string(body))
+	trimmed := bytes.TrimSpace(body)
+
+	// Try to parse JSON response first (server returns JSON for API clients)
+	var js map[string]interface{}
+	if err := json.Unmarshal(body, &js); err == nil {
+		if ok, _ := js["success"].(bool); ok {
+			if uname, _ := js["username"].(string); uname != "" {
+				// Persist discovered username for future commands
+				_ = c.saveUserInfo(c.email, uname)
+			}
+			return true, nil
+		}
+		return false, nil
+	}
+
+	// Fallback to legacy plain-text responses
+	s := strings.TrimSpace(string(trimmed))
 	if s == "true" {
 		return true, nil
 	}

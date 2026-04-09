@@ -983,7 +983,22 @@ func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 
 func SessionConfirm(w http.ResponseWriter, r *http.Request) {
 	SS := config.GetSessionManager()
-	if SS.GetBool(r.Context(), "isLoggedIn") {
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	name := SS.GetString(r.Context(), "name")
+
+	// If called by an API client (FtR sets X-FTR-CLIENT) or requests JSON,
+	// return structured JSON including the username so CLI clients can
+	// reliably discover who the session belongs to.
+	if r.Header.Get("X-FTR-CLIENT") != "" || strings.Contains(r.Header.Get("Accept"), "application/json") || r.URL.Query().Get("api") == "1" {
+		if isLoggedIn {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "username": name})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": false})
+		return
+	}
+
+	if isLoggedIn {
 		w.Write([]byte("true"))
 		return
 	}

@@ -229,11 +229,14 @@ Example: ftr get user/myapp`,
 						candidates = append(candidates, fmt.Sprintf("%s-%s-%s-all.sqar", repoName, version, localArch))
 						candidates = append(candidates, fmt.Sprintf("%s-%s-all-all.sqar", repoName, version))
 						// fallback (SQAR)
-						candidates = append(candidates, fmt.Sprintf("%s-%s.sqar", repoName, version))
+						candidates = append(candidates, fmt.Sprintf("%s.sqar", repoName))
 					}
 					// FSDL fallback
 					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-%s.fsdl", repoName, version, localArch, localOS))
-					candidates = append(candidates, fmt.Sprintf("%s-%s.fsdl", repoName, version))
+					candidates = append(candidates, fmt.Sprintf("%s-%s-all-%s.fsdl", repoName, version, localOS))
+					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-all.fsdl", repoName, version, localArch))
+					candidates = append(candidates, fmt.Sprintf("%s-%s-all-all.fsdl", repoName, version))
+					candidates = append(candidates, fmt.Sprintf("%s.fsdl", repoName))
 				} else {
 					files, err := client.ListRepoFiles(user, repoName)
 					if err == nil {
