@@ -8,6 +8,7 @@ import (
 	viewBackend "inkdrop/view/connector"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -284,7 +285,6 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 		Path:     path,
 	}
 
-	// Friendly name for unauthenticated viewers
 	if paramData.Name == "" {
 		paramData.Name = "Guest"
 	}
@@ -407,7 +407,7 @@ func RepositorySettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/%s/%s", repoOwner, repoName), http.StatusSeeOther)
+	http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, "/"), http.StatusSeeOther)
 }
 
 func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
@@ -488,10 +488,10 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 	wd := strings.TrimPrefix(workingDir, "/")
 	wd = strings.TrimSuffix(wd, "/")
 	if wd == "" {
-		http.Redirect(w, r, fmt.Sprintf("/%s/%s", repoOwner, repoName), http.StatusSeeOther)
+		http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, "/"), http.StatusSeeOther)
 		return
 	} else {
-		http.Redirect(w, r, fmt.Sprintf("/%s/%s/%s", repoOwner, repoName, wd), http.StatusSeeOther)
+		http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, wd), http.StatusSeeOther)
 		return
 	}
 }
@@ -578,9 +578,9 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	wd = strings.TrimSuffix(wd, "/")
 	var redirectPath string
 	if wd == "" {
-		redirectPath = fmt.Sprintf("/%s/%s", repoOwner, repoName)
+		redirectPath = buildBrowseRoutePath(repoOwner, repoName, "/")
 	} else {
-		redirectPath = fmt.Sprintf("/%s/%s/%s", repoOwner, repoName, wd)
+		redirectPath = buildBrowseRoutePath(repoOwner, repoName, wd)
 	}
 	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 }
@@ -666,9 +666,9 @@ func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
 	wd = strings.TrimSuffix(wd, "/")
 	var redirectPath string
 	if wd == "" {
-		redirectPath = fmt.Sprintf("/%s/%s", owner, repoName)
+		redirectPath = buildBrowseRoutePath(owner, repoName, "/")
 	} else {
-		redirectPath = fmt.Sprintf("/%s/%s/%s", owner, repoName, wd)
+		redirectPath = buildBrowseRoutePath(owner, repoName, wd)
 	}
 	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 }
@@ -752,7 +752,7 @@ func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
 // 	fmt.Printf("User '%s' upload to [ %s/%s%s ]\n", userName, userName, repoName, workingDir)
 // 	fmt.Printf("files=[%v]\n", files)
 
-// 	http.Redirect(w, r, fmt.Sprintf("/%s/%s%s", userName, repoName, workingDir), http.StatusSeeOther)
+// 	http.Redirect(w, r, buildBrowseRoutePath(userName, repoName, workingDir), http.StatusSeeOther)
 // }
 
 func normalizeBrowserPath(raw string) string {
@@ -764,6 +764,21 @@ func normalizeBrowserPath(raw string) string {
 		return "/"
 	}
 	return clean
+}
+
+func buildBrowseRoutePath(userName string, repoName string, rawPath string) string {
+	base := fmt.Sprintf("/browse/%s/%s", url.PathEscape(userName), url.PathEscape(repoName))
+	safePath := normalizeBrowserPath(rawPath)
+	if safePath == "/" {
+		return base
+	}
+
+	segments := strings.Split(strings.Trim(safePath, "/"), "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+
+	return base + "/" + strings.Join(segments, "/")
 }
 
 func isValidMovePath(raw string) bool {

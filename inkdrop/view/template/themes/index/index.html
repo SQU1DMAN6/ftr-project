@@ -73,7 +73,7 @@
                 <ul class="clean-list">
                     {{range $i, $reponame := .RepoList}}
 
-                    <a href="/{{$parent.Name}}/{{$reponame}}" class="repo-link">
+                    <a href="/browse/{{$parent.Name}}/{{$reponame}}" class="repo-link">
                         <li class="repo-card">
                             <p class="repo-name">{{$reponame}}</p>
                         </li>
@@ -104,7 +104,7 @@
                 {{$parent := .}}
                 <ul class="clean-list">
                     {{range $i, $m := .RepoMatches}}
-                    <a href="/{{$m.user}}/{{$m.repo}}" class="repo-link">
+                    <a href="/browse/{{$m.user}}/{{$m.repo}}" class="repo-link">
                         <li class="repo-card">
                             <p class="repo-name">{{$m.repo}}</p>
                             <p class="subtle">{{$m.user}} — {{$m.description}}</p>

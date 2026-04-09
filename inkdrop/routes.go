@@ -35,8 +35,8 @@ func RegisterRoutes(r chi.Router) {
 	r.Get("/inkdrop/repo.php", repository.RepositoryAPI)
 	r.Post("/inkdrop/repo.php", repository.RepositoryAPI)
 	r.Post("/deleterepo", repository.DeleteRepository)
-	r.Get("/{user}/{reponame}/*", repository.IndexMainBrowseRepository)
-	r.Get("/{user}/{reponame}", repository.IndexMainBrowseRepository)
+	r.Get("/browse/{user}/{reponame}/*", repository.IndexMainBrowseRepository)
+	r.Get("/browse/{user}/{reponame}", repository.IndexMainBrowseRepository)
 	r.Post("/new/dir", repository.RepositoryCreateNewDirectory)
 	r.Post("/rename", repository.RepositoryRenameItem)
 	r.Post("/delete/item", repository.RepositoryDeleteItem)
@@ -44,6 +44,8 @@ func RegisterRoutes(r chi.Router) {
 	r.Post("/download", repository.RepositoryDownloadFile)
 	r.Get("/preview", repository.RepositoryPreviewFile)
 	r.Get("/downloadrepo/{user}/{reponame}", repository.RepositoryDownloadRepositoryAsSQAR)
+	r.Get("/edit/{filename}/{user}/{reponame}", repository.RepositoryLiveEditTextFile)
+	r.Get("/edit/{filename}/{user}/{reponame}/*", repository.RepositoryLiveEditTextFile)
 }
 
 func NewTUSHandler() http.Handler {

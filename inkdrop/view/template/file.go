@@ -7,4 +7,5 @@ var (
 	RenderSuccessfulRegister  = ParseBackEndMessage("themes/register/successregister.html")
 	IndexMain                 = Parse("themes/index/index.html")
 	IndexMainBrowseRepository = Parse("themes/index/browse.html", "themes/index/template.html")
+	LiveEditTextFile          = Parse("themes/live-edit/livetext.html")
 )

@@ -118,6 +118,7 @@
                     <button type="button" class="menu-item" id="newFolderBtn">New Folder</button>
                     <button type="button" class="menu-item" id="renameBtn">Rename / Move</button>
                     <button type="button" class="menu-item" id="downloadBtn">Download File</button>
+                    <button type="button" class="menu-item" id="liveEditBtn">Edit File</button>
                     <button type="button" class="menu-item danger-item" id="deleteBtn">Delete Folder</button>
                     <button type="button" class="menu-item danger-item" id="deleteFileBtn">Delete File</button>
                 </div>
@@ -335,6 +336,8 @@
             var settingsForm = document.getElementById("settingsForm")
             var cancelSettings = document.getElementById("cancelSettings")
             var cancelDeleteSettings = document.getElementById("cancelDeleteSettings")
+            var liveEditBtn = document.getElementById("liveEditBtn")
+
             var previewPanel = document.getElementById("filePreviewPanel")
             var previewContent = document.getElementById("previewContent")
             var previewMeta = document.getElementById("previewMeta")
@@ -364,7 +367,25 @@
 
             function buildBrowseURL(pathValue) {
                 var safePath = normalizePath(pathValue);
-                var base = "/" + encodeURIComponent(currentUser) + "/" + encodeURIComponent(currentRepo);
+                var base = "/browse/" + encodeURIComponent(currentUser) + "/" + encodeURIComponent(currentRepo);
+                if (safePath === "/") return base;
+                var encodedPath = safePath
+                    .split("/")
+                    .filter(Boolean)
+                    .map(encodeURIComponent)
+                    .join("/");
+                return base + "/" + encodedPath;
+            }
+
+            function buildEditURL(fileName, pathValue) {
+                var safePath = normalizePath(pathValue);
+                var base =
+                    "/edit/" +
+                    encodeURIComponent(fileName) +
+                    "/" +
+                    encodeURIComponent(currentUser) +
+                    "/" +
+                    encodeURIComponent(currentRepo);
                 if (safePath === "/") return base;
                 var encodedPath = safePath
                     .split("/")
@@ -533,6 +554,10 @@
                 return entry && entryKind(entry) === "file";
             }
 
+            function canEditFile(entry) {
+                return entry && entryKind(entry) === "file";
+            }
+
             function openEntry(entry) {
                 if (!entry) return;
                 var kind = entryKind(entry);
@@ -554,6 +579,7 @@
                 deleteBtn.disabled = !canDelete(selectedEntry);
                 deleteFileBtn.disabled = !canDeleteFile(selectedEntry);
                 downloadBtn.disabled = !canDownload(selectedEntry)
+                liveEditBtn.disabled = !canEditFile(selectedEntry)
 
                 if (canDelete(selectedEntry) === true) {
                     deleteBtn.style.display = "block"
@@ -574,6 +600,11 @@
                     downloadBtn.style.display = "block"
                 } else {
                     downloadBtn.style.display = "none"
+                }
+                if (canEditFile(selectedEntry) === true) {
+                    liveEditBtn.style.display = "block"
+                } else {
+                    liveEditBtn.style.display = "none"
                 }
 
                 contextMenu.hidden = false;
@@ -653,6 +684,12 @@
                 var file = selectedEntry.getAttribute("data-name");
                 downloadItemName.value = file;
                 downloadForm.submit();
+            }
+
+            function liveEditSelectedFile() {
+                if (!canEditFile(selectedEntry)) return;
+                var fileName = selectedEntry.getAttribute("data-name");
+                window.location.href = buildEditURL(fileName, currentPath);
             }
 
             function isTypingContext(target) {
@@ -773,6 +810,7 @@
                 });
             }
             downloadBtn.addEventListener("click", downloadSelectedFile);
+            liveEditBtn.addEventListener("click", liveEditSelectedFile);
 
             // deletion is handled via the settings dialog's Danger Zone form
 
