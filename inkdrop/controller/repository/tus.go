@@ -25,7 +25,7 @@ var (
 
 func TUSHandler() http.Handler {
 	tusOnce.Do(func() {
-		uploadDir := fmt.Sprintf("%s/tus_temp", repository.RepoDir)
+		uploadDir := filepath.Join(repository.TempDir, "tus")
 		if err := os.MkdirAll(uploadDir, 0755); err != nil {
 			tusErr = err
 			return

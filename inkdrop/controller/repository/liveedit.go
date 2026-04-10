@@ -72,21 +72,36 @@ func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Optionally preload the file content into the page so the editor
+	// doesn't need to perform a separate fetch for the initial render.
+	var initialContent string
+	var hasInitialContent bool
+	if err == nil && target.FileSize <= liveEditMaxFileSize {
+		if data, rerr := os.ReadFile(target.FilePath); rerr == nil {
+			if bytes.IndexByte(data, 0) < 0 && utf8.Valid(data) {
+				initialContent = string(data)
+				hasInitialContent = true
+			}
+		}
+	}
+
 	params := viewBackend.FrontEndParams{
-		Title:               fmt.Sprintf("Live Edit - %s", target.FileName),
-		Name:                sessionUser,
-		Error:               make(map[string]string),
-		Path:                target.WorkingDir,
-		EditorFileName:      target.FileName,
-		EditorFilePath:      target.DisplayPath,
-		EditorRepoOwner:     target.RepoOwner,
-		EditorRepoName:      target.RepoName,
-		EditorBackURL:       target.BackURL,
-		EditorLoadURL:       target.LoadURL,
-		EditorMode:          target.AceMode,
-		EditorFileSize:      target.FileSize,
-		EditorFileSizeLimit: liveEditMaxFileSize,
-		EditorEditable:      err == nil && target.FileSize <= liveEditMaxFileSize,
+		Title:                   fmt.Sprintf("Live Edit - %s", target.FileName),
+		Name:                    sessionUser,
+		Error:                   make(map[string]string),
+		Path:                    target.WorkingDir,
+		EditorFileName:          target.FileName,
+		EditorFilePath:          target.DisplayPath,
+		EditorRepoOwner:         target.RepoOwner,
+		EditorRepoName:          target.RepoName,
+		EditorBackURL:           target.BackURL,
+		EditorLoadURL:           target.LoadURL,
+		EditorMode:              target.AceMode,
+		EditorFileSize:          target.FileSize,
+		EditorFileSizeLimit:     liveEditMaxFileSize,
+		EditorEditable:          err == nil && target.FileSize <= liveEditMaxFileSize,
+		EditorHasInitialContent: hasInitialContent,
+		EditorInitialContent:    initialContent,
 	}
 
 	if err != nil {

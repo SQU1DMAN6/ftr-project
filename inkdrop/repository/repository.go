@@ -17,25 +17,43 @@ import (
 )
 
 var (
-	// Linux paths (use /tmp for local development to avoid permission issues)
-	GlobalInkDropRepoDir = "/tmp/ftr/userRepositories"
+	// Shared FtR storage root. Override with FTR_ROOT_DIR when needed.
+	GlobalInkDropRootDir = "/srv/ftr"
 
-	// macOS paths (local dev fallback)
-	GlobalInkDropRepoDirMac = "/tmp/ftr/userRepositories"
+	// macOS fallback uses the same shared layout by default.
+	GlobalInkDropRootDirMac = "/srv/ftr"
 
-	// Resolved at startup based on OS
+	// Resolved at startup based on OS.
+	RootDir     string
 	RepoDir     string
 	RepoMetaDir string
+	TempDir     string
 )
 
 func init() {
+	rootDir := strings.TrimSpace(os.Getenv("FTR_ROOT_DIR"))
+	defaultRootDir := GlobalInkDropRootDir
 	if runtime.GOOS == "darwin" {
-		RepoDir = GlobalInkDropRepoDirMac
-	} else {
-		RepoDir = GlobalInkDropRepoDir
+		defaultRootDir = GlobalInkDropRootDirMac
 	}
+	if rootDir == "" {
+		rootDir = defaultRootDir
+	}
+
+	RootDir = filepath.Clean(rootDir)
+	RepoDir = filepath.Join(RootDir, "userRepositories")
 	// RepoMetaDir stores per-repository metadata (meta.json files)
 	RepoMetaDir = filepath.Join(RepoDir, "_meta")
+	TempDir = filepath.Join(RootDir, "tmp")
+}
+
+func EnsureStorageLayout() error {
+	for _, dir := range []string{RepoDir, RepoMetaDir, TempDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func DirExists(path string) (bool, error) {
@@ -477,8 +495,11 @@ func DeleteUserRepository(userName string, repoName string) error {
 }
 
 func PackSQAR(in, user, out string) (string, error) {
-	os.MkdirAll(fmt.Sprintf("/ftr/tmp/%s", user), 0755)
-	fullArchivePath := fmt.Sprintf("/ftr/tmp/%s/%s.sqar", user, out)
+	archiveDir := filepath.Join(TempDir, user)
+	if err := os.MkdirAll(archiveDir, 0755); err != nil {
+		return "", err
+	}
+	fullArchivePath := filepath.Join(archiveDir, out+".sqar")
 	err := filepath.WalkDir(in, func(path string, d fs.DirEntry, err2 error) error {
 		if err2 != nil {
 			return nil

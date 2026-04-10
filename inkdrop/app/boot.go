@@ -3,6 +3,8 @@ package app
 import (
 	routes "inkdrop"
 	"inkdrop/config"
+	"inkdrop/repository"
+	"log"
 	"net/http"
 	"strings"
 
@@ -13,6 +15,9 @@ func BootApp() {
 	r := chi.NewRouter()
 	config.ConnectDatabase()
 	config.InitSession()
+	if err := repository.EnsureStorageLayout(); err != nil {
+		log.Fatalf("failed to initialize InkDrop storage under %s: %v", repository.RootDir, err)
+	}
 
 	ss := config.GetSessionManager()
 	r.Use(ss.LoadAndSave)
@@ -37,5 +42,7 @@ func BootApp() {
 		r.ServeHTTP(w, req)
 	})
 
-	http.ListenAndServe(":6767", top)
+	if err := http.ListenAndServe(":6767", top); err != nil {
+		log.Fatal(err)
+	}
 }

@@ -96,6 +96,7 @@
             inset: 0;
             width: 100%;
             height: 100%;
+            z-index: 4;
         }
 
         #editorFallback {
@@ -119,7 +120,7 @@
             padding: 24px;
             text-align: center;
             background: var(--editor-overlay);
-            z-index: 3;
+            z-index: 2;
         }
 
         .editor-empty {
@@ -237,6 +238,10 @@
         </div>
     </header>
 
+    <noscript>
+        <div style="margin:12px; padding:12px; border-radius:6px; background:#fff3f3; color:#b91c1c; text-align:center;">JavaScript is disabled — the live editor requires JavaScript. Please enable JavaScript in your browser.</div>
+    </noscript>
+
     <main class="page">
         <section class="shell live-shell">
             <div class="panel dark live-hero stack">
@@ -247,7 +252,7 @@
                     </div>
                     <a href="{{.EditorBackURL}}" class="button-link">Back to Repository</a>
                 </div>
-                <p class="subtle light">Live edit loads UTF-8 text files up to 5 MB into a shared editor surface. This page is the first slice: the editing window, file loading, and repository-aware navigation are ready.</p>
+                <p class="subtle light">Open UTF-8 text files up to 5 MB directly in the browser and jump back to the same repository folder when you are done.</p>
             </div>
 
             <div class="live-subgrid">
@@ -255,7 +260,7 @@
                     <div class="live-toolbar">
                         <div class="stack">
                             <h2 class="section">Editing Surface</h2>
-                            <p class="subtle">Ace auto-detects the file language and prepares this document for collaborative editing.</p>
+                            <p class="subtle">Ace auto-detects the file language and loads this document inline.</p>
                         </div>
                         <div class="live-badges">
                             <span class="live-badge" id="editorModeBadge">Mode: {{.EditorMode}}</span>
@@ -295,7 +300,6 @@
                     <div class="live-side-section">
                         <h3>Session</h3>
                         <span class="presence-chip">{{.Name}}</span>
-                        <p class="subtle">Your own insertion point contrasts with the active theme. Multiplayer cursors will layer onto this same editor surface next.</p>
                     </div>
 
                     <div class="live-side-section">
@@ -313,16 +317,13 @@
                                 <strong>Size</strong>
                                 <p id="editorFileSize" data-size="{{.EditorFileSize}}">{{.EditorFileSize}} bytes</p>
                             </div>
-                            <div>
-                                <strong>Limit</strong>
-                                <p id="editorSizeLimit" data-size="{{.EditorFileSizeLimit}}">{{.EditorFileSizeLimit}} bytes</p>
-                            </div>
                         </div>
+                        <p class="subtle">Live edit currently supports UTF-8 text files up to <span id="editorSizeLimit" data-size="{{.EditorFileSizeLimit}}">{{.EditorFileSizeLimit}} bytes</span>.</p>
                     </div>
 
                     <div class="live-side-section">
                         <h3>Flow</h3>
-                        <p class="subtle">Use <strong>Reload File</strong> to pull the latest contents again, or <strong>Back to Repository</strong> to return to the exact working directory you came from.</p>
+                        <p class="subtle">Use <strong>Reload File</strong> to fetch the latest contents again, or <strong>Back to Repository</strong> to return to the same working directory.</p>
                     </div>
                 </aside>
             </div>
@@ -331,20 +332,46 @@
 
     <script src="https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict/ace.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict/ext-language_tools.js"></script>
+    <script id="editorConfigJson" type="application/json">
+{
+  "editable": {{if .EditorEditable}}true{{else}}false{{end}},
+  "fileName": {{toJSON .EditorFileName}},
+  "filePath": {{toJSON .EditorFilePath}},
+  "loadURL": {{toJSON .EditorLoadURL}},
+  "modeHint": {{toJSON .EditorMode}},
+  "fileSize": {{.EditorFileSize}},
+  "fileSizeLimit": {{.EditorFileSizeLimit}},
+  "hasInitialContent": {{if .EditorHasInitialContent}}true{{else}}false{{end}},
+  "initialContent": {{toJSON .EditorInitialContent}}
+}
+</script>
     <script>
         (function () {
-            var editorConfig = {
-                editable: {{if .EditorEditable}}true{{else}}false{{end}},
-                fileName: {{toJSON .EditorFileName}},
-                filePath: {{toJSON .EditorFilePath}},
-                loadURL: {{toJSON .EditorLoadURL}},
-                modeHint: {{toJSON .EditorMode}},
-                fileSize: {{.EditorFileSize}},
-                fileSizeLimit: {{.EditorFileSizeLimit}}
-            };
+            var editorConfig = (function () {
+                var cfg = document.getElementById("editorConfigJson");
+                if (cfg) {
+                    try {
+                        return JSON.parse(cfg.textContent);
+                    } catch (e) {
+                        try { console.warn("LiveEdit: failed to parse editorConfigJson", e); } catch (e2) {}
+                    }
+                }
+                return { editable: false, fileName: "", filePath: "", loadURL: "", modeHint: "", fileSize: 0, fileSizeLimit: 0, hasInitialContent: false, initialContent: "" };
+            })();
 
             var themeKey = "inkdrop-theme";
             var editorSurface = document.getElementById("editorSurface");
+            function writeDebug(msg) {
+                try { console.debug(msg); } catch (e) {}
+            }
+            writeDebug("LiveEdit: script start");
+            var hydrationWatchdog = null;
+            function clearHydrationWatchdog() {
+                if (hydrationWatchdog) {
+                    clearTimeout(hydrationWatchdog);
+                    hydrationWatchdog = null;
+                }
+            }
             var editorFallback = document.getElementById("editorFallback");
             var editorEmptyState = document.getElementById("editorEmptyState");
             var editorLoadingOverlay = document.getElementById("editorLoadingOverlay");
@@ -354,6 +381,12 @@
             var profileButton = document.getElementById("profileMenuButton");
             var profileMenu = document.getElementById("profileMenu");
             var editor = null;
+
+            function setNodeVisibility(node, visible, displayValue) {
+                if (!node) return;
+                node.hidden = !visible;
+                node.style.display = visible ? (displayValue || "") : "none";
+            }
 
             function setTheme(theme) {
                 var value = theme === "dark" ? "dark" : "light";
@@ -388,11 +421,13 @@
             }
 
             function closeMenu() {
+                if (!profileMenu || !profileButton) return;
                 profileMenu.hidden = true;
                 profileButton.setAttribute("aria-expanded", "false");
             }
 
             function initProfileMenu() {
+                if (!profileButton || !profileMenu) return;
                 profileButton.addEventListener("click", function () {
                     var isHidden = profileMenu.hidden;
                     profileMenu.hidden = !isHidden;
@@ -480,35 +515,49 @@
             }
 
             function showLoading(show) {
-                if (!editorLoadingOverlay) return;
-                editorLoadingOverlay.hidden = !show;
+                setNodeVisibility(editorLoadingOverlay, show, "flex");
             }
 
             function showEmptyState(message) {
                 if (editorEmptyState) {
-                    editorEmptyState.hidden = false;
+                    setNodeVisibility(editorEmptyState, true, "flex");
                     var paragraph = editorEmptyState.querySelector("p");
                     if (paragraph && message) {
                         paragraph.textContent = message;
                     }
                 }
-                if (editorSurface) editorSurface.hidden = true;
-                if (editorFallback) editorFallback.hidden = true;
+                setNodeVisibility(editorSurface, false, "block");
+                setNodeVisibility(editorFallback, false, "block");
                 showLoading(false);
+                try {
+                    if (editorLoadingOverlay && editorLoadingOverlay.parentNode) {
+                        editorLoadingOverlay.parentNode.removeChild(editorLoadingOverlay);
+                    }
+                    editorLoadingOverlay = null;
+                } catch (e) {}
             }
 
             function showFallbackEditor(content) {
-                if (editorSurface) editorSurface.hidden = true;
-                editorFallback.hidden = false;
+                setNodeVisibility(editorSurface, false, "block");
+                setNodeVisibility(editorFallback, true, "block");
                 editorFallback.value = content;
-                if (editorEmptyState) editorEmptyState.hidden = true;
+                setNodeVisibility(editorEmptyState, false, "flex");
+                clearHydrationWatchdog();
                 showLoading(false);
+                try {
+                    if (editorLoadingOverlay && editorLoadingOverlay.parentNode) {
+                        editorLoadingOverlay.parentNode.removeChild(editorLoadingOverlay);
+                    }
+                    editorLoadingOverlay = null;
+                } catch (e) {}
+                writeDebug("LiveEdit: fallback hydrated");
             }
 
             function showAceEditor(content) {
+                setNodeVisibility(editorSurface, true, "block");
                 if (!editor && window.ace) {
                     ace.config.set("basePath", "https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict");
-                    editor = ace.edit("editorSurface");
+                    editor = ace.edit(editorSurface);
                     editor.setOptions({
                         enableBasicAutocompletion: true,
                         enableLiveAutocompletion: true,
@@ -529,14 +578,25 @@
                     return;
                 }
 
-                if (editorSurface) editorSurface.hidden = false;
-                if (editorFallback) editorFallback.hidden = true;
-                if (editorEmptyState) editorEmptyState.hidden = true;
+                setNodeVisibility(editorFallback, false, "block");
+                setNodeVisibility(editorEmptyState, false, "flex");
                 editor.setValue(content, -1);
                 editor.clearSelection();
-                editor.focus();
                 applyEditorTheme(document.documentElement.getAttribute("data-theme") || "light");
+                editor.resize(true);
+                if (editor.renderer && editor.renderer.updateFull) {
+                    editor.renderer.updateFull();
+                }
+                editor.focus();
+                clearHydrationWatchdog();
                 showLoading(false);
+                try {
+                    if (editorLoadingOverlay && editorLoadingOverlay.parentNode) {
+                        editorLoadingOverlay.parentNode.removeChild(editorLoadingOverlay);
+                    }
+                    editorLoadingOverlay = null;
+                } catch (e) {}
+                writeDebug("LiveEdit: ace hydrated (overlay removed)");
             }
 
             function applyEditorTheme(theme) {
@@ -584,13 +644,15 @@
                     })
                     .catch(function (error) {
                         console.warn("Live edit load failed:", error);
+                        clearHydrationWatchdog();
                         showEmptyState(error && error.message ? error.message : "Failed to load file.");
                         setStatus("Load failed");
                     });
             }
 
-            if (document.readyState === "loading") {
-                document.addEventListener("DOMContentLoaded", function () {
+            function initLiveEdit() {
+                try {
+                    writeDebug("LiveEdit: init editable=" + Boolean(editorConfig.editable) + " hasInitialContent=" + Boolean(editorConfig.hasInitialContent));
                     initTheme();
                     initProfileMenu();
                     hydrateSizeLabels();
@@ -598,21 +660,49 @@
                     if (reloadFileBtn) {
                         reloadFileBtn.addEventListener("click", loadFile);
                     }
-                    if (editorConfig.editable) {
+
+                    if (!editorConfig.editable) {
+                        return;
+                    }
+
+                    hydrationWatchdog = setTimeout(function () {
+                        if (editorLoadingOverlay && !editorLoadingOverlay.hidden) {
+                            writeDebug("LiveEdit: hydration timeout - revealing fallback");
+                            if (editorConfig.hasInitialContent) {
+                                showFallbackEditor(editorConfig.initialContent || "");
+                                setStatus("Load timeout, using fallback");
+                            } else {
+                                showEmptyState("Editor initialization timed out.");
+                                setStatus("Load timeout");
+                            }
+                        }
+                    }, 8000);
+
+                    if (editorConfig.hasInitialContent) {
+                        setEditorMode(editorConfig.modeHint);
+                        writeDebug("LiveEdit: hydrating initial content, acePresent=" + Boolean(window.ace));
+                        if (window.ace) {
+                            showAceEditor(editorConfig.initialContent || "");
+                            setStatus("Editor ready");
+                        } else {
+                            showFallbackEditor(editorConfig.initialContent || "");
+                            setStatus("Ace unavailable, using text fallback");
+                        }
+                    } else {
                         loadFile();
                     }
-                });
+                } catch (err) {
+                    console.error("LiveEdit: initialization error", err);
+                    clearHydrationWatchdog();
+                    showEmptyState("Initialization error. Check console for details.");
+                    setStatus("Init failed");
+                }
+            }
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", initLiveEdit, { once: true });
             } else {
-                initTheme();
-                initProfileMenu();
-                hydrateSizeLabels();
-                setEditorMode(editorConfig.modeHint);
-                if (reloadFileBtn) {
-                    reloadFileBtn.addEventListener("click", loadFile);
-                }
-                if (editorConfig.editable) {
-                    loadFile();
-                }
+                initLiveEdit();
             }
         })();
     </script>
