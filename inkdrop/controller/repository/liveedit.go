@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"inkdrop/config"
@@ -12,7 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
-	"unicode/utf8"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -28,26 +28,63 @@ type liveEditTarget struct {
 	BackURL     string
 	EditURL     string
 	LoadURL     string
+	StreamURL   string
 	AceMode     string
 	FilePath    string
 	FileSize    int64
 }
 
-func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
+type liveEditMutationRequest struct {
+	Op        string             `json:"op"`
+	ClientID  string             `json:"clientId"`
+	Content   string             `json:"content"`
+	Version   int64              `json:"version"`
+	Selection *liveEditSelection `json:"selection,omitempty"`
+	SavePath  string             `json:"savePath,omitempty"`
+	Overwrite bool               `json:"overwrite,omitempty"`
+}
 
+type liveEditMutationResponse struct {
+	Success   bool               `json:"success"`
+	Version   int64              `json:"version,omitempty"`
+	Path      string             `json:"path,omitempty"`
+	Mode      string             `json:"mode,omitempty"`
+	SavedAt   int64              `json:"savedAt,omitempty"`
+	Presence  []liveEditPresence `json:"presence,omitempty"`
+	EditURL   string             `json:"editURL,omitempty"`
+	Message   string             `json:"message,omitempty"`
+	Error     string             `json:"error,omitempty"`
+	Timestamp int64              `json:"timestamp,omitempty"`
+}
+
+func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 	SS := config.GetSessionManager()
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	sessionUser := SS.GetString(r.Context(), "name")
 
 	if !isLoggedIn || sessionUser == "" {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		if r.Method == http.MethodGet && !isLiveEditAPIRequest(r) {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+			"success": false,
+			"error":   "authentication required",
+		})
 		return
 	}
 
+	switch r.Method {
+	case http.MethodGet:
+		handleLiveEditGet(w, r, sessionUser)
+	case http.MethodPost:
+		handleLiveEditMutation(w, r, sessionUser)
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleLiveEditGet(w http.ResponseWriter, r *http.Request, sessionUser string) {
 	target := newLiveEditTarget(r)
 	statusCode := http.StatusOK
 	err := hydrateLiveEditTarget(target, sessionUser)
@@ -58,6 +95,15 @@ func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 		} else {
 			statusCode = http.StatusInternalServerError
 		}
+	}
+
+	if r.URL.Query().Get("events") == "1" {
+		if err != nil {
+			http.Error(w, err.Error(), statusCode)
+			return
+		}
+		streamLiveEditEvents(w, r, target, sessionUser)
+		return
 	}
 
 	if r.URL.Query().Get("content") == "1" {
@@ -72,16 +118,17 @@ func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally preload the file content into the page so the editor
-	// doesn't need to perform a separate fetch for the initial render.
 	var initialContent string
+	var initialVersion int64
 	var hasInitialContent bool
+	var snapshotErr error
 	if err == nil && target.FileSize <= liveEditMaxFileSize {
-		if data, rerr := os.ReadFile(target.FilePath); rerr == nil {
-			if bytes.IndexByte(data, 0) < 0 && utf8.Valid(data) {
-				initialContent = string(data)
-				hasInitialContent = true
-			}
+		var snapshot liveEditEvent
+		snapshot, snapshotErr = liveEditSessions.Snapshot(target)
+		if snapshotErr == nil {
+			initialContent = snapshot.Content
+			initialVersion = snapshot.Version
+			hasInitialContent = true
 		}
 	}
 
@@ -96,16 +143,23 @@ func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 		EditorRepoName:          target.RepoName,
 		EditorBackURL:           target.BackURL,
 		EditorLoadURL:           target.LoadURL,
+		EditorSyncURL:           target.EditURL,
+		EditorStreamURL:         target.StreamURL,
 		EditorMode:              target.AceMode,
 		EditorFileSize:          target.FileSize,
 		EditorFileSizeLimit:     liveEditMaxFileSize,
-		EditorEditable:          err == nil && target.FileSize <= liveEditMaxFileSize,
+		EditorEditable:          err == nil && snapshotErr == nil && target.FileSize <= liveEditMaxFileSize,
 		EditorHasInitialContent: hasInitialContent,
 		EditorInitialContent:    initialContent,
+		EditorInitialVersion:    initialVersion,
 	}
 
 	if err != nil {
 		params.Error["general"] = err.Error()
+	} else if errors.Is(snapshotErr, errLiveEditNonText) {
+		params.Error["general"] = "This file is not UTF-8 text, so it cannot be opened in the live editor yet."
+	} else if snapshotErr != nil {
+		params.Error["general"] = fmt.Sprintf("Failed to open the editor document: %s", snapshotErr)
 	} else if target.FileSize > liveEditMaxFileSize {
 		params.Error["general"] = fmt.Sprintf(
 			"This file is %d bytes. Live editing currently supports files up to %d bytes (5 MB).",
@@ -120,6 +174,185 @@ func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 
 	if renderErr := viewBackend.LiveEditTextFile(w, params); renderErr != nil {
 		http.Error(w, fmt.Sprintf("Failed to render live editor: %s", renderErr), http.StatusInternalServerError)
+	}
+}
+
+func handleLiveEditMutation(w http.ResponseWriter, r *http.Request, sessionUser string) {
+	target := newLiveEditTarget(r)
+	statusCode := http.StatusOK
+	err := hydrateLiveEditTarget(target, sessionUser)
+	if err != nil {
+		if status, ok := err.(liveEditHTTPError); ok {
+			statusCode = status.StatusCode
+			err = status.Err
+		} else {
+			statusCode = http.StatusInternalServerError
+		}
+		writeJSON(w, statusCode, liveEditMutationResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, liveEditMaxFileSize+(1<<20))
+	var req liveEditMutationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, liveEditMutationResponse{
+			Success: false,
+			Error:   "invalid live-edit request payload",
+		})
+		return
+	}
+
+	req.Op = strings.ToLower(strings.TrimSpace(req.Op))
+	req.ClientID = strings.TrimSpace(req.ClientID)
+	if req.ClientID == "" {
+		writeJSON(w, http.StatusBadRequest, liveEditMutationResponse{
+			Success: false,
+			Error:   "clientId is required",
+		})
+		return
+	}
+
+	if req.Op == "" {
+		req.Op = "sync"
+	}
+
+	switch req.Op {
+	case "presence":
+		event, err := liveEditSessions.UpdatePresence(target, req.ClientID, sessionUser, req.Selection)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, liveEditMutationResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, liveEditMutationResponse{
+			Success:   true,
+			Version:   event.Version,
+			Presence:  event.Presence,
+			Timestamp: event.Timestamp,
+		})
+	case "leave":
+		event := liveEditSessions.Leave(target, req.ClientID)
+		writeJSON(w, http.StatusOK, liveEditMutationResponse{
+			Success:   true,
+			Version:   event.Version,
+			Presence:  event.Presence,
+			Timestamp: event.Timestamp,
+		})
+	case "sync", "save":
+		if int64(len([]byte(req.Content))) > liveEditMaxFileSize {
+			writeJSON(w, http.StatusRequestEntityTooLarge, liveEditMutationResponse{
+				Success: false,
+				Error:   fmt.Sprintf("file exceeds the %d byte live-edit limit", liveEditMaxFileSize),
+			})
+			return
+		}
+
+		event, err := liveEditSessions.UpdateContent(target, req.ClientID, sessionUser, req.Content, req.Selection)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, liveEditMutationResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, liveEditMutationResponse{
+			Success:   true,
+			Version:   event.Version,
+			Path:      event.Path,
+			Mode:      event.Mode,
+			SavedAt:   event.SavedAt,
+			Presence:  event.Presence,
+			Message:   "saved",
+			Timestamp: event.Timestamp,
+		})
+	case "save_as":
+		if int64(len([]byte(req.Content))) > liveEditMaxFileSize {
+			writeJSON(w, http.StatusRequestEntityTooLarge, liveEditMutationResponse{
+				Success: false,
+				Error:   fmt.Sprintf("file exceeds the %d byte live-edit limit", liveEditMaxFileSize),
+			})
+			return
+		}
+
+		savePath := normalizeBrowserPath(req.SavePath)
+		if savePath == "/" {
+			writeJSON(w, http.StatusBadRequest, liveEditMutationResponse{
+				Success: false,
+				Error:   "save path is required",
+			})
+			return
+		}
+
+		if savePath == target.DisplayPath {
+			event, err := liveEditSessions.UpdateContent(target, req.ClientID, sessionUser, req.Content, req.Selection)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, liveEditMutationResponse{
+					Success: false,
+					Error:   err.Error(),
+				})
+				return
+			}
+			writeJSON(w, http.StatusOK, liveEditMutationResponse{
+				Success:   true,
+				Version:   event.Version,
+				Path:      event.Path,
+				Mode:      event.Mode,
+				SavedAt:   event.SavedAt,
+				Presence:  event.Presence,
+				EditURL:   target.EditURL,
+				Message:   "saved",
+				Timestamp: event.Timestamp,
+			})
+			return
+		}
+
+		filePath, err := repoStore.WriteTextFileAtRepoPath(target.RepoOwner, target.RepoName, savePath, []byte(req.Content), req.Overwrite)
+		if err != nil {
+			if errors.Is(err, repoStore.ErrItemExists) {
+				writeJSON(w, http.StatusConflict, liveEditMutationResponse{
+					Success: false,
+					Error:   "a file already exists at that path",
+				})
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, liveEditMutationResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+			return
+		}
+
+		savedTarget := buildLiveEditTargetForRepoPath(target.RepoOwner, target.RepoName, savePath, filePath)
+		event, err := liveEditSessions.UpdateContent(savedTarget, req.ClientID, sessionUser, req.Content, req.Selection)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, liveEditMutationResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, liveEditMutationResponse{
+			Success:   true,
+			Version:   event.Version,
+			Path:      event.Path,
+			Mode:      event.Mode,
+			SavedAt:   event.SavedAt,
+			Presence:  event.Presence,
+			EditURL:   savedTarget.EditURL,
+			Message:   "saved_as",
+			Timestamp: event.Timestamp,
+		})
+	default:
+		writeJSON(w, http.StatusBadRequest, liveEditMutationResponse{
+			Success: false,
+			Error:   "unsupported live-edit operation",
+		})
 	}
 }
 
@@ -152,7 +385,29 @@ func newLiveEditTarget(r *http.Request) *liveEditTarget {
 		BackURL:     buildBrowseRoutePath(repoOwner, repoName, workingDir),
 		EditURL:     editURL,
 		LoadURL:     editURL + "?content=1",
+		StreamURL:   editURL + "?events=1",
 		AceMode:     detectAceMode(fileName),
+	}
+}
+
+func buildLiveEditTargetForRepoPath(repoOwner string, repoName string, repoPath string, filePath string) *liveEditTarget {
+	displayPath := normalizeBrowserPath(repoPath)
+	fileName := path.Base(displayPath)
+	workingDir := normalizeBrowserPath(path.Dir(displayPath))
+	editURL := buildEditRoutePath(fileName, repoOwner, repoName, workingDir)
+
+	return &liveEditTarget{
+		FileName:    fileName,
+		RepoOwner:   repoOwner,
+		RepoName:    repoName,
+		WorkingDir:  workingDir,
+		DisplayPath: displayPath,
+		BackURL:     buildBrowseRoutePath(repoOwner, repoName, workingDir),
+		EditURL:     editURL,
+		LoadURL:     editURL + "?content=1",
+		StreamURL:   editURL + "?events=1",
+		AceMode:     detectAceMode(fileName),
+		FilePath:    filePath,
 	}
 }
 
@@ -199,7 +454,7 @@ func hydrateLiveEditTarget(target *liveEditTarget, sessionUser string) error {
 		}
 	}
 
-	info, err := os.Stat(filePath)
+	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return liveEditHTTPError{
@@ -212,8 +467,7 @@ func hydrateLiveEditTarget(target *liveEditTarget, sessionUser string) error {
 			Err:        fmt.Errorf("Failed to open file metadata: %w", err),
 		}
 	}
-
-	if !info.Mode().IsRegular() {
+	if !fileInfo.Mode().IsRegular() {
 		return liveEditHTTPError{
 			StatusCode: http.StatusBadRequest,
 			Err:        fmt.Errorf("Only regular files can be opened in live edit."),
@@ -221,9 +475,62 @@ func hydrateLiveEditTarget(target *liveEditTarget, sessionUser string) error {
 	}
 
 	target.FilePath = filePath
-	target.FileSize = info.Size()
+	target.FileSize = fileInfo.Size()
 
 	return nil
+}
+
+func streamLiveEditEvents(w http.ResponseWriter, r *http.Request, target *liveEditTarget, sessionUser string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming is not supported in this environment.", http.StatusInternalServerError)
+		return
+	}
+
+	clientID := strings.TrimSpace(r.URL.Query().Get("client"))
+	if clientID == "" {
+		http.Error(w, "client query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	_, events, cancel, err := liveEditSessions.Subscribe(target, clientID, sessionUser)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cancel()
+
+	headers := w.Header()
+	headers.Set("Content-Type", "text/event-stream")
+	headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	headers.Set("Connection", "keep-alive")
+	headers.Set("X-Accel-Buffering", "no")
+
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(20 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": keep-alive\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 func serveLiveEditContent(w http.ResponseWriter, target *liveEditTarget) {
@@ -235,30 +542,34 @@ func serveLiveEditContent(w http.ResponseWriter, target *liveEditTarget) {
 		return
 	}
 
-	data, err := os.ReadFile(target.FilePath)
+	snapshot, err := liveEditSessions.Snapshot(target)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, errLiveEditNonText) {
+			statusCode = http.StatusUnsupportedMediaType
+		}
+		writeJSON(w, statusCode, map[string]interface{}{
 			"success": false,
-			"error":   fmt.Sprintf("Failed to read file: %s", err),
-		})
-		return
-	}
-
-	if bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
-		writeJSON(w, http.StatusUnsupportedMediaType, map[string]interface{}{
-			"success": false,
-			"error":   "This file is not UTF-8 text, so it cannot be opened in the text editor yet.",
+			"error":   err.Error(),
 		})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"content": string(data),
-		"mode":    target.AceMode,
-		"path":    target.DisplayPath,
-		"size":    target.FileSize,
+		"content": snapshot.Content,
+		"mode":    snapshot.Mode,
+		"path":    snapshot.Path,
+		"size":    len([]byte(snapshot.Content)),
+		"version": snapshot.Version,
+		"savedAt": snapshot.SavedAt,
 	})
+}
+
+func isLiveEditAPIRequest(r *http.Request) bool {
+	return r.Method != http.MethodGet ||
+		r.URL.Query().Get("content") == "1" ||
+		r.URL.Query().Get("events") == "1"
 }
 
 func buildEditRoutePath(fileName string, userName string, repoName string, rawPath string) string {

@@ -16,6 +16,8 @@ import (
 	"strings"
 )
 
+var ErrItemExists = errors.New("item already exists")
+
 var (
 	// Shared FtR storage root. Override with FTR_ROOT_DIR when needed.
 	GlobalInkDropRootDir = "/srv/ftr"
@@ -433,6 +435,92 @@ func GetItemPath(userName, repoName, workingDir, itemName string) (string, error
 	}
 	root := repositoryRoot(userName, repoName)
 	return resolvePathInRepo(root, workingDir, itemName)
+}
+
+func WriteTextFile(userName, repoName, workingDir, fileName string, data []byte) (string, error) {
+	targetPath, err := GetItemPath(userName, repoName, workingDir, fileName)
+	if err != nil {
+		return "", err
+	}
+	if err := writeTextFileAtomic(targetPath, data, true); err != nil {
+		return "", err
+	}
+	return targetPath, nil
+}
+
+func WriteTextFileAtRepoPath(userName, repoName, repoPath string, data []byte, overwrite bool) (string, error) {
+	rawPath := strings.TrimSpace(repoPath)
+	if rawPath == "" || strings.HasSuffix(rawPath, "/") {
+		return "", errors.New("invalid file path")
+	}
+
+	cleanRepoPath := normalizeWorkingDir(rawPath)
+	relativePath := strings.TrimPrefix(cleanRepoPath, "/")
+	if relativePath == "" {
+		return "", errors.New("invalid file path")
+	}
+
+	targetPath, err := GetItemPath(userName, repoName, "/", relativePath)
+	if err != nil {
+		return "", err
+	}
+	if err := writeTextFileAtomic(targetPath, data, overwrite); err != nil {
+		return "", err
+	}
+	return targetPath, nil
+}
+
+func writeTextFileAtomic(targetPath string, data []byte, overwrite bool) error {
+	perm := os.FileMode(0644)
+	info, err := os.Stat(targetPath)
+	if err == nil {
+		if info.IsDir() {
+			return errors.New("target path is a directory")
+		}
+		if !overwrite {
+			return ErrItemExists
+		}
+		perm = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return err
+	}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(targetPath), ".inkdrop-live-*")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	cleanup := func() {
+		tempFile.Close()
+		os.Remove(tempPath)
+	}
+
+	if _, err := tempFile.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tempFile.Chmod(perm); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tempFile.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		os.Remove(tempPath)
+		return err
+	}
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		os.Remove(tempPath)
+		return err
+	}
+
+	return nil
 }
 
 func isWithinRoot(root, target string) bool {

@@ -29,10 +29,13 @@ type FrontEndParams struct {
 	EditorRepoName          string
 	EditorBackURL           string
 	EditorLoadURL           string
+	EditorSyncURL           string
+	EditorStreamURL         string
 	EditorMode              string
 	EditorFileSize          int64
 	EditorFileSizeLimit     int64
 	EditorEditable          bool
 	EditorHasInitialContent bool
+	EditorInitialVersion    int64
 	EditorInitialContent    string
 }

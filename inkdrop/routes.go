@@ -46,6 +46,8 @@ func RegisterRoutes(r chi.Router) {
 	r.Get("/downloadrepo/{user}/{reponame}", repository.RepositoryDownloadRepositoryAsSQAR)
 	r.Get("/edit/{filename}/{user}/{reponame}", repository.RepositoryLiveEditTextFile)
 	r.Get("/edit/{filename}/{user}/{reponame}/*", repository.RepositoryLiveEditTextFile)
+	r.Post("/edit/{filename}/{user}/{reponame}", repository.RepositoryLiveEditTextFile)
+	r.Post("/edit/{filename}/{user}/{reponame}/*", repository.RepositoryLiveEditTextFile)
 }
 
 func NewTUSHandler() http.Handler {
