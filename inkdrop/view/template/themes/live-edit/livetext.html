@@ -86,14 +86,41 @@
                 background: rgba(234, 179, 8, 0.18);
             }
 
-            .live-badge.status[data-state="error"] {
-                background: rgba(239, 68, 68, 0.16);
-                color: #b91c1c;
-            }
+        .live-badge.status[data-state="error"] {
+            background: rgba(239, 68, 68, 0.16);
+            color: #b91c1c;
+        }
 
-            html[data-theme="dark"] .live-badge.status[data-state="error"] {
-                color: #fecaca;
-            }
+        .live-badge.save-state[data-state="saved"] {
+            background: rgba(34, 197, 94, 0.14);
+            color: #166534;
+        }
+
+        .live-badge.save-state[data-state="dirty"] {
+            background: rgba(245, 158, 11, 0.18);
+            color: #92400e;
+        }
+
+        .live-badge.save-state[data-state="saving"] {
+            background: rgba(14, 165, 233, 0.14);
+            color: #0c4a6e;
+        }
+
+        html[data-theme="dark"] .live-badge.status[data-state="error"] {
+            color: #fecaca;
+        }
+
+        html[data-theme="dark"] .live-badge.save-state[data-state="saved"] {
+            color: #dcfce7;
+        }
+
+        html[data-theme="dark"] .live-badge.save-state[data-state="dirty"] {
+            color: #fde68a;
+        }
+
+        html[data-theme="dark"] .live-badge.save-state[data-state="saving"] {
+            color: #bae6fd;
+        }
 
             .live-stage {
                 position: relative;
@@ -416,6 +443,12 @@
                                     id="editorPresenceBadge"
                                     >1 active</span
                                 >
+                                <span
+                                    class="live-badge save-state"
+                                    id="editorSaveStateBadge"
+                                    data-state="saved"
+                                    >Saved</span
+                                >
                                 <button
                                     type="button"
                                     class="button-link small"
@@ -599,6 +632,9 @@
                 );
                 var editorStatusBadge =
                     document.getElementById("editorStatusBadge");
+                var editorSaveStateBadge = document.getElementById(
+                    "editorSaveStateBadge",
+                );
                 var editorModeBadge =
                     document.getElementById("editorModeBadge");
                 var editorPresenceBadge = document.getElementById(
@@ -639,6 +675,7 @@
                 var hydrationWatchdog = null;
                 var localDirty = false;
                 var disconnecting = false;
+                var lastSavedAt = 0;
 
                 function writeDebug(message) {
                     try {
@@ -828,6 +865,39 @@
                         "data-state",
                         state || "live",
                     );
+                }
+
+                function setSaveState(state, savedAt) {
+                    if (!editorSaveStateBadge) return;
+
+                    var resolved =
+                        state === "dirty" || state === "saving"
+                            ? state
+                            : "saved";
+                    editorSaveStateBadge.setAttribute("data-state", resolved);
+
+                    if (resolved === "dirty") {
+                        editorSaveStateBadge.textContent = "Unsaved";
+                        return;
+                    }
+
+                    if (resolved === "saving") {
+                        editorSaveStateBadge.textContent = "Saving";
+                        return;
+                    }
+
+                    if (typeof savedAt === "number" && savedAt > 0) {
+                        lastSavedAt = savedAt;
+                    }
+
+                    editorSaveStateBadge.textContent = "Saved";
+                    if (lastSavedAt > 0) {
+                        editorSaveStateBadge.title =
+                            "Saved " +
+                            new Date(lastSavedAt).toLocaleTimeString();
+                    } else {
+                        editorSaveStateBadge.removeAttribute("title");
+                    }
                 }
 
                 function ensureLoadingHidden() {
@@ -1268,6 +1338,7 @@
                                     payload.size || editorConfig.fileSize || 0,
                                 ),
                             );
+                            setSaveState("saved", Number(payload.savedAt || 0));
                             setStatus("Live", "live");
                         })
                         .catch(function (error) {
@@ -1287,6 +1358,7 @@
                     editor.session.on("change", function () {
                         if (isApplyingRemoteUpdate) return;
                         localDirty = true;
+                        setSaveState("dirty");
                         updateFileMetadata(
                             editorConfig.filePath,
                             new Blob([editor.getValue()]).size,
@@ -1307,6 +1379,7 @@
                     editorFallback.addEventListener("input", function () {
                         if (isApplyingRemoteUpdate) return;
                         localDirty = true;
+                        setSaveState("dirty");
                         updateFileMetadata(
                             editorConfig.filePath,
                             new Blob([editorFallback.value]).size,
@@ -1397,6 +1470,7 @@
                     syncInFlight = true;
                     var operation = pendingExplicitSave ? "save" : "sync";
                     pendingExplicitSave = false;
+                    setSaveState("saving");
                     setStatus(
                         operation === "save" ? "Saving…" : "Syncing…",
                         "busy",
@@ -1422,12 +1496,17 @@
                             currentVersion = Number(
                                 payload.version || currentVersion,
                             );
+                            setSaveState(
+                                "saved",
+                                Number(payload.savedAt || 0),
+                            );
                             renderPresence(payload.presence);
                             setStatus("Live", "live");
                             return payload;
                         })
                         .catch(function (error) {
                             console.warn("LiveEdit: sync failed", error);
+                            setSaveState("dirty");
                             setStatus(error.message || "Sync failed", "error");
                             throw error;
                         })
@@ -1483,6 +1562,7 @@
                     if (payload.clientId === clientId) {
                         localDirty = false;
                         currentVersion = Math.max(currentVersion, nextVersion);
+                        setSaveState("saved", Number(payload.savedAt || 0));
                         updateFileMetadata(
                             payload.path || editorConfig.filePath,
                             new Blob([currentContent]).size,
@@ -1500,6 +1580,7 @@
                         isApplyingRemoteUpdate = true;
                         applyContent(payload.content, Boolean(focusEditor));
                         isApplyingRemoteUpdate = false;
+                        setSaveState("saved", Number(payload.savedAt || 0));
                         updateFileMetadata(
                             payload.path || editorConfig.filePath,
                             new Blob([payload.content]).size,
@@ -1727,6 +1808,7 @@
 
                     if (!editorConfig.editable) {
                         renderPresence([]);
+                        setSaveState("saved");
                         setStatus("Unavailable", "error");
                         return;
                     }
@@ -1745,6 +1827,7 @@
                         currentVersion = Number(
                             editorConfig.initialVersion || 0,
                         );
+                        setSaveState("saved");
                     } else {
                         fetchLatestSnapshot({ focusEditor: true });
                     }
