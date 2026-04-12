@@ -261,12 +261,20 @@
                 background: rgba(14, 165, 233, 0.08);
             }
 
-            .live-remote-cursor {
-                position: absolute;
-                width: 0;
-                border-left: 2px solid #0f766e;
-                pointer-events: none;
-                z-index: 7;
+        #editorCollaboratorLayer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 6;
+            overflow: hidden;
+        }
+
+        .live-remote-cursor {
+            position: absolute;
+            width: 0;
+            border-left: 2px solid #0f766e;
+            pointer-events: none;
+            z-index: 7;
             }
 
             .live-remote-label {
@@ -470,6 +478,12 @@
                                 not
                                 .EditorEditable}}hidden{{end}}
                             ></div>
+                            <div
+                                id="editorCollaboratorLayer"
+                                {{if
+                                not
+                                .EditorEditable}}hidden{{end}}
+                            ></div>
                             <textarea
                                 id="editorFallback"
                                 hidden
@@ -574,6 +588,9 @@
 
                 var themeKey = "inkdrop-theme";
                 var editorSurface = document.getElementById("editorSurface");
+                var collaboratorLayer = document.getElementById(
+                    "editorCollaboratorLayer",
+                );
                 var editorFallback = document.getElementById("editorFallback");
                 var editorEmptyState =
                     document.getElementById("editorEmptyState");
@@ -600,6 +617,7 @@
 
                 var editor = null;
                 var editorListenersInstalled = false;
+                var editorViewportListenersInstalled = false;
                 var fallbackListenersInstalled = false;
                 var isApplyingRemoteUpdate = false;
                 var pendingSyncTimer = null;
@@ -620,7 +638,6 @@
                     Math.random().toString(36).slice(2, 10);
                 var hydrationWatchdog = null;
                 var localDirty = false;
-                var remoteCursorMarkers = Object.create(null);
                 var disconnecting = false;
 
                 function writeDebug(message) {
@@ -827,6 +844,7 @@
                         }
                     }
                     setNodeVisibility(editorSurface, false, "block");
+                    setNodeVisibility(collaboratorLayer, false, "block");
                     setNodeVisibility(editorFallback, false, "block");
                     ensureLoadingHidden();
                     setStatus(message || "Editor unavailable", "error");
@@ -858,6 +876,7 @@
                         editor.session.setUseWrapMode(false);
                         setEditorMode(editorConfig.modeHint);
                         installEditorListeners();
+                        installEditorViewportListeners();
                     }
                     return editor;
                 }
@@ -895,26 +914,49 @@
                 }
 
                 function clearRemoteCursorMarkers() {
-                    if (!editor || !editor.session) return;
-                    Object.keys(remoteCursorMarkers).forEach(
-                        function (markerKey) {
-                            var marker = remoteCursorMarkers[markerKey];
-                            if (marker && marker.id != null) {
-                                editor.session.removeMarker(marker.id);
-                            }
-                            delete remoteCursorMarkers[markerKey];
-                        },
-                    );
-                    if (editor.renderer && editor.renderer.updateFrontMarkers) {
-                        editor.renderer.updateFrontMarkers();
+                    if (collaboratorLayer) {
+                        collaboratorLayer.innerHTML = "";
                     }
+                }
+
+                function installEditorViewportListeners() {
+                    if (!editor || editorViewportListenersInstalled) return;
+                    editorViewportListenersInstalled = true;
+
+                    if (editor.session && editor.session.on) {
+                        editor.session.on(
+                            "changeScrollTop",
+                            renderRemoteCursorMarkers,
+                        );
+                        editor.session.on(
+                            "changeScrollLeft",
+                            renderRemoteCursorMarkers,
+                        );
+                    }
+
+                    if (editor.renderer && editor.renderer.on) {
+                        editor.renderer.on(
+                            "afterRender",
+                            renderRemoteCursorMarkers,
+                        );
+                    }
+
+                    window.addEventListener("resize", renderRemoteCursorMarkers);
                 }
 
                 function renderRemoteCursorMarkers() {
                     clearRemoteCursorMarkers();
-                    if (!editor || !editor.session || !window.ace) {
+                    if (
+                        !editor ||
+                        !editor.renderer ||
+                        !editorSurface ||
+                        !collaboratorLayer
+                    ) {
                         return;
                     }
+
+                    var editorRect = editorSurface.getBoundingClientRect();
+                    var lineHeight = Number(editor.renderer.lineHeight) || 16;
 
                     latestPresence.forEach(function (person) {
                         if (
@@ -926,87 +968,51 @@
                         }
 
                         var color = safeMarkerColor(person.color);
-                        var label = escapeHTML(person.user || "Collaborator");
-                        var selection = person.selection;
-                        var marker = {
-                            update: function (
-                                html,
-                                markerLayer,
-                                session,
-                                config,
-                            ) {
-                                var row = Number(
-                                    selection.endRow != null
-                                        ? selection.endRow
-                                        : selection.startRow || 0,
-                                );
-                                var column = Number(
-                                    selection.endColumn != null
-                                        ? selection.endColumn
-                                        : selection.startColumn || 0,
-                                );
-                                var documentRef = session.getDocument();
-                                var maxRow = Math.max(
-                                    0,
-                                    documentRef.getLength() - 1,
-                                );
-                                row = Math.max(0, Math.min(maxRow, row));
+                        var row = Number(
+                            person.selection.endRow != null
+                                ? person.selection.endRow
+                                : person.selection.startRow || 0,
+                        );
+                        var column = Number(
+                            person.selection.endColumn != null
+                                ? person.selection.endColumn
+                                : person.selection.startColumn || 0,
+                        );
+                        var screenPosition = editor.renderer.textToScreenCoordinates(
+                            row,
+                            column,
+                        );
+                        var left = screenPosition.pageX - editorRect.left;
+                        var top = screenPosition.pageY - editorRect.top;
 
-                                var line = documentRef.getLine(row) || "";
-                                column = Math.max(
-                                    0,
-                                    Math.min(line.length, column),
-                                );
+                        if (
+                            !isFinite(left) ||
+                            !isFinite(top) ||
+                            left < -24 ||
+                            top < -lineHeight ||
+                            left > editorRect.width + 24 ||
+                            top > editorRect.height + lineHeight
+                        ) {
+                            return;
+                        }
 
-                                var screenPosition =
-                                    session.documentToScreenPosition(
-                                        row,
-                                        column,
-                                    );
-                                var left =
-                                    (config.padding ||
-                                        markerLayer.$padding ||
-                                        0) +
-                                    screenPosition.column *
-                                        config.characterWidth;
-                                var top = markerLayer.$getTop(
-                                    screenPosition.row,
-                                    config.lineHeight,
-                                );
-                                var labelTop = Math.max(0, top - 4);
+                        var cursor = document.createElement("div");
+                        cursor.className = "live-remote-cursor";
+                        cursor.style.left = left + "px";
+                        cursor.style.top = top + "px";
+                        cursor.style.height = lineHeight + "px";
+                        cursor.style.borderLeftColor = color;
 
-                                html.push(
-                                    '<div class="live-remote-cursor" style="left:' +
-                                        left +
-                                        "px;top:" +
-                                        top +
-                                        "px;height:" +
-                                        config.lineHeight +
-                                        "px;border-left-color:" +
-                                        color +
-                                        '"></div>',
-                                );
-                                html.push(
-                                    '<div class="live-remote-label" style="left:' +
-                                        left +
-                                        "px;top:" +
-                                        labelTop +
-                                        "px;background:" +
-                                        color +
-                                        '">' +
-                                        label +
-                                        "</div>",
-                                );
-                            },
-                        };
+                        var label = document.createElement("div");
+                        label.className = "live-remote-label";
+                        label.style.left = left + "px";
+                        label.style.top = Math.max(0, top - 6) + "px";
+                        label.style.background = color;
+                        label.textContent = person.user || "Collaborator";
 
-                        editor.session.addDynamicMarker(marker, true);
-                        remoteCursorMarkers[person.clientId] = marker;
+                        collaboratorLayer.appendChild(cursor);
+                        collaboratorLayer.appendChild(label);
                     });
-
-                    if (editor.renderer && editor.renderer.updateFrontMarkers) {
-                        editor.renderer.updateFrontMarkers();
-                    }
                 }
 
                 function applyContent(content, focusEditor) {
@@ -1017,9 +1023,10 @@
                             return;
                         }
 
-                        var cursor = getAceCursorSnapshot();
-                        setNodeVisibility(editorFallback, false, "block");
-                        setNodeVisibility(editorEmptyState, false, "flex");
+                    var cursor = getAceCursorSnapshot();
+                    setNodeVisibility(editorFallback, false, "block");
+                    setNodeVisibility(editorEmptyState, false, "flex");
+                    setNodeVisibility(collaboratorLayer, true, "block");
 
                         if (aceEditor.getValue() !== content) {
                             isApplyingRemoteUpdate = true;
@@ -1057,6 +1064,7 @@
                 function showFallbackEditor(content) {
                     clearRemoteCursorMarkers();
                     setNodeVisibility(editorSurface, false, "block");
+                    setNodeVisibility(collaboratorLayer, false, "block");
                     setNodeVisibility(editorFallback, true, "block");
                     setNodeVisibility(editorEmptyState, false, "flex");
                     if (editorFallback) {
@@ -1371,7 +1379,7 @@
                     }
                     snapshotPollTimer = setInterval(function () {
                         fetchLatestSnapshot({ focusEditor: false });
-                    }, 1500);
+                    }, 700);
                 }
 
                 function flushSync() {
@@ -1447,12 +1455,12 @@
                     if (explicitSave) {
                         return flushSync();
                     }
-                    pendingSyncTimer = setTimeout(function () {
-                        pendingSyncTimer = null;
-                        flushSync();
-                    }, 250);
-                    return Promise.resolve();
-                }
+                pendingSyncTimer = setTimeout(function () {
+                    pendingSyncTimer = null;
+                    flushSync();
+                }, 100);
+                return Promise.resolve();
+            }
 
                 function applyRemoteSnapshot(payload, focusEditor) {
                     if (!payload) return;
