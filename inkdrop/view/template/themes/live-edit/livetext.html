@@ -1,1391 +1,1763 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="/assets/root.css" />
+        <title>InkDrop - {{ .Title }}</title>
+        <style>
+            :root {
+                --editor-bg: #ffffff;
+                --editor-border: rgba(15, 23, 42, 0.12);
+                --editor-cursor: #111827;
+                --editor-fg: #0f172a;
+                --editor-overlay: rgba(248, 250, 252, 0.88);
+            }
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="/assets/root.css">
-    <title>InkDrop - {{ .Title }}</title>
-    <style>
-        :root {
-            --editor-bg: #ffffff;
-            --editor-border: rgba(15, 23, 42, 0.12);
-            --editor-cursor: #111827;
-            --editor-fg: #0f172a;
-            --editor-overlay: rgba(248, 250, 252, 0.88);
-        }
+            html[data-theme="dark"] {
+                --editor-bg: #0f172a;
+                --editor-border: rgba(148, 163, 184, 0.24);
+                --editor-cursor: #f8fafc;
+                --editor-fg: #e2e8f0;
+                --editor-overlay: rgba(15, 23, 42, 0.82);
+            }
 
-        html[data-theme="dark"] {
-            --editor-bg: #0f172a;
-            --editor-border: rgba(148, 163, 184, 0.24);
-            --editor-cursor: #f8fafc;
-            --editor-fg: #e2e8f0;
-            --editor-overlay: rgba(15, 23, 42, 0.82);
-        }
+            .live-shell {
+                display: flex;
+                flex-direction: column;
+                gap: 24px;
+            }
 
-        .live-shell {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
+            .live-hero {
+                overflow: hidden;
+            }
 
-        .live-hero {
-            overflow: hidden;
-        }
+            .live-hero .row {
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 12px;
+            }
 
-        .live-hero .row {
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-
-        .live-subgrid {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 320px;
-            gap: 20px;
-            align-items: start;
-        }
-
-        .live-toolbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 16px;
-            flex-wrap: wrap;
-            margin-bottom: 14px;
-        }
-
-        .live-toolbar p,
-        .live-side p,
-        .presence-list p {
-            margin: 0;
-        }
-
-        .live-badges {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-
-        .live-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            border-radius: 999px;
-            padding: 7px 12px;
-            background: rgba(148, 163, 184, 0.14);
-            color: inherit;
-            font-size: 0.88rem;
-        }
-
-        .live-badge.status {
-            background: rgba(14, 165, 233, 0.14);
-        }
-
-        .live-badge.status[data-state="busy"] {
-            background: rgba(234, 179, 8, 0.18);
-        }
-
-        .live-badge.status[data-state="error"] {
-            background: rgba(239, 68, 68, 0.16);
-            color: #b91c1c;
-        }
-
-        html[data-theme="dark"] .live-badge.status[data-state="error"] {
-            color: #fecaca;
-        }
-
-        .live-stage {
-            position: relative;
-            min-height: 72vh;
-            border-radius: 18px;
-            border: 1px solid var(--editor-border);
-            background: var(--editor-bg);
-            overflow: hidden;
-        }
-
-        #editorSurface,
-        #editorFallback {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 4;
-        }
-
-        #editorFallback {
-            display: block;
-            resize: none;
-            border: 0;
-            outline: 0;
-            padding: 20px;
-            background: var(--editor-bg);
-            color: var(--editor-fg);
-            font: 14px/1.6 "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-        }
-
-        .editor-overlay,
-        .editor-empty {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 24px;
-            text-align: center;
-            background: var(--editor-overlay);
-            z-index: 2;
-        }
-
-        .editor-empty {
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(30, 41, 59, 0.03));
-        }
-
-        .editor-empty-card {
-            max-width: 520px;
-        }
-
-        .editor-empty-card p {
-            margin: 0;
-        }
-
-        .editor-empty-card .subtle {
-            margin-top: 10px;
-        }
-
-        .live-side {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .live-side-section {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .live-side h3 {
-            margin: 0;
-            font-size: 0.95rem;
-        }
-
-        .live-metadata {
-            display: grid;
-            gap: 10px;
-        }
-
-        .live-metadata strong {
-            display: block;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            opacity: 0.68;
-            margin-bottom: 4px;
-        }
-
-        .presence-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            width: fit-content;
-            border-radius: 999px;
-            padding: 7px 12px;
-            background: rgba(34, 197, 94, 0.12);
-        }
-
-        .presence-chip::before {
-            content: "";
-            width: 9px;
-            height: 9px;
-            border-radius: 999px;
-            background: #22c55e;
-            box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
-        }
-
-        .presence-list {
-            display: grid;
-            gap: 10px;
-        }
-
-        .presence-item {
-            display: flex;
-            gap: 10px;
-            align-items: flex-start;
-        }
-
-        .presence-dot {
-            flex: 0 0 auto;
-            width: 12px;
-            height: 12px;
-            margin-top: 4px;
-            border-radius: 999px;
-            background: #0f766e;
-            box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
-        }
-
-        .presence-name {
-            font-weight: 600;
-        }
-
-        .presence-meta {
-            font-size: 0.84rem;
-            opacity: 0.75;
-        }
-
-        .presence-empty {
-            opacity: 0.72;
-            font-size: 0.92rem;
-        }
-
-        .ace_editor {
-            background: var(--editor-bg);
-            color: var(--editor-fg);
-        }
-
-        .ace_editor .ace_cursor {
-            border-left: 2px solid var(--editor-cursor) !important;
-        }
-
-        .ace_editor .ace_marker-layer .ace_active-line {
-            background: rgba(14, 165, 233, 0.08);
-        }
-
-        .live-remote-cursor {
-            position: absolute;
-            width: 0;
-            border-left: 2px solid #0f766e;
-            pointer-events: none;
-            z-index: 7;
-        }
-
-        .live-remote-label {
-            position: absolute;
-            padding: 2px 6px;
-            border-radius: 999px;
-            color: #ffffff;
-            font-size: 11px;
-            font-weight: 700;
-            line-height: 1.2;
-            white-space: nowrap;
-            transform: translateY(-100%);
-            pointer-events: none;
-            z-index: 7;
-        }
-
-        @media (max-width: 980px) {
             .live-subgrid {
-                grid-template-columns: 1fr;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 320px;
+                gap: 20px;
+                align-items: start;
+            }
+
+            .live-toolbar {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 16px;
+                flex-wrap: wrap;
+                margin-bottom: 14px;
+            }
+
+            .live-toolbar p,
+            .live-side p,
+            .presence-list p {
+                margin: 0;
+            }
+
+            .live-badges {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                align-items: center;
+            }
+
+            .live-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                border-radius: 999px;
+                padding: 7px 12px;
+                background: rgba(148, 163, 184, 0.14);
+                color: inherit;
+                font-size: 0.88rem;
+            }
+
+            .live-badge.status {
+                background: rgba(14, 165, 233, 0.14);
+            }
+
+            .live-badge.status[data-state="busy"] {
+                background: rgba(234, 179, 8, 0.18);
+            }
+
+            .live-badge.status[data-state="error"] {
+                background: rgba(239, 68, 68, 0.16);
+                color: #b91c1c;
+            }
+
+            html[data-theme="dark"] .live-badge.status[data-state="error"] {
+                color: #fecaca;
             }
 
             .live-stage {
-                min-height: 62vh;
+                position: relative;
+                min-height: 72vh;
+                border-radius: 18px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-bg);
+                overflow: hidden;
             }
-        }
-    </style>
-</head>
 
-<body>
-    <header class="topbar">
-        <div class="topbar-inner">
-            <a href="/" class="topbar-brand">InkDrop</a>
-            <div class="topbar-right">
-                <div class="theme-switch" role="group" aria-label="Theme mode">
-                    <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
-                    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
-                </div>
-                <div class="profile-menu">
-                    <button type="button" class="profile-button" id="profileMenuButton" aria-haspopup="menu"
-                        aria-expanded="false" aria-controls="profileMenu">
-                        {{.Name}} ▾
-                    </button>
-                    <div id="profileMenu" class="profile-dropdown" role="menu" hidden>
-                        <p class="menu-label">Signed in as</p>
-                        <p class="menu-user">{{.Name}}</p>
-                        <a href="/logout" class="button-link danger small" role="menuitem">Log Out</a>
+            #editorSurface,
+            #editorFallback {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 4;
+            }
+
+            #editorFallback {
+                display: block;
+                resize: none;
+                border: 0;
+                outline: 0;
+                padding: 20px;
+                background: var(--editor-bg);
+                color: var(--editor-fg);
+                font:
+                    14px/1.6 "SFMono-Regular",
+                    "Cascadia Code",
+                    "JetBrains Mono",
+                    Menlo,
+                    Consolas,
+                    monospace;
+            }
+
+            .editor-overlay,
+            .editor-empty {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+                text-align: center;
+                background: var(--editor-overlay);
+                z-index: 2;
+            }
+
+            .editor-empty {
+                background: linear-gradient(
+                    135deg,
+                    rgba(14, 165, 233, 0.08),
+                    rgba(30, 41, 59, 0.03)
+                );
+            }
+
+            .editor-empty-card {
+                max-width: 520px;
+            }
+
+            .editor-empty-card p {
+                margin: 0;
+            }
+
+            .editor-empty-card .subtle {
+                margin-top: 10px;
+            }
+
+            .live-side {
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .live-side-section {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .live-side h3 {
+                margin: 0;
+                font-size: 0.95rem;
+            }
+
+            .live-metadata {
+                display: grid;
+                gap: 10px;
+            }
+
+            .live-metadata strong {
+                display: block;
+                font-size: 0.8rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                opacity: 0.68;
+                margin-bottom: 4px;
+            }
+
+            .presence-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                width: fit-content;
+                border-radius: 999px;
+                padding: 7px 12px;
+                background: rgba(34, 197, 94, 0.12);
+            }
+
+            .presence-chip::before {
+                content: "";
+                width: 9px;
+                height: 9px;
+                border-radius: 999px;
+                background: #22c55e;
+                box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
+            }
+
+            .presence-list {
+                display: grid;
+                gap: 10px;
+            }
+
+            .presence-item {
+                display: flex;
+                gap: 10px;
+                align-items: flex-start;
+            }
+
+            .presence-dot {
+                flex: 0 0 auto;
+                width: 12px;
+                height: 12px;
+                margin-top: 4px;
+                border-radius: 999px;
+                background: #0f766e;
+                box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+            }
+
+            .presence-name {
+                font-weight: 600;
+            }
+
+            .presence-meta {
+                font-size: 0.84rem;
+                opacity: 0.75;
+            }
+
+            .presence-empty {
+                opacity: 0.72;
+                font-size: 0.92rem;
+            }
+
+            .ace_editor {
+                background: var(--editor-bg);
+                color: var(--editor-fg);
+            }
+
+            .ace_editor .ace_cursor {
+                border-left: 2px solid var(--editor-cursor) !important;
+            }
+
+            .ace_editor .ace_marker-layer .ace_active-line {
+                background: rgba(14, 165, 233, 0.08);
+            }
+
+            .live-remote-cursor {
+                position: absolute;
+                width: 0;
+                border-left: 2px solid #0f766e;
+                pointer-events: none;
+                z-index: 7;
+            }
+
+            .live-remote-label {
+                position: absolute;
+                padding: 2px 6px;
+                border-radius: 999px;
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: 700;
+                line-height: 1.2;
+                white-space: nowrap;
+                transform: translateY(-100%);
+                pointer-events: none;
+                z-index: 7;
+            }
+
+            @media (max-width: 980px) {
+                .live-subgrid {
+                    grid-template-columns: 1fr;
+                }
+
+                .live-stage {
+                    min-height: 62vh;
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+        <header class="topbar">
+            <div class="topbar-inner">
+                <a href="/" class="topbar-brand">InkDrop</a>
+                <div class="topbar-right">
+                    <div
+                        class="theme-switch"
+                        role="group"
+                        aria-label="Theme mode"
+                    >
+                        <button
+                            type="button"
+                            data-theme-set="light"
+                            aria-pressed="false"
+                        >
+                            Light
+                        </button>
+                        <button
+                            type="button"
+                            data-theme-set="dark"
+                            aria-pressed="false"
+                        >
+                            Dark
+                        </button>
+                    </div>
+                    <div class="profile-menu">
+                        <button
+                            type="button"
+                            class="profile-button"
+                            id="profileMenuButton"
+                            aria-haspopup="menu"
+                            aria-expanded="false"
+                            aria-controls="profileMenu"
+                        >
+                            {{.Name}} ▾
+                        </button>
+                        <div
+                            id="profileMenu"
+                            class="profile-dropdown"
+                            role="menu"
+                            hidden
+                        >
+                            <p class="menu-label">Signed in as</p>
+                            <p class="menu-user">{{.Name}}</p>
+                            <a
+                                href="/logout"
+                                class="button-link danger small"
+                                role="menuitem"
+                                >Log Out</a
+                            >
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </header>
+        </header>
 
-    <noscript>
-        <div style="margin:12px; padding:12px; border-radius:6px; background:#fff3f3; color:#b91c1c; text-align:center;">JavaScript is disabled — the live editor requires JavaScript. Please enable JavaScript in your browser.</div>
-    </noscript>
-
-    <main class="page">
-        <section class="shell live-shell">
-            <div class="panel dark live-hero stack">
-                <div class="row">
-                    <div class="stack">
-                        <h1 class="intro">{{.EditorFileName}}</h1>
-                        <p class="subtle light">{{.EditorFilePath}}</p>
-                    </div>
-                    <a href="{{.EditorBackURL}}" class="button-link">Back to Repository</a>
-                </div>
+        <noscript>
+            <div
+                style="
+                    margin: 12px;
+                    padding: 12px;
+                    border-radius: 6px;
+                    background: #fff3f3;
+                    color: #b91c1c;
+                    text-align: center;
+                "
+            >
+                JavaScript is disabled — the live editor requires JavaScript.
+                Please enable JavaScript in your browser.
             </div>
+        </noscript>
 
-            <div class="live-subgrid">
-                <div class="panel stack">
-                    <div class="live-toolbar">
+        <main class="page">
+            <section class="shell live-shell">
+                <div class="panel dark live-hero stack">
+                    <div class="row">
                         <div class="stack">
-                            <h2 class="section">Editing Surface</h2>
-                            <p class="subtle">Use <strong>Ctrl+S</strong> to save now, or <strong>Ctrl+Shift+S</strong> to save a copy to a new path.</p>
+                            <h1 class="intro">{{.EditorFileName}}</h1>
+                            <p class="subtle light">{{.EditorFilePath}}</p>
                         </div>
-                        <div class="live-badges">
-                            <span class="live-badge" id="editorModeBadge">Mode: {{.EditorMode}}</span>
-                            <span class="live-badge status" id="editorStatusBadge" data-state="{{if .EditorEditable}}live{{else}}error{{end}}">{{if .EditorEditable}}Connecting…{{else}}Unavailable{{end}}</span>
-                            <span class="live-badge" id="editorPresenceBadge">1 active</span>
-                            <button type="button" class="button-link small" id="editorSaveAsBtn" {{if not .EditorEditable}}disabled{{end}}>Save As</button>
-                        </div>
-                    </div>
-
-                    {{if .Error}}
-                    <div class="alert">
-                        {{range $key, $msg := .Error}}
-                        <p>{{$msg}}</p>
-                        {{end}}
-                    </div>
-                    {{end}}
-
-                    <div class="live-stage">
-                        <div class="editor-empty" id="editorEmptyState" {{if .EditorEditable}}hidden{{end}}>
-                            <div class="editor-empty-card stack">
-                                <h3 class="section">Editor Not Available</h3>
-                                <p>{{if .Error}}Resolve the issue above, then return here from the repository browser.{{else}}This file cannot be loaded into the editor right now.{{end}}</p>
-                                <p class="subtle">Only UTF-8 text files smaller than 5 MB are opened in this editor surface.</p>
-                            </div>
-                        </div>
-                        <div class="editor-overlay" id="editorLoadingOverlay" {{if not .EditorEditable}}hidden{{end}}>
-                            <div class="editor-empty-card stack">
-                                <h3 class="section">Loading File</h3>
-                                <p>Connecting the live editing session.</p>
-                            </div>
-                        </div>
-                        <div id="editorSurface" {{if not .EditorEditable}}hidden{{end}}></div>
-                        <textarea id="editorFallback" hidden spellcheck="false"></textarea>
+                        <a href="{{.EditorBackURL}}" class="button-link"
+                            >Back to Repository</a
+                        >
                     </div>
                 </div>
 
-                <aside class="panel live-side">
-                    <div class="live-side-section">
-                        <h3>Session</h3>
-                        <span class="presence-chip">{{.Name}}</span>
-                    </div>
+                <div class="live-subgrid">
+                    <div class="panel stack">
+                        <div class="live-toolbar">
+                            <div class="stack">
+                                <h2 class="section">Editing Surface</h2>
+                                <p class="subtle">
+                                    Use <strong>Ctrl+S</strong> to save now, or
+                                    <strong>Ctrl+Shift+S</strong> to save a copy
+                                    to a new path.
+                                </p>
+                            </div>
+                            <div class="live-badges">
+                                <span class="live-badge" id="editorModeBadge"
+                                    >Mode: {{.EditorMode}}</span
+                                >
+                                <span
+                                    class="live-badge status"
+                                    id="editorStatusBadge"
+                                    data-state="{{if .EditorEditable}}live{{else}}error{{end}}"
+                                    >{{if
+                                    .EditorEditable}}Connecting…{{else}}Unavailable{{end}}</span
+                                >
+                                <span
+                                    class="live-badge"
+                                    id="editorPresenceBadge"
+                                    >1 active</span
+                                >
+                                <button
+                                    type="button"
+                                    class="button-link small"
+                                    id="editorSaveAsBtn"
+                                    {{if
+                                    not
+                                    .EditorEditable}}disabled{{end}}
+                                >
+                                    Save As
+                                </button>
+                            </div>
+                        </div>
 
-                    <div class="live-side-section">
-                        <h3>Collaborators</h3>
-                        <div class="presence-list" id="editorPresenceList">
-                            <p class="presence-empty">Connecting to the live session…</p>
+                        {{if .Error}}
+                        <div class="alert">
+                            {{range $key, $msg := .Error}}
+                            <p>{{$msg}}</p>
+                            {{end}}
+                        </div>
+                        {{end}}
+
+                        <div class="live-stage">
+                            <div
+                                class="editor-empty"
+                                id="editorEmptyState"
+                                {{if
+                                .EditorEditable}}hidden{{end}}
+                            >
+                                <div class="editor-empty-card stack">
+                                    <h3 class="section">
+                                        Editor Not Available
+                                    </h3>
+                                    <p>
+                                        {{if .Error}}Resolve the issue above,
+                                        then return here from the repository
+                                        browser.{{else}}This file cannot be
+                                        loaded into the editor right now.{{end}}
+                                    </p>
+                                    <p class="subtle">
+                                        Only UTF-8 text files smaller than 5 MB
+                                        are opened in this editor surface.
+                                    </p>
+                                </div>
+                            </div>
+                            <div
+                                class="editor-overlay"
+                                id="editorLoadingOverlay"
+                                {{if
+                                not
+                                .EditorEditable}}hidden{{end}}
+                            >
+                                <div class="editor-empty-card stack">
+                                    <h3 class="section">Loading File</h3>
+                                    <p>Connecting the live editing session.</p>
+                                </div>
+                            </div>
+                            <div
+                                id="editorSurface"
+                                {{if
+                                not
+                                .EditorEditable}}hidden{{end}}
+                            ></div>
+                            <textarea
+                                id="editorFallback"
+                                hidden
+                                spellcheck="false"
+                            ></textarea>
                         </div>
                     </div>
 
-                    <div class="live-side-section">
-                        <h3>File</h3>
-                        <div class="live-metadata">
-                            <div>
-                                <strong>Repository</strong>
-                                <p>{{.EditorRepoOwner}}/{{.EditorRepoName}}</p>
-                            </div>
-                            <div>
-                                <strong>Path</strong>
-                                <p id="editorFilePathLabel">{{.EditorFilePath}}</p>
-                            </div>
-                            <div>
-                                <strong>Size</strong>
-                                <p id="editorFileSize" data-size="{{.EditorFileSize}}">{{.EditorFileSize}} bytes</p>
+                    <aside class="panel live-side">
+                        <div class="live-side-section">
+                            <h3>Session</h3>
+                            <span class="presence-chip">{{.Name}}</span>
+                        </div>
+
+                        <div class="live-side-section">
+                            <h3>Collaborators</h3>
+                            <div class="presence-list" id="editorPresenceList">
+                                <p class="presence-empty">
+                                    Connecting to the live session…
+                                </p>
                             </div>
                         </div>
-                    </div>
-                </aside>
-            </div>
-        </section>
-    </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict/ace.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict/ext-language_tools.js"></script>
-    <script id="editorConfigJson" type="application/json">
-{
-  "editable": {{if .EditorEditable}}true{{else}}false{{end}},
-  "fileName": {{toJSON .EditorFileName}},
-  "filePath": {{toJSON .EditorFilePath}},
-  "loadURL": {{toJSON .EditorLoadURL}},
-  "syncURL": {{toJSON .EditorSyncURL}},
-  "streamURL": {{toJSON .EditorStreamURL}},
-  "modeHint": {{toJSON .EditorMode}},
-  "fileSize": {{.EditorFileSize}},
-  "hasInitialContent": {{if .EditorHasInitialContent}}true{{else}}false{{end}},
-  "initialContent": {{toJSON .EditorInitialContent}},
-  "initialVersion": {{.EditorInitialVersion}}
-}
-</script>
-    <script>
-        (function () {
-            var editorConfig = (function () {
-                var cfg = document.getElementById("editorConfigJson");
-                if (cfg) {
-                    try {
-                        return JSON.parse(cfg.textContent);
-                    } catch (e) {
-                        try { console.warn("LiveEdit: failed to parse editor config", e); } catch (ignore) {}
-                    }
-                }
-                return {
-                    editable: false,
-                    fileName: "",
-                    filePath: "",
-                    loadURL: "",
-                    syncURL: "",
-                    streamURL: "",
-                    modeHint: "text",
-                    fileSize: 0,
-                    hasInitialContent: false,
-                    initialContent: "",
-                    initialVersion: 0
-                };
-            })();
+                        <div class="live-side-section">
+                            <h3>File</h3>
+                            <div class="live-metadata">
+                                <div>
+                                    <strong>Repository</strong>
+                                    <p>
+                                        {{.EditorRepoOwner}}/{{.EditorRepoName}}
+                                    </p>
+                                </div>
+                                <div>
+                                    <strong>Path</strong>
+                                    <p id="editorFilePathLabel">
+                                        {{.EditorFilePath}}
+                                    </p>
+                                </div>
+                                <div>
+                                    <strong>Size</strong>
+                                    <p
+                                        id="editorFileSize"
+                                        data-size="{{.EditorFileSize}}"
+                                    >
+                                        {{.EditorFileSize}} bytes
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </main>
 
-            var themeKey = "inkdrop-theme";
-            var editorSurface = document.getElementById("editorSurface");
-            var editorFallback = document.getElementById("editorFallback");
-            var editorEmptyState = document.getElementById("editorEmptyState");
-            var editorLoadingOverlay = document.getElementById("editorLoadingOverlay");
-            var editorStatusBadge = document.getElementById("editorStatusBadge");
-            var editorModeBadge = document.getElementById("editorModeBadge");
-            var editorPresenceBadge = document.getElementById("editorPresenceBadge");
-            var editorPresenceList = document.getElementById("editorPresenceList");
-            var editorFilePathLabel = document.getElementById("editorFilePathLabel");
-            var editorFileSize = document.getElementById("editorFileSize");
-            var saveAsButton = document.getElementById("editorSaveAsBtn");
-            var profileButton = document.getElementById("profileMenuButton");
-            var profileMenu = document.getElementById("profileMenu");
-
-            var editor = null;
-            var editorListenersInstalled = false;
-            var fallbackListenersInstalled = false;
-            var isApplyingRemoteUpdate = false;
-            var pendingSyncTimer = null;
-            var pendingPresenceTimer = null;
-            var pendingExplicitSave = false;
-            var syncInFlight = false;
-            var syncQueued = false;
-            var currentSyncPromise = null;
-            var currentVersion = Number(editorConfig.initialVersion) || 0;
-            var latestPresence = [];
-            var eventSource = null;
-            var snapshotPollTimer = null;
-            var presenceHeartbeatTimer = null;
-            var clientId = "client-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
-            var hydrationWatchdog = null;
-            var localDirty = false;
-            var remoteCursorMarkers = Object.create(null);
-            var disconnecting = false;
-
-            function writeDebug(message) {
-                try { console.debug(message); } catch (ignore) {}
+        <script src="https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict/ace.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict/ext-language_tools.js"></script>
+        <script id="editorConfigJson" type="application/json">
+            {
+              "editable": {{if .EditorEditable}}true{{else}}false{{end}},
+              "fileName": {{toJSON .EditorFileName}},
+              "filePath": {{toJSON .EditorFilePath}},
+              "loadURL": {{toJSON .EditorLoadURL}},
+              "syncURL": {{toJSON .EditorSyncURL}},
+              "streamURL": {{toJSON .EditorStreamURL}},
+              "modeHint": {{toJSON .EditorMode}},
+              "fileSize": {{.EditorFileSize}},
+              "hasInitialContent": {{if .EditorHasInitialContent}}true{{else}}false{{end}},
+              "initialContent": {{toJSON .EditorInitialContent}},
+              "initialVersion": {{.EditorInitialVersion}}
             }
-
-            function setNodeVisibility(node, visible, displayValue) {
-                if (!node) return;
-                node.hidden = !visible;
-                node.style.display = visible ? (displayValue || "") : "none";
-            }
-
-            function clearHydrationWatchdog() {
-                if (hydrationWatchdog) {
-                    clearTimeout(hydrationWatchdog);
-                    hydrationWatchdog = null;
-                }
-            }
-
-            function escapeHTML(value) {
-                return String(value == null ? "" : value)
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;")
-                    .replace(/\"/g, "&quot;")
-                    .replace(/'/g, "&#39;");
-            }
-
-            function safeMarkerColor(value) {
-                return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : "#0f766e";
-            }
-
-            function hasPendingLocalChanges() {
-                return Boolean(localDirty || pendingSyncTimer || syncInFlight || syncQueued || pendingExplicitSave);
-            }
-
-            function setTheme(theme) {
-                var value = theme === "dark" ? "dark" : "light";
-                document.documentElement.setAttribute("data-theme", value);
-                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
-                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === value));
-                });
-                applyEditorTheme(value);
-            }
-
-            function getSavedTheme() {
-                var stored = localStorage.getItem(themeKey);
-                if (stored === "dark" || stored === "light") {
-                    return stored;
-                }
-                if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-                    return "dark";
-                }
-                return "light";
-            }
-
-            function initTheme() {
-                setTheme(getSavedTheme());
-                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
-                    button.type = "button";
-                    button.addEventListener("click", function () {
-                        var theme = button.getAttribute("data-theme-set");
-                        setTheme(theme);
-                        localStorage.setItem(themeKey, theme);
-                    });
-                });
-            }
-
-            function closeMenu() {
-                if (!profileMenu || !profileButton) return;
-                profileMenu.hidden = true;
-                profileButton.setAttribute("aria-expanded", "false");
-            }
-
-            function initProfileMenu() {
-                if (!profileButton || !profileMenu) return;
-                profileButton.addEventListener("click", function () {
-                    var isHidden = profileMenu.hidden;
-                    profileMenu.hidden = !isHidden;
-                    profileButton.setAttribute("aria-expanded", String(isHidden));
-                });
-
-                document.addEventListener("click", function (event) {
-                    if (!profileMenu.hidden && !event.target.closest(".profile-menu")) {
-                        closeMenu();
-                    }
-                });
-
-                document.addEventListener("keydown", function (event) {
-                    if (event.key === "Escape") {
-                        closeMenu();
-                    }
-                });
-            }
-
-            function formatBytes(bytes) {
-                if (typeof bytes !== "number" || isNaN(bytes) || bytes < 0) return "";
-                var units = ["B", "KB", "MB", "GB"];
-                var idx = 0;
-                var value = bytes;
-                while (value >= 1024 && idx < units.length - 1) {
-                    value = value / 1024;
-                    idx += 1;
-                }
-                var precision = idx === 0 ? 0 : 1;
-                return value.toFixed(precision) + " " + units[idx];
-            }
-
-            function humanizeMode(mode) {
-                var known = {
-                    c_cpp: "C/C++",
-                    css: "CSS",
-                    dockerfile: "Dockerfile",
-                    dotenv: "Dotenv",
-                    gitignore: "Git Ignore",
-                    golang: "Go",
-                    html: "HTML",
-                    ini: "INI",
-                    java: "Java",
-                    javascript: "JavaScript",
-                    json: "JSON",
-                    jsx: "JSX",
-                    lua: "Lua",
-                    makefile: "Makefile",
-                    markdown: "Markdown",
-                    php: "PHP",
-                    python: "Python",
-                    ruby: "Ruby",
-                    rust: "Rust",
-                    sh: "Shell",
-                    sql: "SQL",
-                    text: "Plain Text",
-                    toml: "TOML",
-                    tsx: "TSX",
-                    typescript: "TypeScript",
-                    xml: "XML",
-                    yaml: "YAML"
-                };
-                return known[mode] || "Plain Text";
-            }
-
-            function setEditorMode(mode) {
-                var resolved = mode || editorConfig.modeHint || "text";
-                editorModeBadge.textContent = "Mode: " + humanizeMode(resolved);
-                editorConfig.modeHint = resolved;
-                if (editor) {
-                    editor.session.setMode("ace/mode/" + resolved);
-                }
-            }
-
-            function setStatus(message, state) {
-                if (!editorStatusBadge) return;
-                editorStatusBadge.textContent = message;
-                editorStatusBadge.setAttribute("data-state", state || "live");
-            }
-
-            function ensureLoadingHidden() {
-                clearHydrationWatchdog();
-                setNodeVisibility(editorLoadingOverlay, false, "flex");
-            }
-
-            function showEmptyState(message) {
-                if (editorEmptyState) {
-                    setNodeVisibility(editorEmptyState, true, "flex");
-                    var paragraph = editorEmptyState.querySelector("p");
-                    if (paragraph && message) {
-                        paragraph.textContent = message;
-                    }
-                }
-                setNodeVisibility(editorSurface, false, "block");
-                setNodeVisibility(editorFallback, false, "block");
-                ensureLoadingHidden();
-                setStatus(message || "Editor unavailable", "error");
-            }
-
-            function ensureAceEditor() {
-                if (!window.ace || !editorSurface) {
-                    return null;
-                }
-
-                setNodeVisibility(editorSurface, true, "block");
-                if (!editor) {
-                    ace.config.set("basePath", "https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict");
-                    editor = ace.edit(editorSurface);
-                    editor.setOptions({
-                        enableBasicAutocompletion: true,
-                        enableLiveAutocompletion: true,
-                        fontSize: "14px",
-                        highlightActiveLine: true,
-                        printMargin: false,
-                        showLineNumbers: true,
-                        tabSize: 4,
-                        useSoftTabs: true,
-                        wrap: false
-                    });
-                    editor.session.setUseWrapMode(false);
-                    setEditorMode(editorConfig.modeHint);
-                    installEditorListeners();
-                }
-                return editor;
-            }
-
-            function applyEditorTheme(theme) {
-                if (!editor) return;
-                editor.setTheme(theme === "dark" ? "ace/theme/monokai" : "ace/theme/github");
-            }
-
-            function getEditorContent() {
-                if (editor) {
-                    return editor.getValue();
-                }
-                return editorFallback ? editorFallback.value : "";
-            }
-
-            function getAceCursorSnapshot() {
-                if (!editor) return null;
-                var position = editor.getCursorPosition();
-                return {
-                    row: position.row,
-                    column: position.column
-                };
-            }
-
-            function restoreAceCursor(position) {
-                if (!editor || !position) return;
-                try {
-                    editor.moveCursorToPosition(position);
-                } catch (ignore) {}
-            }
-
-            function clearRemoteCursorMarkers() {
-                if (!editor || !editor.session) return;
-                Object.keys(remoteCursorMarkers).forEach(function (markerKey) {
-                    var marker = remoteCursorMarkers[markerKey];
-                    if (marker && marker.id != null) {
-                        editor.session.removeMarker(marker.id);
-                    }
-                    delete remoteCursorMarkers[markerKey];
-                });
-                if (editor.renderer && editor.renderer.updateFrontMarkers) {
-                    editor.renderer.updateFrontMarkers();
-                }
-            }
-
-            function renderRemoteCursorMarkers() {
-                clearRemoteCursorMarkers();
-                if (!editor || !editor.session || !window.ace) {
-                    return;
-                }
-
-                latestPresence.forEach(function (person) {
-                    if (!person || person.clientId === clientId || !person.selection) {
-                        return;
-                    }
-
-                    var color = safeMarkerColor(person.color);
-                    var label = escapeHTML(person.user || "Collaborator");
-                    var selection = person.selection;
-                    var marker = {
-                        update: function (html, markerLayer, session, config) {
-                            var row = Number(selection.endRow != null ? selection.endRow : selection.startRow || 0);
-                            var column = Number(selection.endColumn != null ? selection.endColumn : selection.startColumn || 0);
-                            var documentRef = session.getDocument();
-                            var maxRow = Math.max(0, documentRef.getLength() - 1);
-                            row = Math.max(0, Math.min(maxRow, row));
-
-                            var line = documentRef.getLine(row) || "";
-                            column = Math.max(0, Math.min(line.length, column));
-
-                            var screenPosition = session.documentToScreenPosition(row, column);
-                            var left = (config.padding || markerLayer.$padding || 0) + (screenPosition.column * config.characterWidth);
-                            var top = markerLayer.$getTop(screenPosition.row, config.lineHeight);
-                            var labelTop = Math.max(0, top - 4);
-
-                            html.push(
-                                "<div class=\"live-remote-cursor\" style=\"left:" + left + "px;top:" + top + "px;height:" + config.lineHeight + "px;border-left-color:" + color + "\"></div>"
-                            );
-                            html.push(
-                                "<div class=\"live-remote-label\" style=\"left:" + left + "px;top:" + labelTop + "px;background:" + color + "\">" + label + "</div>"
-                            );
-                        }
-                    };
-
-                    editor.session.addDynamicMarker(marker, true);
-                    remoteCursorMarkers[person.clientId] = marker;
-                });
-
-                if (editor.renderer && editor.renderer.updateFrontMarkers) {
-                    editor.renderer.updateFrontMarkers();
-                }
-            }
-
-            function applyContent(content, focusEditor) {
-                if (window.ace) {
-                    var aceEditor = ensureAceEditor();
-                    if (!aceEditor) {
-                        showFallbackEditor(content);
-                        return;
-                    }
-
-                    var cursor = getAceCursorSnapshot();
-                    setNodeVisibility(editorFallback, false, "block");
-                    setNodeVisibility(editorEmptyState, false, "flex");
-
-                    if (aceEditor.getValue() !== content) {
-                        isApplyingRemoteUpdate = true;
-                        aceEditor.setValue(content, -1);
-                        isApplyingRemoteUpdate = false;
-                    }
-
-                    restoreAceCursor(cursor);
-                    applyEditorTheme(document.documentElement.getAttribute("data-theme") || "light");
-                    aceEditor.resize(true);
-                    if (aceEditor.renderer && aceEditor.renderer.updateFull) {
-                        aceEditor.renderer.updateFull();
-                    }
-                    renderRemoteCursorMarkers();
-                    if (focusEditor) {
-                        aceEditor.focus();
-                    }
-                } else {
-                    showFallbackEditor(content);
-                    if (focusEditor && editorFallback) {
-                        editorFallback.focus();
-                    }
-                }
-
-                ensureLoadingHidden();
-            }
-
-            function showFallbackEditor(content) {
-                clearRemoteCursorMarkers();
-                setNodeVisibility(editorSurface, false, "block");
-                setNodeVisibility(editorFallback, true, "block");
-                setNodeVisibility(editorEmptyState, false, "flex");
-                if (editorFallback) {
-                    isApplyingRemoteUpdate = true;
-                    editorFallback.value = content;
-                    isApplyingRemoteUpdate = false;
-                }
-                installFallbackListeners();
-                ensureLoadingHidden();
-            }
-
-            function updateFileMetadata(path, bytes) {
-                if (path && editorFilePathLabel) {
-                    editorFilePathLabel.textContent = path;
-                }
-                if (typeof bytes === "number" && editorFileSize) {
-                    editorFileSize.setAttribute("data-size", String(bytes));
-                    editorFileSize.textContent = formatBytes(bytes);
-                }
-            }
-
-            function indexToRowColumn(text, index) {
-                var safeIndex = Math.max(0, Math.min(index, text.length));
-                var lines = text.slice(0, safeIndex).split("\n");
-                return {
-                    row: lines.length - 1,
-                    column: lines[lines.length - 1].length
-                };
-            }
-
-            function getCurrentSelection() {
-                if (editor) {
-                    var range = editor.getSelectionRange();
-                    return {
-                        startRow: range.start.row,
-                        startColumn: range.start.column,
-                        endRow: range.end.row,
-                        endColumn: range.end.column
-                    };
-                }
-                if (!editorFallback) return null;
-                var value = editorFallback.value || "";
-                var start = indexToRowColumn(value, editorFallback.selectionStart || 0);
-                var end = indexToRowColumn(value, editorFallback.selectionEnd || 0);
-                return {
-                    startRow: start.row,
-                    startColumn: start.column,
-                    endRow: end.row,
-                    endColumn: end.column
-                };
-            }
-
-            function describeSelection(selection) {
-                if (!selection) return "Watching the file";
-                var row = Number(selection.endRow || selection.startRow || 0) + 1;
-                var column = Number(selection.endColumn || selection.startColumn || 0) + 1;
-                return "Line " + row + ", column " + column;
-            }
-
-            function renderPresence(presence) {
-                latestPresence = Array.isArray(presence) ? presence.slice() : [];
-                renderRemoteCursorMarkers();
-                if (!editorPresenceList) return;
-
-                editorPresenceList.innerHTML = "";
-                if (latestPresence.length === 0) {
-                    var empty = document.createElement("p");
-                    empty.className = "presence-empty";
-                    empty.textContent = "Only you are here right now.";
-                    editorPresenceList.appendChild(empty);
-                    if (editorPresenceBadge) {
-                        editorPresenceBadge.textContent = "1 active";
-                    }
-                    return;
-                }
-
-                latestPresence.forEach(function (person) {
-                    var item = document.createElement("div");
-                    item.className = "presence-item";
-
-                    var dot = document.createElement("span");
-                    dot.className = "presence-dot";
-                    dot.style.background = person.color || "#0f766e";
-                    dot.style.boxShadow = "0 0 0 4px " + ((person.color || "#0f766e") + "22");
-
-                    var copy = document.createElement("div");
-                    var name = document.createElement("p");
-                    name.className = "presence-name";
-                    name.textContent = person.user + (person.clientId === clientId ? " (You)" : "");
-
-                    var meta = document.createElement("p");
-                    meta.className = "presence-meta";
-                    meta.textContent = describeSelection(person.selection);
-
-                    copy.appendChild(name);
-                    copy.appendChild(meta);
-                    item.appendChild(dot);
-                    item.appendChild(copy);
-                    editorPresenceList.appendChild(item);
-                });
-
-                if (editorPresenceBadge) {
-                    editorPresenceBadge.textContent = latestPresence.length + " active";
-                }
-            }
-
-            function requestJSON(url, options) {
-                return fetch(url, options).then(function (response) {
-                    return response.text().then(function (text) {
-                        var payload = {};
-                        if (text) {
+        </script>
+        <script>
+            (function () {
+                var editorConfig = (function () {
+                    var cfg = document.getElementById("editorConfigJson");
+                    if (cfg) {
+                        try {
+                            return JSON.parse(cfg.textContent);
+                        } catch (e) {
                             try {
-                                payload = JSON.parse(text);
-                            } catch (err) {
-                                payload = { success: false, error: text };
-                            }
+                                console.warn(
+                                    "LiveEdit: failed to parse editor config",
+                                    e,
+                                );
+                            } catch (ignore) {}
                         }
-                        if (!response.ok || (payload && payload.success === false)) {
-                            var error = new Error((payload && payload.error) || (response.status + " " + response.statusText));
-                            error.response = response;
-                            error.payload = payload;
-                            throw error;
-                        }
-                        return payload;
-                    });
-                });
-            }
-
-            function fetchLatestSnapshot(options) {
-                if (!editorConfig.editable) {
-                    return Promise.resolve();
-                }
-                var focusEditor = Boolean(options && options.focusEditor);
-                if (!focusEditor && hasPendingLocalChanges()) {
-                    return Promise.resolve();
-                }
-                return requestJSON(editorConfig.loadURL, {
-                    cache: "no-store",
-                    credentials: "same-origin",
-                    headers: {
-                        "Accept": "application/json"
                     }
-                }).then(function (payload) {
-                    var nextVersion = Number(payload.version || 0);
-                    var nextContent = payload.content || "";
+                    return {
+                        editable: false,
+                        fileName: "",
+                        filePath: "",
+                        loadURL: "",
+                        syncURL: "",
+                        streamURL: "",
+                        modeHint: "text",
+                        fileSize: 0,
+                        hasInitialContent: false,
+                        initialContent: "",
+                        initialVersion: 0,
+                    };
+                })();
 
-                    if (!focusEditor && hasPendingLocalChanges()) {
-                        return payload;
-                    }
+                var themeKey = "inkdrop-theme";
+                var editorSurface = document.getElementById("editorSurface");
+                var editorFallback = document.getElementById("editorFallback");
+                var editorEmptyState =
+                    document.getElementById("editorEmptyState");
+                var editorLoadingOverlay = document.getElementById(
+                    "editorLoadingOverlay",
+                );
+                var editorStatusBadge =
+                    document.getElementById("editorStatusBadge");
+                var editorModeBadge =
+                    document.getElementById("editorModeBadge");
+                var editorPresenceBadge = document.getElementById(
+                    "editorPresenceBadge",
+                );
+                var editorPresenceList =
+                    document.getElementById("editorPresenceList");
+                var editorFilePathLabel = document.getElementById(
+                    "editorFilePathLabel",
+                );
+                var editorFileSize = document.getElementById("editorFileSize");
+                var saveAsButton = document.getElementById("editorSaveAsBtn");
+                var profileButton =
+                    document.getElementById("profileMenuButton");
+                var profileMenu = document.getElementById("profileMenu");
 
-                    if (nextVersion >= currentVersion || nextContent !== getEditorContent()) {
-                        applyRemoteSnapshot({
-                            type: "snapshot",
-                            version: nextVersion,
-                            content: nextContent,
-                            mode: payload.mode,
-                            path: payload.path,
-                            external: true
-                        }, focusEditor);
-                    } else {
-                        currentVersion = Math.max(currentVersion, nextVersion);
-                    }
+                var editor = null;
+                var editorListenersInstalled = false;
+                var fallbackListenersInstalled = false;
+                var isApplyingRemoteUpdate = false;
+                var pendingSyncTimer = null;
+                var pendingPresenceTimer = null;
+                var pendingExplicitSave = false;
+                var syncInFlight = false;
+                var syncQueued = false;
+                var currentSyncPromise = null;
+                var currentVersion = Number(editorConfig.initialVersion) || 0;
+                var latestPresence = [];
+                var eventSource = null;
+                var snapshotPollTimer = null;
+                var presenceHeartbeatTimer = null;
+                var clientId =
+                    "client-" +
+                    Date.now().toString(36) +
+                    "-" +
+                    Math.random().toString(36).slice(2, 10);
+                var hydrationWatchdog = null;
+                var localDirty = false;
+                var remoteCursorMarkers = Object.create(null);
+                var disconnecting = false;
 
-                    updateFileMetadata(payload.path || editorConfig.filePath, Number(payload.size || editorConfig.fileSize || 0));
-                    setStatus("Live", "live");
-                }).catch(function (error) {
-                    console.warn("LiveEdit: snapshot fetch failed", error);
-                    showEmptyState(error.message || "Failed to load file.");
-                });
-            }
-
-            function installEditorListeners() {
-                if (!editor || editorListenersInstalled) return;
-                editorListenersInstalled = true;
-                editor.session.on("change", function () {
-                    if (isApplyingRemoteUpdate) return;
-                    localDirty = true;
-                    updateFileMetadata(editorConfig.filePath, new Blob([editor.getValue()]).size);
-                    queueSync(false);
-                });
-                editor.selection.on("changeCursor", function () {
-                    queuePresenceUpdate();
-                });
-                editor.selection.on("changeSelection", function () {
-                    queuePresenceUpdate();
-                });
-            }
-
-            function installFallbackListeners() {
-                if (!editorFallback || fallbackListenersInstalled) return;
-                fallbackListenersInstalled = true;
-                editorFallback.addEventListener("input", function () {
-                    if (isApplyingRemoteUpdate) return;
-                    localDirty = true;
-                    updateFileMetadata(editorConfig.filePath, new Blob([editorFallback.value]).size);
-                    queueSync(false);
-                });
-                ["keyup", "click", "select"].forEach(function (eventName) {
-                    editorFallback.addEventListener(eventName, function () {
-                        queuePresenceUpdate();
-                    });
-                });
-            }
-
-            function sendPresenceUpdate() {
-                if (!editorConfig.editable || disconnecting) {
-                    return Promise.resolve();
-                }
-
-                return requestJSON(editorConfig.syncURL, {
-                    method: "POST",
-                    credentials: "same-origin",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    body: JSON.stringify({
-                        op: "presence",
-                        clientId: clientId,
-                        version: currentVersion,
-                        selection: getCurrentSelection()
-                    })
-                }).then(function (payload) {
-                    renderPresence(payload.presence);
-                    return payload;
-                });
-            }
-
-            function queuePresenceUpdate() {
-                if (!editorConfig.editable || disconnecting) return;
-                if (pendingPresenceTimer) {
-                    clearTimeout(pendingPresenceTimer);
-                }
-                pendingPresenceTimer = setTimeout(function () {
-                    pendingPresenceTimer = null;
-                    sendPresenceUpdate().catch(function (error) {
-                        writeDebug("LiveEdit: presence update failed " + error.message);
-                    });
-                }, 120);
-            }
-
-            function startPresenceHeartbeat() {
-                if (presenceHeartbeatTimer) {
-                    clearInterval(presenceHeartbeatTimer);
-                }
-                presenceHeartbeatTimer = setInterval(function () {
-                    sendPresenceUpdate().catch(function (error) {
-                        writeDebug("LiveEdit: heartbeat failed " + error.message);
-                    });
-                }, 10000);
-            }
-
-            function startSnapshotPolling() {
-                if (snapshotPollTimer) {
-                    clearInterval(snapshotPollTimer);
-                }
-                snapshotPollTimer = setInterval(function () {
-                    fetchLatestSnapshot({ focusEditor: false });
-                }, 1500);
-            }
-
-            function flushSync() {
-                if (!editorConfig.editable) {
-                    return Promise.resolve();
-                }
-                if (disconnecting) {
-                    return Promise.resolve();
-                }
-                if (syncInFlight) {
-                    syncQueued = true;
-                    return currentSyncPromise || Promise.resolve();
-                }
-
-                syncInFlight = true;
-                var operation = pendingExplicitSave ? "save" : "sync";
-                pendingExplicitSave = false;
-                setStatus(operation === "save" ? "Saving…" : "Syncing…", "busy");
-
-                currentSyncPromise = requestJSON(editorConfig.syncURL, {
-                    method: "POST",
-                    credentials: "same-origin",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    body: JSON.stringify({
-                        op: operation,
-                        clientId: clientId,
-                        version: currentVersion,
-                        content: getEditorContent(),
-                        selection: getCurrentSelection()
-                    })
-                }).then(function (payload) {
-                    localDirty = false;
-                    currentVersion = Number(payload.version || currentVersion);
-                    renderPresence(payload.presence);
-                    setStatus("Live", "live");
-                    return payload;
-                }).catch(function (error) {
-                    console.warn("LiveEdit: sync failed", error);
-                    setStatus(error.message || "Sync failed", "error");
-                    throw error;
-                }).finally(function () {
-                    syncInFlight = false;
-                    currentSyncPromise = null;
-                    if (syncQueued) {
-                        syncQueued = false;
-                        flushSync();
-                    }
-                });
-
-                return currentSyncPromise;
-            }
-
-            function queueSync(explicitSave) {
-                if (!editorConfig.editable) return Promise.resolve();
-                localDirty = true;
-                pendingExplicitSave = pendingExplicitSave || Boolean(explicitSave);
-                if (pendingSyncTimer) {
-                    clearTimeout(pendingSyncTimer);
-                    pendingSyncTimer = null;
-                }
-                if (explicitSave) {
-                    return flushSync();
-                }
-                pendingSyncTimer = setTimeout(function () {
-                    pendingSyncTimer = null;
-                    flushSync();
-                }, 250);
-                return Promise.resolve();
-            }
-
-            function applyRemoteSnapshot(payload, focusEditor) {
-                if (!payload) return;
-                var nextVersion = Number(payload.version || 0);
-                if (Array.isArray(payload.presence)) {
-                    renderPresence(payload.presence);
-                }
-                if (payload.mode) {
-                    setEditorMode(payload.mode);
-                }
-                if (payload.path) {
-                    editorConfig.filePath = payload.path;
-                }
-                if (payload.content == null) {
-                    currentVersion = Math.max(currentVersion, nextVersion);
-                    return;
-                }
-
-                var currentContent = getEditorContent();
-                if (payload.clientId === clientId) {
-                    localDirty = false;
-                    currentVersion = Math.max(currentVersion, nextVersion);
-                    updateFileMetadata(payload.path || editorConfig.filePath, new Blob([currentContent]).size);
-                    setStatus("Live", "live");
-                    return;
-                }
-
-                if (hasPendingLocalChanges()) {
-                    setStatus("Remote changes incoming…", "busy");
-                    return;
-                }
-
-                if (currentContent !== payload.content) {
-                    isApplyingRemoteUpdate = true;
-                    applyContent(payload.content, Boolean(focusEditor));
-                    isApplyingRemoteUpdate = false;
-                    updateFileMetadata(payload.path || editorConfig.filePath, new Blob([payload.content]).size);
-                    setStatus(payload.external ? "External change synced" : "Remote change synced", "live");
-                }
-                currentVersion = Math.max(currentVersion, nextVersion);
-            }
-
-            function handleLiveEvent(payload) {
-                if (!payload || !payload.type) return;
-                if (payload.type === "snapshot") {
-                    applyRemoteSnapshot(payload);
-                } else if (payload.type === "presence") {
-                    renderPresence(payload.presence);
-                }
-            }
-
-            function connectLiveStream() {
-                if (!editorConfig.editable) return;
-                startSnapshotPolling();
-                startPresenceHeartbeat();
-                if (typeof window.EventSource === "undefined") {
-                    setStatus("Polling for updates", "busy");
-                    queuePresenceUpdate();
-                    return;
-                }
-
-                eventSource = new EventSource(editorConfig.streamURL + "&client=" + encodeURIComponent(clientId));
-                eventSource.onopen = function () {
-                    setStatus("Live", "live");
-                    queuePresenceUpdate();
-                };
-                eventSource.onmessage = function (event) {
+                function writeDebug(message) {
                     try {
-                        handleLiveEvent(JSON.parse(event.data));
-                    } catch (error) {
-                        console.warn("LiveEdit: failed to parse stream event", error);
-                    }
-                };
-                eventSource.onerror = function () {
-                    setStatus("Reconnecting…", "busy");
-                };
-            }
-
-            function disconnectSession() {
-                if (disconnecting) {
-                    return;
-                }
-                disconnecting = true;
-
-                if (pendingPresenceTimer) {
-                    clearTimeout(pendingPresenceTimer);
-                    pendingPresenceTimer = null;
-                }
-                if (pendingSyncTimer) {
-                    clearTimeout(pendingSyncTimer);
-                    pendingSyncTimer = null;
-                }
-                if (presenceHeartbeatTimer) {
-                    clearInterval(presenceHeartbeatTimer);
-                    presenceHeartbeatTimer = null;
-                }
-                if (snapshotPollTimer) {
-                    clearInterval(snapshotPollTimer);
-                    snapshotPollTimer = null;
-                }
-                if (eventSource) {
-                    eventSource.close();
-                    eventSource = null;
-                }
-
-                if (!editorConfig.editable) {
-                    return;
-                }
-
-                var leavePayload = JSON.stringify({
-                    op: "leave",
-                    clientId: clientId
-                });
-
-                if (navigator.sendBeacon) {
-                    try {
-                        navigator.sendBeacon(editorConfig.syncURL, new Blob([leavePayload], { type: "application/json" }));
-                        return;
+                        console.debug(message);
                     } catch (ignore) {}
                 }
 
-                try {
-                    fetch(editorConfig.syncURL, {
+                function setNodeVisibility(node, visible, displayValue) {
+                    if (!node) return;
+                    node.hidden = !visible;
+                    node.style.display = visible ? displayValue || "" : "none";
+                }
+
+                function clearHydrationWatchdog() {
+                    if (hydrationWatchdog) {
+                        clearTimeout(hydrationWatchdog);
+                        hydrationWatchdog = null;
+                    }
+                }
+
+                function escapeHTML(value) {
+                    return String(value == null ? "" : value)
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;")
+                        .replace(/\"/g, "&quot;")
+                        .replace(/'/g, "&#39;");
+                }
+
+                function safeMarkerColor(value) {
+                    return /^#[0-9a-f]{6}$/i.test(String(value || ""))
+                        ? value
+                        : "#0f766e";
+                }
+
+                function hasPendingLocalChanges() {
+                    return Boolean(
+                        localDirty ||
+                        pendingSyncTimer ||
+                        syncInFlight ||
+                        syncQueued ||
+                        pendingExplicitSave,
+                    );
+                }
+
+                function setTheme(theme) {
+                    var value = theme === "dark" ? "dark" : "light";
+                    document.documentElement.setAttribute("data-theme", value);
+                    document
+                        .querySelectorAll("[data-theme-set]")
+                        .forEach(function (button) {
+                            button.setAttribute(
+                                "aria-pressed",
+                                String(
+                                    button.getAttribute("data-theme-set") ===
+                                        value,
+                                ),
+                            );
+                        });
+                    applyEditorTheme(value);
+                }
+
+                function getSavedTheme() {
+                    var stored = localStorage.getItem(themeKey);
+                    if (stored === "dark" || stored === "light") {
+                        return stored;
+                    }
+                    if (
+                        window.matchMedia &&
+                        window.matchMedia("(prefers-color-scheme: dark)")
+                            .matches
+                    ) {
+                        return "dark";
+                    }
+                    return "light";
+                }
+
+                function initTheme() {
+                    setTheme(getSavedTheme());
+                    document
+                        .querySelectorAll("[data-theme-set]")
+                        .forEach(function (button) {
+                            button.type = "button";
+                            button.addEventListener("click", function () {
+                                var theme =
+                                    button.getAttribute("data-theme-set");
+                                setTheme(theme);
+                                localStorage.setItem(themeKey, theme);
+                            });
+                        });
+                }
+
+                function closeMenu() {
+                    if (!profileMenu || !profileButton) return;
+                    profileMenu.hidden = true;
+                    profileButton.setAttribute("aria-expanded", "false");
+                }
+
+                function initProfileMenu() {
+                    if (!profileButton || !profileMenu) return;
+                    profileButton.addEventListener("click", function () {
+                        var isHidden = profileMenu.hidden;
+                        profileMenu.hidden = !isHidden;
+                        profileButton.setAttribute(
+                            "aria-expanded",
+                            String(isHidden),
+                        );
+                    });
+
+                    document.addEventListener("click", function (event) {
+                        if (
+                            !profileMenu.hidden &&
+                            !event.target.closest(".profile-menu")
+                        ) {
+                            closeMenu();
+                        }
+                    });
+
+                    document.addEventListener("keydown", function (event) {
+                        if (event.key === "Escape") {
+                            closeMenu();
+                        }
+                    });
+                }
+
+                function formatBytes(bytes) {
+                    if (typeof bytes !== "number" || isNaN(bytes) || bytes < 0)
+                        return "";
+                    var units = ["B", "KB", "MB", "GB"];
+                    var idx = 0;
+                    var value = bytes;
+                    while (value >= 1024 && idx < units.length - 1) {
+                        value = value / 1024;
+                        idx += 1;
+                    }
+                    var precision = idx === 0 ? 0 : 1;
+                    return value.toFixed(precision) + " " + units[idx];
+                }
+
+                function humanizeMode(mode) {
+                    var known = {
+                        c_cpp: "C/C++",
+                        css: "CSS",
+                        dockerfile: "Dockerfile",
+                        dotenv: "Dotenv",
+                        gitignore: "Git Ignore",
+                        golang: "Go",
+                        html: "HTML",
+                        ini: "INI",
+                        java: "Java",
+                        javascript: "JavaScript",
+                        json: "JSON",
+                        jsx: "JSX",
+                        lua: "Lua",
+                        makefile: "Makefile",
+                        markdown: "Markdown",
+                        php: "PHP",
+                        python: "Python",
+                        ruby: "Ruby",
+                        rust: "Rust",
+                        sh: "Shell",
+                        sql: "SQL",
+                        text: "Plain Text",
+                        toml: "TOML",
+                        tsx: "TSX",
+                        typescript: "TypeScript",
+                        xml: "XML",
+                        yaml: "YAML",
+                    };
+                    return known[mode] || "Plain Text";
+                }
+
+                function setEditorMode(mode) {
+                    var resolved = mode || editorConfig.modeHint || "text";
+                    editorModeBadge.textContent =
+                        "Mode: " + humanizeMode(resolved);
+                    editorConfig.modeHint = resolved;
+                    if (editor) {
+                        editor.session.setMode("ace/mode/" + resolved);
+                    }
+                }
+
+                function setStatus(message, state) {
+                    if (!editorStatusBadge) return;
+                    editorStatusBadge.textContent = message;
+                    editorStatusBadge.setAttribute(
+                        "data-state",
+                        state || "live",
+                    );
+                }
+
+                function ensureLoadingHidden() {
+                    clearHydrationWatchdog();
+                    setNodeVisibility(editorLoadingOverlay, false, "flex");
+                }
+
+                function showEmptyState(message) {
+                    if (editorEmptyState) {
+                        setNodeVisibility(editorEmptyState, true, "flex");
+                        var paragraph = editorEmptyState.querySelector("p");
+                        if (paragraph && message) {
+                            paragraph.textContent = message;
+                        }
+                    }
+                    setNodeVisibility(editorSurface, false, "block");
+                    setNodeVisibility(editorFallback, false, "block");
+                    ensureLoadingHidden();
+                    setStatus(message || "Editor unavailable", "error");
+                }
+
+                function ensureAceEditor() {
+                    if (!window.ace || !editorSurface) {
+                        return null;
+                    }
+
+                    setNodeVisibility(editorSurface, true, "block");
+                    if (!editor) {
+                        ace.config.set(
+                            "basePath",
+                            "https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict",
+                        );
+                        editor = ace.edit(editorSurface);
+                        editor.setOptions({
+                            enableBasicAutocompletion: true,
+                            enableLiveAutocompletion: true,
+                            fontSize: "14px",
+                            highlightActiveLine: true,
+                            printMargin: false,
+                            showLineNumbers: true,
+                            tabSize: 4,
+                            useSoftTabs: true,
+                            wrap: false,
+                        });
+                        editor.session.setUseWrapMode(false);
+                        setEditorMode(editorConfig.modeHint);
+                        installEditorListeners();
+                    }
+                    return editor;
+                }
+
+                function applyEditorTheme(theme) {
+                    if (!editor) return;
+                    editor.setTheme(
+                        theme === "dark"
+                            ? "ace/theme/monokai"
+                            : "ace/theme/github",
+                    );
+                }
+
+                function getEditorContent() {
+                    if (editor) {
+                        return editor.getValue();
+                    }
+                    return editorFallback ? editorFallback.value : "";
+                }
+
+                function getAceCursorSnapshot() {
+                    if (!editor) return null;
+                    var position = editor.getCursorPosition();
+                    return {
+                        row: position.row,
+                        column: position.column,
+                    };
+                }
+
+                function restoreAceCursor(position) {
+                    if (!editor || !position) return;
+                    try {
+                        editor.moveCursorToPosition(position);
+                    } catch (ignore) {}
+                }
+
+                function clearRemoteCursorMarkers() {
+                    if (!editor || !editor.session) return;
+                    Object.keys(remoteCursorMarkers).forEach(
+                        function (markerKey) {
+                            var marker = remoteCursorMarkers[markerKey];
+                            if (marker && marker.id != null) {
+                                editor.session.removeMarker(marker.id);
+                            }
+                            delete remoteCursorMarkers[markerKey];
+                        },
+                    );
+                    if (editor.renderer && editor.renderer.updateFrontMarkers) {
+                        editor.renderer.updateFrontMarkers();
+                    }
+                }
+
+                function renderRemoteCursorMarkers() {
+                    clearRemoteCursorMarkers();
+                    if (!editor || !editor.session || !window.ace) {
+                        return;
+                    }
+
+                    latestPresence.forEach(function (person) {
+                        if (
+                            !person ||
+                            person.clientId === clientId ||
+                            !person.selection
+                        ) {
+                            return;
+                        }
+
+                        var color = safeMarkerColor(person.color);
+                        var label = escapeHTML(person.user || "Collaborator");
+                        var selection = person.selection;
+                        var marker = {
+                            update: function (
+                                html,
+                                markerLayer,
+                                session,
+                                config,
+                            ) {
+                                var row = Number(
+                                    selection.endRow != null
+                                        ? selection.endRow
+                                        : selection.startRow || 0,
+                                );
+                                var column = Number(
+                                    selection.endColumn != null
+                                        ? selection.endColumn
+                                        : selection.startColumn || 0,
+                                );
+                                var documentRef = session.getDocument();
+                                var maxRow = Math.max(
+                                    0,
+                                    documentRef.getLength() - 1,
+                                );
+                                row = Math.max(0, Math.min(maxRow, row));
+
+                                var line = documentRef.getLine(row) || "";
+                                column = Math.max(
+                                    0,
+                                    Math.min(line.length, column),
+                                );
+
+                                var screenPosition =
+                                    session.documentToScreenPosition(
+                                        row,
+                                        column,
+                                    );
+                                var left =
+                                    (config.padding ||
+                                        markerLayer.$padding ||
+                                        0) +
+                                    screenPosition.column *
+                                        config.characterWidth;
+                                var top = markerLayer.$getTop(
+                                    screenPosition.row,
+                                    config.lineHeight,
+                                );
+                                var labelTop = Math.max(0, top - 4);
+
+                                html.push(
+                                    '<div class="live-remote-cursor" style="left:' +
+                                        left +
+                                        "px;top:" +
+                                        top +
+                                        "px;height:" +
+                                        config.lineHeight +
+                                        "px;border-left-color:" +
+                                        color +
+                                        '"></div>',
+                                );
+                                html.push(
+                                    '<div class="live-remote-label" style="left:' +
+                                        left +
+                                        "px;top:" +
+                                        labelTop +
+                                        "px;background:" +
+                                        color +
+                                        '">' +
+                                        label +
+                                        "</div>",
+                                );
+                            },
+                        };
+
+                        editor.session.addDynamicMarker(marker, true);
+                        remoteCursorMarkers[person.clientId] = marker;
+                    });
+
+                    if (editor.renderer && editor.renderer.updateFrontMarkers) {
+                        editor.renderer.updateFrontMarkers();
+                    }
+                }
+
+                function applyContent(content, focusEditor) {
+                    if (window.ace) {
+                        var aceEditor = ensureAceEditor();
+                        if (!aceEditor) {
+                            showFallbackEditor(content);
+                            return;
+                        }
+
+                        var cursor = getAceCursorSnapshot();
+                        setNodeVisibility(editorFallback, false, "block");
+                        setNodeVisibility(editorEmptyState, false, "flex");
+
+                        if (aceEditor.getValue() !== content) {
+                            isApplyingRemoteUpdate = true;
+                            aceEditor.setValue(content, -1);
+                            isApplyingRemoteUpdate = false;
+                        }
+
+                        restoreAceCursor(cursor);
+                        applyEditorTheme(
+                            document.documentElement.getAttribute(
+                                "data-theme",
+                            ) || "light",
+                        );
+                        aceEditor.resize(true);
+                        if (
+                            aceEditor.renderer &&
+                            aceEditor.renderer.updateFull
+                        ) {
+                            aceEditor.renderer.updateFull();
+                        }
+                        renderRemoteCursorMarkers();
+                        if (focusEditor) {
+                            aceEditor.focus();
+                        }
+                    } else {
+                        showFallbackEditor(content);
+                        if (focusEditor && editorFallback) {
+                            editorFallback.focus();
+                        }
+                    }
+
+                    ensureLoadingHidden();
+                }
+
+                function showFallbackEditor(content) {
+                    clearRemoteCursorMarkers();
+                    setNodeVisibility(editorSurface, false, "block");
+                    setNodeVisibility(editorFallback, true, "block");
+                    setNodeVisibility(editorEmptyState, false, "flex");
+                    if (editorFallback) {
+                        isApplyingRemoteUpdate = true;
+                        editorFallback.value = content;
+                        isApplyingRemoteUpdate = false;
+                    }
+                    installFallbackListeners();
+                    ensureLoadingHidden();
+                }
+
+                function updateFileMetadata(path, bytes) {
+                    if (path && editorFilePathLabel) {
+                        editorFilePathLabel.textContent = path;
+                    }
+                    if (typeof bytes === "number" && editorFileSize) {
+                        editorFileSize.setAttribute("data-size", String(bytes));
+                        editorFileSize.textContent = formatBytes(bytes);
+                    }
+                }
+
+                function indexToRowColumn(text, index) {
+                    var safeIndex = Math.max(0, Math.min(index, text.length));
+                    var lines = text.slice(0, safeIndex).split("\n");
+                    return {
+                        row: lines.length - 1,
+                        column: lines[lines.length - 1].length,
+                    };
+                }
+
+                function getCurrentSelection() {
+                    if (editor) {
+                        var range = editor.getSelectionRange();
+                        return {
+                            startRow: range.start.row,
+                            startColumn: range.start.column,
+                            endRow: range.end.row,
+                            endColumn: range.end.column,
+                        };
+                    }
+                    if (!editorFallback) return null;
+                    var value = editorFallback.value || "";
+                    var start = indexToRowColumn(
+                        value,
+                        editorFallback.selectionStart || 0,
+                    );
+                    var end = indexToRowColumn(
+                        value,
+                        editorFallback.selectionEnd || 0,
+                    );
+                    return {
+                        startRow: start.row,
+                        startColumn: start.column,
+                        endRow: end.row,
+                        endColumn: end.column,
+                    };
+                }
+
+                function describeSelection(selection) {
+                    if (!selection) return "Watching the file";
+                    var row =
+                        Number(selection.endRow || selection.startRow || 0) + 1;
+                    var column =
+                        Number(
+                            selection.endColumn || selection.startColumn || 0,
+                        ) + 1;
+                    return "Line " + row + ", column " + column;
+                }
+
+                function renderPresence(presence) {
+                    latestPresence = Array.isArray(presence)
+                        ? presence.slice()
+                        : [];
+                    renderRemoteCursorMarkers();
+                    if (!editorPresenceList) return;
+
+                    editorPresenceList.innerHTML = "";
+                    if (latestPresence.length === 0) {
+                        var empty = document.createElement("p");
+                        empty.className = "presence-empty";
+                        empty.textContent = "Only you are here right now.";
+                        editorPresenceList.appendChild(empty);
+                        if (editorPresenceBadge) {
+                            editorPresenceBadge.textContent = "1 active";
+                        }
+                        return;
+                    }
+
+                    latestPresence.forEach(function (person) {
+                        var item = document.createElement("div");
+                        item.className = "presence-item";
+
+                        var dot = document.createElement("span");
+                        dot.className = "presence-dot";
+                        dot.style.background = person.color || "#0f766e";
+                        dot.style.boxShadow =
+                            "0 0 0 4px " + ((person.color || "#0f766e") + "22");
+
+                        var copy = document.createElement("div");
+                        var name = document.createElement("p");
+                        name.className = "presence-name";
+                        name.textContent =
+                            person.user +
+                            (person.clientId === clientId ? " (You)" : "");
+
+                        var meta = document.createElement("p");
+                        meta.className = "presence-meta";
+                        meta.textContent = describeSelection(person.selection);
+
+                        copy.appendChild(name);
+                        copy.appendChild(meta);
+                        item.appendChild(dot);
+                        item.appendChild(copy);
+                        editorPresenceList.appendChild(item);
+                    });
+
+                    if (editorPresenceBadge) {
+                        editorPresenceBadge.textContent =
+                            latestPresence.length + " active";
+                    }
+                }
+
+                function requestJSON(url, options) {
+                    return fetch(url, options).then(function (response) {
+                        return response.text().then(function (text) {
+                            var payload = {};
+                            if (text) {
+                                try {
+                                    payload = JSON.parse(text);
+                                } catch (err) {
+                                    payload = { success: false, error: text };
+                                }
+                            }
+                            if (
+                                !response.ok ||
+                                (payload && payload.success === false)
+                            ) {
+                                var error = new Error(
+                                    (payload && payload.error) ||
+                                        response.status +
+                                            " " +
+                                            response.statusText,
+                                );
+                                error.response = response;
+                                error.payload = payload;
+                                throw error;
+                            }
+                            return payload;
+                        });
+                    });
+                }
+
+                function fetchLatestSnapshot(options) {
+                    if (!editorConfig.editable) {
+                        return Promise.resolve();
+                    }
+                    var focusEditor = Boolean(options && options.focusEditor);
+                    if (!focusEditor && hasPendingLocalChanges()) {
+                        return Promise.resolve();
+                    }
+                    return requestJSON(editorConfig.loadURL, {
+                        cache: "no-store",
+                        credentials: "same-origin",
+                        headers: {
+                            Accept: "application/json",
+                        },
+                    })
+                        .then(function (payload) {
+                            var nextVersion = Number(payload.version || 0);
+                            var nextContent = payload.content || "";
+
+                            if (!focusEditor && hasPendingLocalChanges()) {
+                                return payload;
+                            }
+
+                            if (
+                                nextVersion >= currentVersion ||
+                                nextContent !== getEditorContent()
+                            ) {
+                                applyRemoteSnapshot(
+                                    {
+                                        type: "snapshot",
+                                        version: nextVersion,
+                                        content: nextContent,
+                                        mode: payload.mode,
+                                        path: payload.path,
+                                        external: true,
+                                    },
+                                    focusEditor,
+                                );
+                            } else {
+                                currentVersion = Math.max(
+                                    currentVersion,
+                                    nextVersion,
+                                );
+                            }
+
+                            updateFileMetadata(
+                                payload.path || editorConfig.filePath,
+                                Number(
+                                    payload.size || editorConfig.fileSize || 0,
+                                ),
+                            );
+                            setStatus("Live", "live");
+                        })
+                        .catch(function (error) {
+                            console.warn(
+                                "LiveEdit: snapshot fetch failed",
+                                error,
+                            );
+                            showEmptyState(
+                                error.message || "Failed to load file.",
+                            );
+                        });
+                }
+
+                function installEditorListeners() {
+                    if (!editor || editorListenersInstalled) return;
+                    editorListenersInstalled = true;
+                    editor.session.on("change", function () {
+                        if (isApplyingRemoteUpdate) return;
+                        localDirty = true;
+                        updateFileMetadata(
+                            editorConfig.filePath,
+                            new Blob([editor.getValue()]).size,
+                        );
+                        queueSync(false);
+                    });
+                    editor.selection.on("changeCursor", function () {
+                        queuePresenceUpdate();
+                    });
+                    editor.selection.on("changeSelection", function () {
+                        queuePresenceUpdate();
+                    });
+                }
+
+                function installFallbackListeners() {
+                    if (!editorFallback || fallbackListenersInstalled) return;
+                    fallbackListenersInstalled = true;
+                    editorFallback.addEventListener("input", function () {
+                        if (isApplyingRemoteUpdate) return;
+                        localDirty = true;
+                        updateFileMetadata(
+                            editorConfig.filePath,
+                            new Blob([editorFallback.value]).size,
+                        );
+                        queueSync(false);
+                    });
+                    ["keyup", "click", "select"].forEach(function (eventName) {
+                        editorFallback.addEventListener(eventName, function () {
+                            queuePresenceUpdate();
+                        });
+                    });
+                }
+
+                function sendPresenceUpdate() {
+                    if (!editorConfig.editable || disconnecting) {
+                        return Promise.resolve();
+                    }
+
+                    return requestJSON(editorConfig.syncURL, {
                         method: "POST",
                         credentials: "same-origin",
-                        keepalive: true,
                         headers: {
                             "Content-Type": "application/json",
-                            "Accept": "application/json"
+                            Accept: "application/json",
                         },
-                        body: leavePayload
+                        body: JSON.stringify({
+                            op: "presence",
+                            clientId: clientId,
+                            version: currentVersion,
+                            selection: getCurrentSelection(),
+                        }),
+                    }).then(function (payload) {
+                        renderPresence(payload.presence);
+                        return payload;
                     });
-                } catch (ignore) {}
-            }
+                }
 
-            function saveAsToPath(requestedPath, overwrite) {
-                return requestJSON(editorConfig.syncURL, {
-                    method: "POST",
-                    credentials: "same-origin",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    body: JSON.stringify({
-                        op: "save_as",
-                        clientId: clientId,
-                        version: currentVersion,
-                        content: getEditorContent(),
-                        selection: getCurrentSelection(),
-                        savePath: requestedPath,
-                        overwrite: Boolean(overwrite)
+                function queuePresenceUpdate() {
+                    if (!editorConfig.editable || disconnecting) return;
+                    if (pendingPresenceTimer) {
+                        clearTimeout(pendingPresenceTimer);
+                    }
+                    pendingPresenceTimer = setTimeout(function () {
+                        pendingPresenceTimer = null;
+                        sendPresenceUpdate().catch(function (error) {
+                            writeDebug(
+                                "LiveEdit: presence update failed " +
+                                    error.message,
+                            );
+                        });
+                    }, 120);
+                }
+
+                function startPresenceHeartbeat() {
+                    if (presenceHeartbeatTimer) {
+                        clearInterval(presenceHeartbeatTimer);
+                    }
+                    presenceHeartbeatTimer = setInterval(function () {
+                        sendPresenceUpdate().catch(function (error) {
+                            writeDebug(
+                                "LiveEdit: heartbeat failed " + error.message,
+                            );
+                        });
+                    }, 10000);
+                }
+
+                function startSnapshotPolling() {
+                    if (snapshotPollTimer) {
+                        clearInterval(snapshotPollTimer);
+                    }
+                    snapshotPollTimer = setInterval(function () {
+                        fetchLatestSnapshot({ focusEditor: false });
+                    }, 1500);
+                }
+
+                function flushSync() {
+                    if (!editorConfig.editable) {
+                        return Promise.resolve();
+                    }
+                    if (disconnecting) {
+                        return Promise.resolve();
+                    }
+                    if (syncInFlight) {
+                        syncQueued = true;
+                        return currentSyncPromise || Promise.resolve();
+                    }
+
+                    syncInFlight = true;
+                    var operation = pendingExplicitSave ? "save" : "sync";
+                    pendingExplicitSave = false;
+                    setStatus(
+                        operation === "save" ? "Saving…" : "Syncing…",
+                        "busy",
+                    );
+
+                    currentSyncPromise = requestJSON(editorConfig.syncURL, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Accept: "application/json",
+                        },
+                        body: JSON.stringify({
+                            op: operation,
+                            clientId: clientId,
+                            version: currentVersion,
+                            content: getEditorContent(),
+                            selection: getCurrentSelection(),
+                        }),
                     })
-                });
-            }
+                        .then(function (payload) {
+                            localDirty = false;
+                            currentVersion = Number(
+                                payload.version || currentVersion,
+                            );
+                            renderPresence(payload.presence);
+                            setStatus("Live", "live");
+                            return payload;
+                        })
+                        .catch(function (error) {
+                            console.warn("LiveEdit: sync failed", error);
+                            setStatus(error.message || "Sync failed", "error");
+                            throw error;
+                        })
+                        .finally(function () {
+                            syncInFlight = false;
+                            currentSyncPromise = null;
+                            if (syncQueued) {
+                                syncQueued = false;
+                                flushSync();
+                            }
+                        });
 
-            function triggerSaveAs() {
-                if (!editorConfig.editable) return;
-                var requestedPath = window.prompt("Save As path", editorConfig.filePath || editorConfig.fileName);
-                if (requestedPath == null) {
-                    return;
-                }
-                requestedPath = requestedPath.trim();
-                if (!requestedPath) {
-                    setStatus("Save As cancelled", "error");
-                    return;
+                    return currentSyncPromise;
                 }
 
-                setStatus("Saving copy…", "busy");
-                saveAsToPath(requestedPath, false).then(function (payload) {
-                    window.location.assign(payload.editURL || editorConfig.syncURL);
-                }).catch(function (error) {
-                    if (error.response && error.response.status === 409) {
-                        if (window.confirm("A file already exists there. Overwrite it?")) {
-                            return saveAsToPath(requestedPath, true).then(function (payload) {
-                                window.location.assign(payload.editURL || editorConfig.syncURL);
-                            });
+                function queueSync(explicitSave) {
+                    if (!editorConfig.editable) return Promise.resolve();
+                    localDirty = true;
+                    pendingExplicitSave =
+                        pendingExplicitSave || Boolean(explicitSave);
+                    if (pendingSyncTimer) {
+                        clearTimeout(pendingSyncTimer);
+                        pendingSyncTimer = null;
+                    }
+                    if (explicitSave) {
+                        return flushSync();
+                    }
+                    pendingSyncTimer = setTimeout(function () {
+                        pendingSyncTimer = null;
+                        flushSync();
+                    }, 250);
+                    return Promise.resolve();
+                }
+
+                function applyRemoteSnapshot(payload, focusEditor) {
+                    if (!payload) return;
+                    var nextVersion = Number(payload.version || 0);
+                    if (Array.isArray(payload.presence)) {
+                        renderPresence(payload.presence);
+                    }
+                    if (payload.mode) {
+                        setEditorMode(payload.mode);
+                    }
+                    if (payload.path) {
+                        editorConfig.filePath = payload.path;
+                    }
+                    if (payload.content == null) {
+                        currentVersion = Math.max(currentVersion, nextVersion);
+                        return;
+                    }
+
+                    var currentContent = getEditorContent();
+                    if (payload.clientId === clientId) {
+                        localDirty = false;
+                        currentVersion = Math.max(currentVersion, nextVersion);
+                        updateFileMetadata(
+                            payload.path || editorConfig.filePath,
+                            new Blob([currentContent]).size,
+                        );
+                        setStatus("Live", "live");
+                        return;
+                    }
+
+                    if (hasPendingLocalChanges()) {
+                        setStatus("Remote changes incoming…", "busy");
+                        return;
+                    }
+
+                    if (currentContent !== payload.content) {
+                        isApplyingRemoteUpdate = true;
+                        applyContent(payload.content, Boolean(focusEditor));
+                        isApplyingRemoteUpdate = false;
+                        updateFileMetadata(
+                            payload.path || editorConfig.filePath,
+                            new Blob([payload.content]).size,
+                        );
+                        setStatus(
+                            payload.external
+                                ? "External change synced"
+                                : "Remote change synced",
+                            "live",
+                        );
+                    }
+                    currentVersion = Math.max(currentVersion, nextVersion);
+                }
+
+                function handleLiveEvent(payload) {
+                    if (!payload || !payload.type) return;
+                    if (payload.type === "snapshot") {
+                        applyRemoteSnapshot(payload);
+                    } else if (payload.type === "presence") {
+                        renderPresence(payload.presence);
+                    }
+                }
+
+                function connectLiveStream() {
+                    if (!editorConfig.editable) return;
+                    startSnapshotPolling();
+                    startPresenceHeartbeat();
+                    if (typeof window.EventSource === "undefined") {
+                        setStatus("Polling for updates", "busy");
+                        queuePresenceUpdate();
+                        return;
+                    }
+
+                    eventSource = new EventSource(
+                        editorConfig.streamURL +
+                            "&client=" +
+                            encodeURIComponent(clientId),
+                    );
+                    eventSource.onopen = function () {
+                        setStatus("Live", "live");
+                        queuePresenceUpdate();
+                    };
+                    eventSource.onmessage = function (event) {
+                        try {
+                            handleLiveEvent(JSON.parse(event.data));
+                        } catch (error) {
+                            console.warn(
+                                "LiveEdit: failed to parse stream event",
+                                error,
+                            );
                         }
+                    };
+                    eventSource.onerror = function () {
+                        setStatus("Reconnecting…", "busy");
+                    };
+                }
+
+                function disconnectSession() {
+                    if (disconnecting) {
+                        return;
+                    }
+                    disconnecting = true;
+
+                    if (pendingPresenceTimer) {
+                        clearTimeout(pendingPresenceTimer);
+                        pendingPresenceTimer = null;
+                    }
+                    if (pendingSyncTimer) {
+                        clearTimeout(pendingSyncTimer);
+                        pendingSyncTimer = null;
+                    }
+                    if (presenceHeartbeatTimer) {
+                        clearInterval(presenceHeartbeatTimer);
+                        presenceHeartbeatTimer = null;
+                    }
+                    if (snapshotPollTimer) {
+                        clearInterval(snapshotPollTimer);
+                        snapshotPollTimer = null;
+                    }
+                    if (eventSource) {
+                        eventSource.close();
+                        eventSource = null;
+                    }
+
+                    if (!editorConfig.editable) {
+                        return;
+                    }
+
+                    var leavePayload = JSON.stringify({
+                        op: "leave",
+                        clientId: clientId,
+                    });
+
+                    if (navigator.sendBeacon) {
+                        try {
+                            navigator.sendBeacon(
+                                editorConfig.syncURL,
+                                new Blob([leavePayload], {
+                                    type: "application/json",
+                                }),
+                            );
+                            return;
+                        } catch (ignore) {}
+                    }
+
+                    try {
+                        fetch(editorConfig.syncURL, {
+                            method: "POST",
+                            credentials: "same-origin",
+                            keepalive: true,
+                            headers: {
+                                "Content-Type": "application/json",
+                                Accept: "application/json",
+                            },
+                            body: leavePayload,
+                        });
+                    } catch (ignore) {}
+                }
+
+                function saveAsToPath(requestedPath, overwrite) {
+                    return requestJSON(editorConfig.syncURL, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Accept: "application/json",
+                        },
+                        body: JSON.stringify({
+                            op: "save_as",
+                            clientId: clientId,
+                            version: currentVersion,
+                            content: getEditorContent(),
+                            selection: getCurrentSelection(),
+                            savePath: requestedPath,
+                            overwrite: Boolean(overwrite),
+                        }),
+                    });
+                }
+
+                function triggerSaveAs() {
+                    if (!editorConfig.editable) return;
+                    var requestedPath = window.prompt(
+                        "Save As path",
+                        editorConfig.filePath || editorConfig.fileName,
+                    );
+                    if (requestedPath == null) {
+                        return;
+                    }
+                    requestedPath = requestedPath.trim();
+                    if (!requestedPath) {
                         setStatus("Save As cancelled", "error");
                         return;
                     }
-                    setStatus(error.message || "Save As failed", "error");
-                });
-            }
 
-            function handleKeyboardShortcuts(event) {
-                var modifier = event.ctrlKey || event.metaKey;
-                if (!modifier || event.key.toLowerCase() !== "s") {
-                    return;
+                    setStatus("Saving copy…", "busy");
+                    saveAsToPath(requestedPath, false)
+                        .then(function (payload) {
+                            window.location.assign(
+                                payload.editURL || editorConfig.syncURL,
+                            );
+                        })
+                        .catch(function (error) {
+                            if (
+                                error.response &&
+                                error.response.status === 409
+                            ) {
+                                if (
+                                    window.confirm(
+                                        "A file already exists there. Overwrite it?",
+                                    )
+                                ) {
+                                    return saveAsToPath(
+                                        requestedPath,
+                                        true,
+                                    ).then(function (payload) {
+                                        window.location.assign(
+                                            payload.editURL ||
+                                                editorConfig.syncURL,
+                                        );
+                                    });
+                                }
+                                setStatus("Save As cancelled", "error");
+                                return;
+                            }
+                            setStatus(
+                                error.message || "Save As failed",
+                                "error",
+                            );
+                        });
                 }
-                event.preventDefault();
-                if (event.shiftKey) {
-                    triggerSaveAs();
-                } else {
-                    queueSync(true);
-                }
-            }
 
-            function initLiveEdit() {
-                writeDebug("LiveEdit: init editable=" + Boolean(editorConfig.editable));
-                initTheme();
-                initProfileMenu();
-                setEditorMode(editorConfig.modeHint);
-                updateFileMetadata(editorConfig.filePath, Number(editorConfig.fileSize || 0));
-                document.addEventListener("keydown", handleKeyboardShortcuts);
-
-                if (saveAsButton) {
-                    saveAsButton.addEventListener("click", triggerSaveAs);
-                }
-
-                if (!editorConfig.editable) {
-                    renderPresence([]);
-                    setStatus("Unavailable", "error");
-                    return;
-                }
-
-                hydrationWatchdog = setTimeout(function () {
-                    if (editorLoadingOverlay && !editorLoadingOverlay.hidden) {
-                        showEmptyState("Editor initialization timed out.");
+                function handleKeyboardShortcuts(event) {
+                    var modifier = event.ctrlKey || event.metaKey;
+                    if (!modifier || event.key.toLowerCase() !== "s") {
+                        return;
                     }
-                }, 8000);
-
-                if (editorConfig.hasInitialContent) {
-                    applyContent(editorConfig.initialContent || "", true);
-                    currentVersion = Number(editorConfig.initialVersion || 0);
-                } else {
-                    fetchLatestSnapshot({ focusEditor: true });
+                    event.preventDefault();
+                    if (event.shiftKey) {
+                        triggerSaveAs();
+                    } else {
+                        queueSync(true);
+                    }
                 }
 
-                installFallbackListeners();
-                connectLiveStream();
-            }
+                function initLiveEdit() {
+                    writeDebug(
+                        "LiveEdit: init editable=" +
+                            Boolean(editorConfig.editable),
+                    );
+                    initTheme();
+                    initProfileMenu();
+                    setEditorMode(editorConfig.modeHint);
+                    updateFileMetadata(
+                        editorConfig.filePath,
+                        Number(editorConfig.fileSize || 0),
+                    );
+                    document.addEventListener(
+                        "keydown",
+                        handleKeyboardShortcuts,
+                    );
 
-            window.addEventListener("pagehide", disconnectSession);
-            window.addEventListener("beforeunload", disconnectSession);
+                    if (saveAsButton) {
+                        saveAsButton.addEventListener("click", triggerSaveAs);
+                    }
 
-            if (document.readyState === "loading") {
-                document.addEventListener("DOMContentLoaded", initLiveEdit, { once: true });
-            } else {
-                initLiveEdit();
-            }
-        })();
-    </script>
-</body>
+                    if (!editorConfig.editable) {
+                        renderPresence([]);
+                        setStatus("Unavailable", "error");
+                        return;
+                    }
 
+                    hydrationWatchdog = setTimeout(function () {
+                        if (
+                            editorLoadingOverlay &&
+                            !editorLoadingOverlay.hidden
+                        ) {
+                            showEmptyState("Editor initialization timed out.");
+                        }
+                    }, 8000);
+
+                    if (editorConfig.hasInitialContent) {
+                        applyContent(editorConfig.initialContent || "", true);
+                        currentVersion = Number(
+                            editorConfig.initialVersion || 0,
+                        );
+                    } else {
+                        fetchLatestSnapshot({ focusEditor: true });
+                    }
+
+                    installFallbackListeners();
+                    connectLiveStream();
+                }
+
+                window.addEventListener("pagehide", disconnectSession);
+                window.addEventListener("beforeunload", disconnectSession);
+
+                if (document.readyState === "loading") {
+                    document.addEventListener(
+                        "DOMContentLoaded",
+                        initLiveEdit,
+                        { once: true },
+                    );
+                } else {
+                    initLiveEdit();
+                }
+            })();
+        </script>
+    </body>
 </html>
