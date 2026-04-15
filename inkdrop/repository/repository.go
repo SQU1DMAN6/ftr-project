@@ -169,11 +169,12 @@ func SearchRepositories(query string) ([]map[string]string, error) {
 				continue
 			}
 			repoName := repoDirEntry.Name()
-			// Load meta description if available
-			desc := ""
-			if meta, err := LoadRepoMeta(userName, repoName); err == nil && meta != nil {
-				desc = meta.Description
+			// Load meta description if available, but only expose public repositories
+			meta, err := LoadRepoMeta(userName, repoName)
+			if err != nil || meta == nil || !meta.Public {
+				continue
 			}
+			desc := meta.Description
 			if all || strings.Contains(strings.ToLower(userName), q) || strings.Contains(strings.ToLower(repoName), q) || strings.Contains(strings.ToLower(desc), q) {
 				results = append(results, map[string]string{"user": userName, "repo": repoName, "description": desc})
 			}

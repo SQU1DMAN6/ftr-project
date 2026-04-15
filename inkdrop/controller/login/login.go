@@ -52,7 +52,7 @@ func LoginMainPost(w http.ResponseWriter, r *http.Request) {
 			Error:   make(map[string]string),
 		}
 
-		paramData.Error["general"] = "Email and password are required."
+		paramData.Error["general"] = "Username or email and password are required."
 
 		if err := viewBackend.LoginMain(w, paramData); err != nil {
 			http.Error(w, "Failed to render page", http.StatusInternalServerError)

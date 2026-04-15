@@ -220,7 +220,6 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 	SS := config.GetSessionManager()
 	var userOwnsRepo bool
 
-	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	name := SS.GetString(r.Context(), "name")
 
 	repoName := chi.URLParam(r, "reponame")
@@ -235,24 +234,30 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 		userOwnsRepo = false
 	}
 
-	repoListing, err := repository.ListUserRepositories(userName)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get repository listing of user %s: %s", userName, err), http.StatusServiceUnavailable)
-		fmt.Printf("Failed to get directory listing of user %s: %s\n", userName, err)
-		return
-	}
-
-	// Determine if repository is publicly viewable via metadata; allow anonymous access if so.
+	// Determine if repository is publicly viewable via metadata; allow access
+	// only to public repositories, the path owner, or users explicitly listed
+	// in the repo metadata owners list.
+	accessAllowed := false
 	isPublic := false
+	isOwner := name == userName
 	if meta, err := repository.LoadRepoMeta(userName, repoName); err == nil && meta != nil {
 		if meta.Public {
 			isPublic = true
+			accessAllowed = true
+		}
+		for _, o := range meta.Owners {
+			if o == name {
+				accessAllowed = true
+				break
+			}
 		}
 	}
+	if isOwner {
+		accessAllowed = true
+	}
 
-	if !slices.Contains(repoListing, repoName) && !isPublic {
-		fmt.Printf("User %s tried to access repository %s/%s, but was inaccessible.\n", name, userName, repoName)
-		// Render a permission message instead of silently redirecting.
+	if !accessAllowed {
+		fmt.Printf("User %s tried to access repository %s/%s, but was denied.\n", name, userName, repoName)
 		param := viewBackend.FrontEndParams{
 			Title:    fmt.Sprintf("%s/%s - InkDrop", userName, repoName),
 			Name:     name,
@@ -269,14 +274,6 @@ func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		viewBackend.IndexMainBrowseRepository(w, param)
 		return
-	}
-
-	// If repository is not public, require login
-	if !isPublic {
-		if isLoggedIn != true || name == "" {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
 	}
 
 	paramData := viewBackend.FrontEndParams{

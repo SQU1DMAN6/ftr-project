@@ -68,10 +68,13 @@ func HashPassword(password string) (string, error) {
 	return string(bytes), err
 }
 
-func CheckPassword(db *bun.DB, email, plainTextPassword string) (*User, error) {
-	user, err := GetUserByEmail(email, db)
+func CheckPassword(db *bun.DB, identifier, plainTextPassword string) (*User, error) {
+	user, err := GetUserByEmail(identifier, db)
 	if err != nil {
-		return nil, err
+		user, err = GetUserByName(identifier, db)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := bcrypt.CompareHashAndPassword(
 		[]byte(user.Password),
