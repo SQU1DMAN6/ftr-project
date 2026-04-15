@@ -38,4 +38,4 @@ log:
 pull:
 	git pull
 
-update: pull build run reload status log
+update: pull build run reload restart status log
