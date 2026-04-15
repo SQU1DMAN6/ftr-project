@@ -899,51 +899,43 @@
                 }
                 if (selection.length === 0) return;
 
-                // Trigger individual downloads for each selected file by
-                // submitting a URL-encoded POST to the /download endpoint per file.
-                selection.forEach(function (file) {
-                    // Build form data and submit
-                    var formData = new URLSearchParams();
-                    formData.set('repository', currentRepo);
-                    formData.set('user', currentUser);
-                    formData.set('working-directory', currentPath);
-                    formData.set('itemName', file);
-                    
-                    // Create temporary form with url-encoded data
-                    var tempForm = document.createElement('form');
-                    tempForm.method = 'post';
-                    tempForm.action = '/download';
-                    tempForm.enctype = 'application/x-www-form-urlencoded';
-                    
-                    // Add hidden inputs
-                    var input1 = document.createElement('input');
-                    input1.type = 'hidden';
-                    input1.name = 'repository';
-                    input1.value = currentRepo;
-                    tempForm.appendChild(input1);
-                    
-                    var input2 = document.createElement('input');
-                    input2.type = 'hidden';
-                    input2.name = 'user';
-                    input2.value = currentUser;
-                    tempForm.appendChild(input2);
-                    
-                    var input3 = document.createElement('input');
-                    input3.type = 'hidden';
-                    input3.name = 'working-directory';
-                    input3.value = currentPath;
-                    tempForm.appendChild(input3);
-                    
-                    var input4 = document.createElement('input');
-                    input4.type = 'hidden';
-                    input4.name = 'itemName';
-                    input4.value = file;
-                    tempForm.appendChild(input4);
-                    
-                    // Append, submit, and remove
+                selection.forEach(function (file, index) {
+                    if (!file) return;
+                    var frameName = "downloadFrame_" + Date.now() + "_" + index;
+                    var iframe = document.createElement("iframe");
+                    iframe.name = frameName;
+                    iframe.style.display = "none";
+                    document.body.appendChild(iframe);
+
+                    var tempForm = document.createElement("form");
+                    tempForm.method = "post";
+                    tempForm.action = "/download";
+                    tempForm.enctype = "application/x-www-form-urlencoded";
+                    tempForm.target = frameName;
+
+                    var hiddenFields = {
+                        repository: currentRepo,
+                        user: currentUser,
+                        "working-directory": currentPath,
+                        itemName: file,
+                    };
+                    Object.keys(hiddenFields).forEach(function (name) {
+                        var input = document.createElement("input");
+                        input.type = "hidden";
+                        input.name = name;
+                        input.value = hiddenFields[name];
+                        tempForm.appendChild(input);
+                    });
+
                     document.body.appendChild(tempForm);
                     tempForm.submit();
-                    document.body.removeChild(tempForm);
+
+                    window.setTimeout(function () {
+                        document.body.removeChild(tempForm);
+                        if (iframe.parentNode) {
+                            iframe.parentNode.removeChild(iframe);
+                        }
+                    }, 60000);
                 });
             }
 

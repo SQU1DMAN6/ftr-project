@@ -986,32 +986,37 @@
                     reject(error instanceof Error ? error : new Error(String(error || "Document load failed")));
                 }
 
-                superdoc = new SuperDoc({
-                    selector: editorSurface,
-                    document: resolveDocumentSource(documentSource),
-                    telemetry: {
-                        enabled: false,
-                    },
-                    onReady: () => {
-                        editorReady = true;
-                        setStatus("Live", "live");
-                        proofingStatus.textContent = "SuperDoc is mounted. InkDrop save/export controls are live.";
-                        finishResolve();
-                    },
-                    onEditorUpdate: () => {
-                        if (editorReady) {
-                            markDirty();
-                        }
-                    },
-                    onContentError: ({ error }) => {
-                        finishReject(error || new Error("SuperDoc could not load this DOCX file"));
-                    },
-                    onFontsResolved: ({ unsupportedFonts }) => {
-                        if (Array.isArray(unsupportedFonts) && unsupportedFonts.length > 0) {
-                            proofingStatus.textContent = "SuperDoc is mounted. Some document fonts are unavailable: " + unsupportedFonts.join(", ");
-                        }
-                    },
-                });
+                try {
+                    superdoc = new SuperDoc({
+                        selector: editorSurface,
+                        document: resolveDocumentSource(documentSource),
+                        telemetry: {
+                            enabled: false,
+                        },
+                        onReady: () => {
+                            editorReady = true;
+                            setStatus("Live", "live");
+                            proofingStatus.textContent = "SuperDoc is mounted. InkDrop save/export controls are live.";
+                            finishResolve();
+                        },
+                        onEditorUpdate: () => {
+                            if (editorReady) {
+                                markDirty();
+                            }
+                        },
+                        onContentError: ({ error }) => {
+                            finishReject(error || new Error("SuperDoc could not load this DOCX file"));
+                        },
+                        onFontsResolved: ({ unsupportedFonts }) => {
+                            if (Array.isArray(unsupportedFonts) && unsupportedFonts.length > 0) {
+                                proofingStatus.textContent = "SuperDoc is mounted. Some document fonts are unavailable: " + unsupportedFonts.join(", ");
+                            }
+                        },
+                    });
+                } catch (error) {
+                    finishReject(error instanceof Error ? error : new Error(String(error || "SuperDoc initialization failed")));
+                    return;
+                }
 
                 if (superdoc && typeof superdoc.on === "function") {
                     superdoc.on("ready", () => {
