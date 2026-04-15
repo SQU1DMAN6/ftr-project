@@ -29,6 +29,7 @@ type liveEditTarget struct {
 	EditURL     string
 	LoadURL     string
 	StreamURL   string
+	SourceURL   string
 	AceMode     string
 	FilePath    string
 	FileSize    int64
@@ -61,6 +62,7 @@ func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 	SS := config.GetSessionManager()
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	sessionUser := SS.GetString(r.Context(), "name")
+	target := newLiveEditTarget(r)
 
 	if !isLoggedIn || sessionUser == "" {
 		if r.Method == http.MethodGet && !isLiveEditAPIRequest(r) {
@@ -74,6 +76,18 @@ func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if useDocumentEditor(target, sessionUser) {
+		switch r.Method {
+		case http.MethodGet:
+			handleDocumentEditGet(w, r, target, sessionUser)
+		case http.MethodPost:
+			handleDocumentEditMutation(w, r, target, sessionUser)
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		handleLiveEditGet(w, r, sessionUser)
@@ -82,6 +96,21 @@ func RepositoryLiveEditTextFile(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func useDocumentEditor(target *liveEditTarget, sessionUser string) bool {
+	if target == nil {
+		return false
+	}
+
+	if err := hydrateLiveEditTarget(target, sessionUser); err == nil {
+		kind, detectErr := repoStore.DetectEditableFileKind(target.FilePath)
+		if detectErr == nil {
+			return kind == repoStore.EditableFileKindDocument
+		}
+	}
+
+	return isDocumentEditorTarget(target)
 }
 
 func handleLiveEditGet(w http.ResponseWriter, r *http.Request, sessionUser string) {
@@ -386,6 +415,7 @@ func newLiveEditTarget(r *http.Request) *liveEditTarget {
 		EditURL:     editURL,
 		LoadURL:     editURL + "?content=1",
 		StreamURL:   editURL + "?events=1",
+		SourceURL:   buildPreviewRoutePath(repoOwner, repoName, workingDir, fileName),
 		AceMode:     detectAceMode(fileName),
 	}
 }
@@ -406,6 +436,7 @@ func buildLiveEditTargetForRepoPath(repoOwner string, repoName string, repoPath 
 		EditURL:     editURL,
 		LoadURL:     editURL + "?content=1",
 		StreamURL:   editURL + "?events=1",
+		SourceURL:   buildPreviewRoutePath(repoOwner, repoName, workingDir, fileName),
 		AceMode:     detectAceMode(fileName),
 		FilePath:    filePath,
 	}
@@ -590,6 +621,15 @@ func buildEditRoutePath(fileName string, userName string, repoName string, rawPa
 	}
 
 	return base + "/" + strings.Join(segments, "/")
+}
+
+func buildPreviewRoutePath(userName string, repoName string, workingDir string, itemName string) string {
+	query := url.Values{}
+	query.Set("user", userName)
+	query.Set("repository", repoName)
+	query.Set("working-directory", normalizeBrowserPath(workingDir))
+	query.Set("itemName", itemName)
+	return "/preview?" + query.Encode()
 }
 
 func detectAceMode(fileName string) string {

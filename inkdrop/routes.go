@@ -38,6 +38,7 @@ func RegisterRoutes(r chi.Router) {
 	r.Get("/browse/{user}/{reponame}/*", repository.IndexMainBrowseRepository)
 	r.Get("/browse/{user}/{reponame}", repository.IndexMainBrowseRepository)
 	r.Post("/new/dir", repository.RepositoryCreateNewDirectory)
+	r.Post("/new/file", repository.RepositoryCreateNewFile)
 	r.Post("/rename", repository.RepositoryRenameItem)
 	r.Post("/delete/item", repository.RepositoryDeleteItem)
 	r.Post("/repo/settings", repository.RepositorySettings)

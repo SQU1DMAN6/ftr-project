@@ -1,7 +1,9 @@
 package repository
 
 import (
+	"archive/zip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"inkdrop/config"
 	"inkdrop/repository"
@@ -11,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -496,6 +499,88 @@ func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func RepositoryCreateNewFile(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse user form. Try again.", http.StatusBadRequest)
+		return
+	}
+
+	fileName := strings.TrimSpace(r.FormValue("fileName"))
+	fileType := strings.TrimSpace(r.FormValue("fileType"))
+	fileExtension := strings.TrimSpace(r.FormValue("fileExtension"))
+	repoName := r.FormValue("repository")
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
+	workingDir := normalizeBrowserPath(r.FormValue("working-directory"))
+
+	if repoOwner == "" {
+		repoOwner = userName
+	}
+
+	root := fmt.Sprintf("%s/%s/%s", repository.RepoDir, repoOwner, repoName)
+	ok, derr := repository.DirExists(root)
+	if derr != nil {
+		http.Error(w, "Failed to verify repository existence", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
+	allowed := false
+	if repoOwner == userName {
+		allowed = true
+	} else {
+		if meta, _ := repository.LoadRepoMeta(repoOwner, repoName); meta != nil {
+			for _, owner := range meta.Owners {
+				if owner == userName {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	if !allowed {
+		http.Error(w, "You do not have permission to modify this repository", http.StatusForbidden)
+		return
+	}
+
+	createdFileName, err := repository.CreateEmptyEditableFile(repoOwner, repoName, workingDir, fileName, fileType, fileExtension)
+	if err != nil {
+		statusCode := http.StatusServiceUnavailable
+		switch {
+		case errors.Is(err, repository.ErrItemExists):
+			statusCode = http.StatusConflict
+		case strings.Contains(strings.ToLower(err.Error()), "required"),
+			strings.Contains(strings.ToLower(err.Error()), "invalid"),
+			strings.Contains(strings.ToLower(err.Error()), "unsupported"):
+			statusCode = http.StatusBadRequest
+		}
+		http.Error(w, fmt.Sprintf("Failed to create new file: %s", err), statusCode)
+		return
+	}
+
+	fmt.Printf("User %s created a new %s file: '%s' at '%s' in %s/%s\n", userName, fileType, createdFileName, workingDir, repoOwner, repoName)
+
+	wd := strings.TrimPrefix(workingDir, "/")
+	wd = strings.TrimSuffix(wd, "/")
+	if wd == "" {
+		http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, "/"), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, wd), http.StatusSeeOther)
+}
+
 func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -503,7 +588,6 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	SS := config.GetSessionManager()
-
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
 	userName := SS.GetString(r.Context(), "name")
 
@@ -519,7 +603,6 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	repoName := r.FormValue("repository")
-	// optional repo owner when acting on someone else's repository
 	repoOwner := strings.TrimSpace(r.FormValue("user"))
 	workingDir := r.FormValue("working-directory")
 	oldName := r.FormValue("oldName")
@@ -582,6 +665,7 @@ func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
 	} else {
 		redirectPath = buildBrowseRoutePath(repoOwner, repoName, wd)
 	}
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 }
 
@@ -822,7 +906,17 @@ func RepositoryDownloadFile(w http.ResponseWriter, r *http.Request) {
 
 	repoName := r.FormValue("repository")
 	workingDir := r.FormValue("working-directory")
-	itemName := r.FormValue("itemName")
+	itemNames := r.Form["itemName"]
+	if len(itemNames) == 0 {
+		itemName := strings.TrimSpace(r.FormValue("itemName"))
+		if itemName != "" {
+			itemNames = []string{itemName}
+		}
+	}
+	if len(itemNames) == 0 {
+		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+		return
+	}
 	owner := r.FormValue("user")
 	if owner == "" {
 		owner = userName
@@ -862,38 +956,140 @@ func RepositoryDownloadFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Printf("User %s tried to download %s at %s at %s\n", userName, itemName, workingDir, repoName)
-	fileToDownload, err := repository.GetItemPath(owner, repoName, workingDir, itemName)
-	if err != nil {
-		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
-		return
+	fmt.Printf("User %s tried to download %v at %s at %s\n", userName, itemNames, workingDir, repoName)
+
+	if len(itemNames) == 1 {
+		fileToDownload, err := repository.GetItemPath(owner, repoName, workingDir, itemNames[0])
+		if err != nil {
+			http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+			return
+		}
+
+		file, err := os.Open(fileToDownload)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to open file: %s", err), http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+
+		stat, err := file.Stat()
+		if err != nil {
+			http.Error(w, "Requested item is not downloadable.", http.StatusBadRequest)
+			return
+		}
+		if stat.Mode().IsRegular() {
+			buf := make([]byte, 512)
+			n, _ := file.Read(buf)
+			contentType := http.DetectContentType(buf[:n])
+			if _, err := file.Seek(0, io.SeekStart); err != nil {
+				http.Error(w, "Unable to read file.", http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(itemNames[0]))
+			w.Header().Set("Content-Type", contentType)
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+			return
+		}
 	}
 
-	file, err := os.Open(fileToDownload)
+	archiveName := fmt.Sprintf("%s-selection.zip", repoName)
+	if len(itemNames) == 1 {
+		archiveName = strings.TrimSuffix(itemNames[0], "/") + ".zip"
+	}
+
+	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(archiveName))
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	for _, itemName := range itemNames {
+		itemName = strings.TrimSpace(itemName)
+		if itemName == "" {
+			continue
+		}
+		itemPath, err := repository.GetItemPath(owner, repoName, workingDir, itemName)
+		if err != nil {
+			http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+			return
+		}
+		if err := addPathToZip(zipWriter, itemPath, strings.TrimSuffix(itemName, "/")); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to archive selection: %s", err), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func addPathToZip(zipWriter *zip.Writer, sourcePath string, archiveBase string) error {
+	info, err := os.Stat(sourcePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to open file: %s", err), http.StatusNotFound)
-		return
+		return err
+	}
+	if archiveBase == "" {
+		archiveBase = filepath.Base(sourcePath)
+	}
+
+	if info.Mode().IsRegular() {
+		return addFileToZip(zipWriter, sourcePath, archiveBase, info)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("unsupported download item: %s", archiveBase)
+	}
+
+	return filepath.Walk(sourcePath, func(currentPath string, currentInfo os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relPath, err := filepath.Rel(sourcePath, currentPath)
+		if err != nil {
+			return err
+		}
+		zipPath := filepath.ToSlash(filepath.Join(archiveBase, relPath))
+		if relPath == "." {
+			header, err := zip.FileInfoHeader(currentInfo)
+			if err != nil {
+				return err
+			}
+			header.Name = strings.TrimSuffix(zipPath, "/") + "/"
+			_, err = zipWriter.CreateHeader(header)
+			return err
+		}
+		if currentInfo.IsDir() {
+			header, err := zip.FileInfoHeader(currentInfo)
+			if err != nil {
+				return err
+			}
+			header.Name = strings.TrimSuffix(zipPath, "/") + "/"
+			_, err = zipWriter.CreateHeader(header)
+			return err
+		}
+		return addFileToZip(zipWriter, currentPath, filepath.ToSlash(zipPath), currentInfo)
+	})
+}
+
+func addFileToZip(zipWriter *zip.Writer, sourcePath string, archivePath string, info os.FileInfo) error {
+	file, err := os.Open(sourcePath)
+	if err != nil {
+		return err
 	}
 	defer file.Close()
 
-	stat, err := file.Stat()
-	if err != nil || !stat.Mode().IsRegular() {
-		http.Error(w, "Requested item is not a downloadable file.", http.StatusBadRequest)
-		return
+	header, err := zip.FileInfoHeader(info)
+	if err != nil {
+		return err
 	}
-
-	buf := make([]byte, 512)
-	n, _ := file.Read(buf)
-	contentType := http.DetectContentType(buf[:n])
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		http.Error(w, "Unable to read file.", http.StatusInternalServerError)
-		return
+	header.Name = archivePath
+	header.Method = zip.Deflate
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		return err
 	}
-
-	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(itemName))
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+	_, err = io.Copy(writer, file)
+	return err
 }
 
 func RepositoryPreviewFile(w http.ResponseWriter, r *http.Request) {
@@ -1234,14 +1430,16 @@ func RepositoryDownloadRepositoryAsSQAR(w http.ResponseWriter, r *http.Request) 
 
 	SS := config.GetSessionManager()
 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
-	userName := SS.GetString(r.Context(), "name")
+	name := SS.GetString(r.Context(), "name")
 
-	if isLoggedIn != true || userName == "" {
+	if isLoggedIn != true || name == "" {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
 	repoName := chi.URLParam(r, "reponame")
+
+	userName := chi.URLParam(r, "user")
 
 	repoToDownload := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
 	fmt.Printf("User %s tried to download repository at %s\n", userName, repoToDownload)

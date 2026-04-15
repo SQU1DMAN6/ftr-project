@@ -8,4 +8,5 @@ var (
 	IndexMain                 = Parse("themes/index/index.html")
 	IndexMainBrowseRepository = Parse("themes/index/browse.html", "themes/index/template.html")
 	LiveEditTextFile          = Parse("themes/live-edit/livetext.html")
+	DocumentEditFile          = Parse("themes/doc-edit/document.html")
 )

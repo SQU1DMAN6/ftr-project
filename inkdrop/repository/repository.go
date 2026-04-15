@@ -438,17 +438,25 @@ func GetItemPath(userName, repoName, workingDir, itemName string) (string, error
 }
 
 func WriteTextFile(userName, repoName, workingDir, fileName string, data []byte) (string, error) {
+	return WriteFile(userName, repoName, workingDir, fileName, data)
+}
+
+func WriteFile(userName, repoName, workingDir, fileName string, data []byte) (string, error) {
 	targetPath, err := GetItemPath(userName, repoName, workingDir, fileName)
 	if err != nil {
 		return "", err
 	}
-	if err := writeTextFileAtomic(targetPath, data, true); err != nil {
+	if err := writeFileAtomic(targetPath, data, true); err != nil {
 		return "", err
 	}
 	return targetPath, nil
 }
 
 func WriteTextFileAtRepoPath(userName, repoName, repoPath string, data []byte, overwrite bool) (string, error) {
+	return WriteFileAtRepoPath(userName, repoName, repoPath, data, overwrite)
+}
+
+func WriteFileAtRepoPath(userName, repoName, repoPath string, data []byte, overwrite bool) (string, error) {
 	rawPath := strings.TrimSpace(repoPath)
 	if rawPath == "" || strings.HasSuffix(rawPath, "/") {
 		return "", errors.New("invalid file path")
@@ -464,13 +472,13 @@ func WriteTextFileAtRepoPath(userName, repoName, repoPath string, data []byte, o
 	if err != nil {
 		return "", err
 	}
-	if err := writeTextFileAtomic(targetPath, data, overwrite); err != nil {
+	if err := writeFileAtomic(targetPath, data, overwrite); err != nil {
 		return "", err
 	}
 	return targetPath, nil
 }
 
-func writeTextFileAtomic(targetPath string, data []byte, overwrite bool) error {
+func writeFileAtomic(targetPath string, data []byte, overwrite bool) error {
 	perm := os.FileMode(0644)
 	info, err := os.Stat(targetPath)
 	if err == nil {

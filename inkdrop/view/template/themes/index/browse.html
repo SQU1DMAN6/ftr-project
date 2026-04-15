@@ -59,6 +59,7 @@
                 <div style="display: flex; flex-direction: column; gap: 10px;">
                     <h2 class="section">Repository Manager</h2>
                     <div class="row">
+                        <button type="button" class="button-link small" id="newFileBtnInline">New File</button>
                         <button type="button" class="button-link small" id="newFolderBtnInline">New Folder</button>
                         <button type="button" class="button-link small" id="uploadFileBtnInline">Upload Files</button>
                         <a href="/downloadrepo/{{.Message2}}/{{.Message3}}"><button type="button" class="button-link small" id="downloadRepoInline">Download Repository</button></a>
@@ -115,6 +116,7 @@
                 </div>
 
                 <div class="context-menu" id="contextMenu" hidden>
+                    <button type="button" class="menu-item" id="newFileBtn">New File</button>
                     <button type="button" class="menu-item" id="newFolderBtn">New Folder</button>
                     <button type="button" class="menu-item" id="renameBtn">Rename / Move</button>
                     <button type="button" class="menu-item" id="downloadBtn">Download File</button>
@@ -140,6 +142,44 @@
                         <div class="row">
                             <button type="submit" class="redirect">Create</button>
                             <button type="button" class="button-link" id="cancelDialog">Cancel</button>
+                        </div>
+                    </form>
+                </dialog>
+
+                <dialog class="settings-modal center popup" id="newFileDialog">
+                    <form id="newFileForm" method="post" action="/new/file" class="stack">
+                        <h3 class="section">Create New File</h3>
+                        <label class="field-label" for="newFileName">File Name</label>
+                        <input
+                            type="text"
+                            name="fileName"
+                            id="newFileName"
+                            placeholder="Untitled"
+                            required
+                        />
+
+                        <label class="field-label" for="newFileType">File Type</label>
+                        <select name="fileType" id="newFileType" class="details" style="padding: 8px; border-radius: 7px;">
+                            <option value="text">Plain Text</option>
+                            <option value="document">DOCX Document</option>
+                        </select>
+
+                        <label class="field-label" for="newFileExtension">Extension</label>
+                        <input
+                            type="text"
+                            name="fileExtension"
+                            id="newFileExtension"
+                            placeholder=".txt"
+                            value=".txt"
+                        />
+
+                        <p class="subtle" id="newFilePreview">Creates: Untitled.txt</p>
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="user" value="{{.Message2}}" />
+                        <input type="hidden" name="working-directory" value="{{.Path}}" />
+                        <div class="row">
+                            <button type="submit" class="redirect">Create</button>
+                            <button type="button" class="button-link" id="cancelNewFile">Cancel</button>
                         </div>
                     </form>
                 </dialog>
@@ -310,14 +350,23 @@
             var contextMenu = document.getElementById("contextMenu");
             var entryList = document.getElementById("entryList");
             var renameBtn = document.getElementById("renameBtn");
+            var newFileBtn = document.getElementById("newFileBtn");
+            var newFileBtnInline = document.getElementById("newFileBtnInline");
             var deleteBtn = document.getElementById("deleteBtn");
             var newFolderBtn = document.getElementById("newFolderBtn");
             var newFolderBtnInline = document.getElementById("newFolderBtnInline");
+            var newFileDialog = document.getElementById("newFileDialog");
+            var newFileForm = document.getElementById("newFileForm");
+            var newFileNameInput = document.getElementById("newFileName");
+            var newFileTypeInput = document.getElementById("newFileType");
+            var newFileExtensionInput = document.getElementById("newFileExtension");
+            var newFilePreview = document.getElementById("newFilePreview");
             var newFolderDialog = document.getElementById("newFolderDialog");
             var renameDialog = document.getElementById("renameDialog");
             var renameForm = document.getElementById("renameForm");
             var renameInput = document.getElementById("renameInput");
             var renameOldName = document.getElementById("renameOldName");
+            var cancelNewFile = document.getElementById("cancelNewFile");
             var cancelDialog = document.getElementById("cancelDialog");
             var cancelRename = document.getElementById("cancelRename");
             var deleteForm = document.getElementById("deleteForm");
@@ -345,6 +394,14 @@
             var previewBlobUrl = null
 
             var selectedEntry = null;
+            var selectionAnchorEntry = null;
+            var selectionBox = null;
+            var selectionDragState = null;
+            var newFileDefaultExtensions = {
+                text: ".txt",
+                document: ".docx",
+            };
+            var lastAutoFileExtension = newFileExtensionInput ? String(newFileExtensionInput.value || "") : "";
 
             if (contextMenu) {
                 contextMenu.hidden = true;
@@ -395,11 +452,80 @@
                 return base + "/" + encodedPath;
             }
 
-            function selectEntry(entry) {
-                if (selectedEntry) selectedEntry.classList.remove("selected");
-                selectedEntry = entry || null;
-                if (selectedEntry) selectedEntry.classList.add("selected");
+            function getAllEntries() {
+                if (!entryList) return [];
+                return Array.prototype.slice.call(entryList.querySelectorAll(".repo-card"));
+            }
+
+            function getSelectedEntries() {
+                return getAllEntries().filter(function (entry) {
+                    return entry.classList.contains("selected");
+                });
+            }
+
+            function getSelectionNames() {
+                return getSelectedEntries().map(function (entry) {
+                    return entry.getAttribute("data-name");
+                }).filter(Boolean);
+            }
+
+            function applySelection(entries, anchorEntry) {
+                var selected = Array.isArray(entries) ? entries.filter(Boolean) : [];
+                getAllEntries().forEach(function (entry) {
+                    entry.classList.toggle("selected", selected.indexOf(entry) !== -1);
+                });
+
+                if (selected.length === 0) {
+                    selectedEntry = null;
+                } else if (selected.indexOf(selectedEntry) === -1) {
+                    selectedEntry = selected[selected.length - 1];
+                }
+
+                if (selectedEntry && selected.indexOf(selectedEntry) !== -1) {
+                    selectedEntry.classList.add("selected");
+                }
+
+                if (anchorEntry) {
+                    selectionAnchorEntry = anchorEntry;
+                } else if (!selectionAnchorEntry || selected.indexOf(selectionAnchorEntry) === -1) {
+                    selectionAnchorEntry = selectedEntry;
+                }
+
                 updatePreviewState();
+            }
+
+            function selectEntry(entry) {
+                selectedEntry = entry || null;
+                applySelection(entry ? [entry] : [], entry || null);
+            }
+
+            function toggleEntrySelection(entry) {
+                var selected = getSelectedEntries();
+                var idx = selected.indexOf(entry);
+                if (idx === -1) {
+                    selected.push(entry);
+                    selectedEntry = entry;
+                } else {
+                    selected.splice(idx, 1);
+                    if (selectedEntry === entry) {
+                        selectedEntry = selected[selected.length - 1] || null;
+                    }
+                }
+                applySelection(selected, entry);
+            }
+
+            function selectEntryRange(entry) {
+                var entries = getAllEntries();
+                var anchor = selectionAnchorEntry || selectedEntry || entry;
+                var startIdx = entries.indexOf(anchor);
+                var endIdx = entries.indexOf(entry);
+                if (startIdx === -1 || endIdx === -1) {
+                    selectEntry(entry);
+                    return;
+                }
+                var range = entries.slice(Math.min(startIdx, endIdx), Math.max(startIdx, endIdx) + 1);
+                selectedEntry = entry;
+                applySelection(range, anchor);
             }
 
             function clearPreview() {
@@ -442,12 +568,17 @@
 
             function updatePreviewState() {
                 if (!previewRefreshBtn) return;
-                var canPreview = canDownload(selectedEntry);
+                var selected = getSelectedEntries();
+                var canPreview = selected.length === 1 && canDownload(selected[0]);
                 previewRefreshBtn.disabled = !canPreview;
                 if (canPreview) {
+                    selectedEntry = selected[0];
                     previewSelectedFile();
                 } else {
                     clearPreview();
+                    if (selected.length > 1) {
+                        setPreviewStatus(selected.length + " items selected.");
+                    }
                 }
             }
 
@@ -575,33 +706,43 @@
 
             function showContextMenu(x, y) {
                 if (!contextMenu) return;
-                renameBtn.disabled = !canRename(selectedEntry);
-                deleteBtn.disabled = !canDelete(selectedEntry);
-                deleteFileBtn.disabled = !canDeleteFile(selectedEntry);
-                downloadBtn.disabled = !canDownload(selectedEntry)
-                liveEditBtn.disabled = !canEditFile(selectedEntry)
+                var selected = getSelectedEntries();
+                var primary = selectedEntry || selected[selected.length - 1] || null;
+                var singleSelection = selected.length <= 1 ? primary : null;
+                var hasFolders = selected.some(function (entry) { return canDelete(entry); });
+                var hasFiles = selected.some(function (entry) { return canDeleteFile(entry); });
+                var canDownloadSelection = selected.length > 0 && selected.every(function (entry) {
+                    return entryKind(entry) === "file" || entryKind(entry) === "folder";
+                });
+                var canEditSelection = selected.length === 1 && canEditFile(singleSelection);
 
-                if (canDelete(selectedEntry) === true) {
+                renameBtn.disabled = !(selected.length === 1 && canRename(singleSelection));
+                deleteBtn.disabled = !hasFolders;
+                deleteFileBtn.disabled = !hasFiles;
+                downloadBtn.disabled = !canDownloadSelection;
+                liveEditBtn.disabled = !canEditSelection;
+
+                if (hasFolders === true) {
                     deleteBtn.style.display = "block"
                 } else {
                     deleteBtn.style.display = "none"
                 }
-                if (canRename(selectedEntry) === true) {
+                if (selected.length === 1 && canRename(singleSelection) === true) {
                     renameBtn.style.display = "block"
                 } else {
                     renameBtn.style.display = "none"
                 }
-                if (canDeleteFile(selectedEntry) === true) {
+                if (hasFiles === true) {
                     deleteFileBtn.style.display = "block"
                 } else {
                     deleteFileBtn.style.display = "none"
                 }
-                if (canDownload(selectedEntry) === true) {
+                if (canDownloadSelection === true) {
                     downloadBtn.style.display = "block"
                 } else {
                     downloadBtn.style.display = "none"
                 }
-                if (canEditFile(selectedEntry) === true) {
+                if (canEditSelection === true) {
                     liveEditBtn.style.display = "block"
                 } else {
                     liveEditBtn.style.display = "none"
@@ -638,6 +779,53 @@
                 if (input) input.focus();
             }
 
+            function normalizeExtensionInput(value) {
+                var clean = String(value || "").trim();
+                if (!clean) return "";
+                if (clean.charAt(0) !== ".") {
+                    clean = "." + clean;
+                }
+                if (clean === ".") return "";
+                return clean;
+            }
+
+            function updateNewFilePreview() {
+                if (!newFilePreview || !newFileNameInput || !newFileExtensionInput) return;
+                var baseName = newFileNameInput.value.trim() || "Untitled";
+                var ext = normalizeExtensionInput(newFileExtensionInput.value);
+                if (ext && baseName.toLowerCase().slice(-ext.length) === ext.toLowerCase()) {
+                    newFilePreview.textContent = "Creates: " + baseName;
+                    return;
+                }
+                newFilePreview.textContent = "Creates: " + baseName + ext;
+            }
+
+            function syncNewFileExtension(force) {
+                if (!newFileTypeInput || !newFileExtensionInput) return;
+                var selectedType = String(newFileTypeInput.value || "text");
+                var nextExtension = newFileDefaultExtensions[selectedType] || "";
+                var currentExtension = normalizeExtensionInput(newFileExtensionInput.value);
+
+                if (force || currentExtension === "" || currentExtension === lastAutoFileExtension) {
+                    newFileExtensionInput.value = nextExtension;
+                    currentExtension = nextExtension;
+                }
+
+                lastAutoFileExtension = nextExtension;
+                updateNewFilePreview();
+            }
+
+            function openNewFileDialog() {
+                hideContextMenu();
+                if (!newFileDialog) return;
+                syncNewFileExtension(false);
+                newFileDialog.showModal();
+                if (newFileNameInput) {
+                    newFileNameInput.focus();
+                    newFileNameInput.select();
+                }
+            }
+
             function openDeleteRepoDialog() {
                 hideContextMenu();
                 deleteRepoDialog.showModal();
@@ -651,7 +839,7 @@
             }
 
             function openRenameDialog() {
-                if (!canRename(selectedEntry)) return;
+                if (!canRename(selectedEntry) || getSelectedEntries().length !== 1) return;
                 hideContextMenu();
                 var oldName = selectedEntry.getAttribute("data-name");
                 renameOldName.value = oldName;
@@ -661,33 +849,106 @@
                 renameInput.select();
             }
 
+            function setRepeatedHiddenValues(form, name, values) {
+                if (!form) return;
+                Array.prototype.slice.call(form.querySelectorAll('input[data-generated="' + name + '"]')).forEach(function (node) {
+                    node.remove();
+                });
+                values.forEach(function (value) {
+                    var input = document.createElement("input");
+                    input.type = "hidden";
+                    input.name = name;
+                    input.value = value;
+                    input.setAttribute("data-generated", name);
+                    form.appendChild(input);
+                });
+            }
+
             function deleteSelectedFolder() {
-                if (!canDelete(selectedEntry)) return;
-                var folder = selectedEntry.getAttribute("data-name");
-                var ok = window.confirm("Delete folder '" + folder + "'? This cannot be undone.");
+                var folderNames = getSelectedEntries().filter(function (entry) {
+                    return canDelete(entry);
+                }).map(function (entry) {
+                    return entry.getAttribute("data-name");
+                });
+                if (folderNames.length === 0) return;
+                var ok = window.confirm("Delete " + folderNames.length + " folder(s)? This cannot be undone.");
                 if (!ok) return;
-                deleteItemName.value = folder;
+                deleteItemName.value = folderNames[0] || "";
+                setRepeatedHiddenValues(deleteForm, "itemName", folderNames.slice(1));
                 deleteForm.submit();
             }
 
             function deleteSelectedFile() {
-                if (!canDeleteFile(selectedEntry)) return;
-                var file = selectedEntry.getAttribute("data-name");
-                var ok = window.confirm("Delete file '" + file + "'? This cannot be undone.");
+                var fileNames = getSelectedEntries().filter(function (entry) {
+                    return canDeleteFile(entry);
+                }).map(function (entry) {
+                    return entry.getAttribute("data-name");
+                });
+                if (fileNames.length === 0) return;
+                var ok = window.confirm("Delete " + fileNames.length + " file(s)? This cannot be undone.");
                 if (!ok) return;
-                deleteItemName.value = file;
+                deleteItemName.value = fileNames[0] || "";
+                setRepeatedHiddenValues(deleteForm, "itemName", fileNames.slice(1));
                 deleteForm.submit();
             }
 
             function downloadSelectedFile() {
-                if (!canDownload(selectedEntry)) return;
-                var file = selectedEntry.getAttribute("data-name");
-                downloadItemName.value = file;
-                downloadForm.submit();
+                var selection = getSelectionNames();
+                if (selection.length === 0 && canDownload(selectedEntry)) {
+                    selection = [selectedEntry.getAttribute("data-name")];
+                }
+                if (selection.length === 0) return;
+
+                // Trigger individual downloads for each selected file by
+                // submitting a URL-encoded POST to the /download endpoint per file.
+                selection.forEach(function (file) {
+                    // Build form data and submit
+                    var formData = new URLSearchParams();
+                    formData.set('repository', currentRepo);
+                    formData.set('user', currentUser);
+                    formData.set('working-directory', currentPath);
+                    formData.set('itemName', file);
+                    
+                    // Create temporary form with url-encoded data
+                    var tempForm = document.createElement('form');
+                    tempForm.method = 'post';
+                    tempForm.action = '/download';
+                    tempForm.enctype = 'application/x-www-form-urlencoded';
+                    
+                    // Add hidden inputs
+                    var input1 = document.createElement('input');
+                    input1.type = 'hidden';
+                    input1.name = 'repository';
+                    input1.value = currentRepo;
+                    tempForm.appendChild(input1);
+                    
+                    var input2 = document.createElement('input');
+                    input2.type = 'hidden';
+                    input2.name = 'user';
+                    input2.value = currentUser;
+                    tempForm.appendChild(input2);
+                    
+                    var input3 = document.createElement('input');
+                    input3.type = 'hidden';
+                    input3.name = 'working-directory';
+                    input3.value = currentPath;
+                    tempForm.appendChild(input3);
+                    
+                    var input4 = document.createElement('input');
+                    input4.type = 'hidden';
+                    input4.name = 'itemName';
+                    input4.value = file;
+                    tempForm.appendChild(input4);
+                    
+                    // Append, submit, and remove
+                    document.body.appendChild(tempForm);
+                    tempForm.submit();
+                    document.body.removeChild(tempForm);
+                });
             }
 
             function liveEditSelectedFile() {
-                if (!canEditFile(selectedEntry)) return;
+                if (!canEditFile(selectedEntry) || getSelectedEntries().length !== 1) return;
                 var fileName = selectedEntry.getAttribute("data-name");
                 window.location.href = buildEditURL(fileName, currentPath);
             }
@@ -717,7 +978,15 @@
                 entryList.addEventListener("click", function (event) {
                     var entry = event.target.closest(".repo-card");
                     if (!entry) return;
-                    selectEntry(entry);
+                    if (event.shiftKey) {
+                        selectEntryRange(entry);
+                    } else if (event.ctrlKey || event.metaKey) {
+                        toggleEntrySelection(entry);
+                    } else if (getSelectedEntries().length === 1 && selectedEntry === entry) {
+                        selectEntry(null);
+                    } else {
+                        selectEntry(entry);
+                    }
                     panel.focus();
                 });
 
@@ -730,7 +999,9 @@
                 entryList.addEventListener("contextmenu", function (event) {
                     event.preventDefault();
                     var entry = event.target.closest(".repo-card");
-                    selectEntry(entry);
+                    if (entry && !entry.classList.contains("selected")) {
+                        selectEntry(entry);
+                    }
                     showContextMenu(event.clientX, event.clientY);
                 });
             }
@@ -746,7 +1017,7 @@
                 if (isTypingContext(event.target) || isTypingContext(document.activeElement)) {
                     return;
                 }
-                if (!selectedEntry) return;
+                if (!selectedEntry && getSelectedEntries().length === 0) return;
                 if (event.key === "Enter" || event.key === "F2") {
                     event.preventDefault();
                     openRenameDialog();
@@ -758,6 +1029,146 @@
                 }
             });
 
+            function moveSelectedEntriesToFolder(targetFolderName) {
+                var selection = getSelectedEntries().filter(function (entry) {
+                    return entryKind(entry) === "file" || entryKind(entry) === "folder";
+                });
+                if (selection.length === 0 || !targetFolderName) {
+                    return Promise.resolve();
+                }
+                var requests = selection.map(function (entry) {
+                    var oldName = entry.getAttribute("data-name");
+                    if (!oldName || oldName === targetFolderName) {
+                        return Promise.resolve();
+                    }
+                    var destination = targetFolderName + "/" + oldName;
+                    var formData = new URLSearchParams();
+                    formData.set("repository", currentRepo);
+                    formData.set("user", currentUser);
+                    formData.set("working-directory", currentPath);
+                    formData.set("oldName", oldName);
+                    formData.set("newName", destination);
+                    return fetch("/rename", {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                        },
+                        body: formData.toString(),
+                    }).then(function (response) {
+                        if (!response.ok) {
+                            return response.text().then(function (text) {
+                                throw new Error(text || "Move failed");
+                            });
+                        }
+                    });
+                });
+                return Promise.all(requests).then(function () {
+                    window.location.reload();
+                });
+            }
+
+            if (panel && window.getComputedStyle(panel).position === "static") {
+                panel.style.position = "relative";
+            }
+
+            function ensureSelectionBox() {
+                if (selectionBox) return selectionBox;
+                selectionBox = document.createElement("div");
+                selectionBox.style.position = "absolute";
+                selectionBox.style.border = "1px solid rgba(37, 99, 235, 0.9)";
+                selectionBox.style.background = "rgba(59, 130, 246, 0.18)";
+                selectionBox.style.pointerEvents = "none";
+                selectionBox.style.zIndex = "25";
+                selectionBox.hidden = true;
+                panel.appendChild(selectionBox);
+                return selectionBox;
+            }
+
+            function beginSelectionDrag(event) {
+                if (!panel || event.button !== 0) return;
+                if (event.target.closest(".repo-card") || isTypingContext(event.target)) return;
+                var rect = panel.getBoundingClientRect();
+                selectionDragState = {
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    rect: rect,
+                };
+                selectEntry(null);
+                ensureSelectionBox().hidden = false;
+                event.preventDefault();
+            }
+
+            function updateSelectionDrag(event) {
+                if (!selectionDragState || !selectionBox) return;
+                var panelRect = selectionDragState.rect;
+                var left = Math.max(Math.min(selectionDragState.startX, event.clientX), panelRect.left);
+                var right = Math.min(Math.max(selectionDragState.startX, event.clientX), panelRect.right);
+                var top = Math.max(Math.min(selectionDragState.startY, event.clientY), panelRect.top);
+                var bottom = Math.min(Math.max(selectionDragState.startY, event.clientY), panelRect.bottom);
+                selectionBox.style.left = (left - panelRect.left + panel.scrollLeft) + "px";
+                selectionBox.style.top = (top - panelRect.top + panel.scrollTop) + "px";
+                selectionBox.style.width = Math.max(0, right - left) + "px";
+                selectionBox.style.height = Math.max(0, bottom - top) + "px";
+
+                var selected = getAllEntries().filter(function (entry) {
+                    var entryRect = entry.getBoundingClientRect();
+                    return !(entryRect.right < left || entryRect.left > right || entryRect.bottom < top || entryRect.top > bottom);
+                });
+                if (selected.length > 0) {
+                    selectedEntry = selected[selected.length - 1];
+                }
+                applySelection(selected, selectionAnchorEntry);
+            }
+
+            function endSelectionDrag() {
+                if (!selectionDragState) return;
+                selectionDragState = null;
+                if (selectionBox) {
+                    selectionBox.hidden = true;
+                    selectionBox.style.width = "0px";
+                    selectionBox.style.height = "0px";
+                }
+            }
+
+            panel.addEventListener("mousedown", beginSelectionDrag);
+            document.addEventListener("mousemove", updateSelectionDrag);
+            document.addEventListener("mouseup", endSelectionDrag);
+
+            getAllEntries().forEach(function (entry) {
+                if (entryKind(entry) === "file" || entryKind(entry) === "folder") {
+                    entry.setAttribute("draggable", "true");
+                }
+            });
+
+            if (entryList) {
+                entryList.addEventListener("dragstart", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry) return;
+                    if (!entry.classList.contains("selected")) {
+                        selectEntry(entry);
+                    }
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", entry.getAttribute("data-name") || "");
+                });
+
+                entryList.addEventListener("dragover", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry || entryKind(entry) !== "folder") return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                });
+
+                entryList.addEventListener("drop", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry || entryKind(entry) !== "folder") return;
+                    event.preventDefault();
+                    moveSelectedEntriesToFolder(entry.getAttribute("data-name")).catch(function (error) {
+                        window.alert(error.message || "Move failed");
+                    });
+                });
+            }
+
             renameForm.addEventListener("submit", function (event) {
                 var value = renameInput.value.trim();
                 if (!isValidMovePath(value)) {
@@ -766,6 +1177,8 @@
                 }
             });
 
+            if (newFileBtn) newFileBtn.addEventListener("click", openNewFileDialog);
+            if (newFileBtnInline) newFileBtnInline.addEventListener("click", openNewFileDialog);
             newFolderBtn.addEventListener("click", openNewFolderDialog);
             newFolderBtnInline.addEventListener("click", openNewFolderDialog);
             if (openSettingsBtnMenu) {
@@ -780,6 +1193,32 @@
             deleteFileBtn.addEventListener("click", deleteSelectedFile);
             if (previewRefreshBtn) {
                 previewRefreshBtn.addEventListener("click", previewSelectedFile);
+            }
+            if (newFileTypeInput) {
+                newFileTypeInput.addEventListener("change", function () {
+                    syncNewFileExtension(false);
+                });
+            }
+            if (newFileNameInput) {
+                newFileNameInput.addEventListener("input", updateNewFilePreview);
+            }
+            if (newFileExtensionInput) {
+                newFileExtensionInput.addEventListener("input", updateNewFilePreview);
+            }
+            if (newFileForm) {
+                newFileForm.addEventListener("submit", function () {
+                    if (newFileNameInput) {
+                        newFileNameInput.value = newFileNameInput.value.trim();
+                    }
+                    if (newFileExtensionInput) {
+                        newFileExtensionInput.value = normalizeExtensionInput(newFileExtensionInput.value);
+                    }
+                });
+            }
+            if (cancelNewFile) {
+                cancelNewFile.addEventListener("click", function () {
+                    if (newFileDialog) newFileDialog.close();
+                });
             }
             cancelDialog.addEventListener("click", function () {
                 newFolderDialog.close();
@@ -835,6 +1274,8 @@
                 if (!input) return;
                 input.value = input.value.trim().replace(/\s+/g, "_");
             });
+
+            updateNewFilePreview();
 
             // Owners widget: render tokens, allow add/remove, and populate hidden owners field on submit
             (function () {

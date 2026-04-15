@@ -38,4 +38,13 @@ type FrontEndParams struct {
 	EditorHasInitialContent bool
 	EditorInitialVersion    int64
 	EditorInitialContent    string
+	DocumentEditorFileURL   string
+	DocumentEditorSyncURL   string
+	DocumentEditorStreamURL string
+	DocumentEditorLoadURL   string
+	DocumentEditorExportURL string
+	DocumentEditorSaveAsURL string
+	DocumentEditorVersion   int64
+	DocumentEditorSavedAt   int64
+	DocumentEditorDarkMode  bool
 }

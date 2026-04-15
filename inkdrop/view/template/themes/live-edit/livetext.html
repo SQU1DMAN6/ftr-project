@@ -7,64 +7,162 @@
         <title>InkDrop - {{ .Title }}</title>
         <style>
             :root {
+                --editor-page-bg: linear-gradient(180deg, #e9eef5 0%, #dbe4ef 100%);
+                --editor-panel-bg: rgba(255, 255, 255, 0.9);
+                --editor-stage-shell: linear-gradient(180deg, #edf3fb 0%, #e2ebf6 100%);
                 --editor-bg: #ffffff;
                 --editor-border: rgba(15, 23, 42, 0.12);
                 --editor-cursor: #111827;
                 --editor-fg: #0f172a;
                 --editor-overlay: rgba(248, 250, 252, 0.88);
+                --editor-muted: #526172;
+                --editor-strong: #102033;
+                --editor-shadow: 0 26px 70px rgba(15, 23, 42, 0.12);
+                --editor-rail-bg: rgba(255, 255, 255, 0.82);
+                --editor-drawer-bg: rgba(255, 255, 255, 0.92);
+                --editor-action-bg: rgba(15, 23, 42, 0.04);
             }
 
             html[data-theme="dark"] {
-                --editor-bg: #0f172a;
+                --editor-page-bg: linear-gradient(180deg, #171c23 0%, #10151b 100%);
+                --editor-panel-bg: rgba(28, 34, 43, 0.88);
+                --editor-stage-shell: linear-gradient(180deg, #1f2630 0%, #171d25 100%);
+                --editor-bg: #141a22;
                 --editor-border: rgba(148, 163, 184, 0.24);
                 --editor-cursor: #f8fafc;
                 --editor-fg: #e2e8f0;
                 --editor-overlay: rgba(15, 23, 42, 0.82);
+                --editor-muted: #aab9c8;
+                --editor-strong: #edf3fb;
+                --editor-shadow: 0 32px 80px rgba(0, 0, 0, 0.38);
+                --editor-rail-bg: rgba(23, 29, 37, 0.88);
+                --editor-drawer-bg: rgba(22, 27, 35, 0.94);
+                --editor-action-bg: rgba(255, 255, 255, 0.08);
+            }
+
+            body {
+                background: var(--editor-page-bg);
+                height: 100vh;
+                overflow: hidden;
+            }
+
+            .page {
+                max-width: none;
+                height: 100vh;
+                padding: 12px;
+                overflow: hidden;
             }
 
             .live-shell {
                 display: flex;
                 flex-direction: column;
-                gap: 24px;
-            }
-
-            .live-hero {
-                overflow: hidden;
-            }
-
-            .live-hero .row {
-                align-items: center;
-                flex-wrap: wrap;
                 gap: 12px;
+                height: 100%;
             }
 
-            .live-subgrid {
-                display: grid;
-                grid-template-columns: minmax(0, 1fr) 320px;
-                gap: 20px;
-                align-items: start;
-            }
-
-            .live-toolbar {
+            .live-commandbar {
                 display: flex;
                 justify-content: space-between;
-                align-items: flex-start;
-                gap: 16px;
+                align-items: center;
+                gap: 12px;
                 flex-wrap: wrap;
-                margin-bottom: 14px;
+                padding: 8px 12px;
+                border-radius: 18px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-panel-bg);
+                box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+                backdrop-filter: blur(20px);
             }
 
-            .live-toolbar p,
-            .live-side p,
+            .live-titleblock {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                min-width: 0;
+            }
+
+            .live-titlecopy {
+                min-width: 0;
+            }
+
+            .live-titlecopy h1,
+            .live-titlecopy p,
+            .live-drawer-head h2,
+            .live-drawer-head p,
             .presence-list p {
                 margin: 0;
             }
 
+            .live-titlecopy h1 {
+                font-size: 1rem;
+                line-height: 1.2;
+                color: var(--editor-strong);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .live-titlecopy p {
+                font-size: 0.82rem;
+                color: var(--editor-muted);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .live-command-actions {
+                display: grid;
+                grid-auto-flow: column;
+                grid-auto-columns: max-content;
+                gap: 8px;
+                align-items: center;
+            }
+
+            .live-layout {
+                position: relative;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 56px;
+                gap: 12px;
+                min-height: 0;
+                height: 100%;
+                align-items: stretch;
+            }
+
+            .live-workbench {
+                min-height: 0;
+                height: 100%;
+                border-radius: 24px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-stage-shell);
+                box-shadow: var(--editor-shadow);
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                padding: 14px;
+            }
+
+            .live-stage-chrome {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 12px;
+                color: var(--editor-muted);
+                font-size: 0.82rem;
+            }
+
             .live-badges {
                 display: flex;
-                gap: 10px;
+                gap: 8px;
                 flex-wrap: wrap;
                 align-items: center;
+            }
+
+            .live-stage-actions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
             }
 
             .live-badge {
@@ -72,59 +170,75 @@
                 align-items: center;
                 gap: 6px;
                 border-radius: 999px;
-                padding: 7px 12px;
-                background: rgba(148, 163, 184, 0.14);
-                color: inherit;
-                font-size: 0.88rem;
+                padding: 6px 10px;
+                background: var(--editor-action-bg);
+                color: var(--editor-strong);
+                font-size: 0.82rem;
             }
 
             .live-badge.status {
-                background: rgba(14, 165, 233, 0.14);
+                background: rgba(14, 165, 233, 0.16);
             }
 
             .live-badge.status[data-state="busy"] {
                 background: rgba(234, 179, 8, 0.18);
             }
 
-        .live-badge.status[data-state="error"] {
-            background: rgba(239, 68, 68, 0.16);
-            color: #b91c1c;
-        }
+            .live-badge.status[data-state="error"] {
+                background: rgba(239, 68, 68, 0.16);
+                color: #b91c1c;
+            }
 
-        .live-badge.save-state[data-state="saved"] {
-            background: rgba(34, 197, 94, 0.14);
-            color: #166534;
-        }
+            .live-badge.save-state[data-state="saved"] {
+                background: rgba(34, 197, 94, 0.14);
+                color: #166534;
+            }
 
-        .live-badge.save-state[data-state="dirty"] {
-            background: rgba(245, 158, 11, 0.18);
-            color: #92400e;
-        }
+            .live-badge.save-state[data-state="dirty"] {
+                background: rgba(245, 158, 11, 0.18);
+                color: #92400e;
+            }
 
-        .live-badge.save-state[data-state="saving"] {
-            background: rgba(14, 165, 233, 0.14);
-            color: #0c4a6e;
-        }
+            .live-badge.save-state[data-state="saving"] {
+                background: rgba(14, 165, 233, 0.14);
+                color: #0c4a6e;
+            }
 
-        html[data-theme="dark"] .live-badge.status[data-state="error"] {
-            color: #fecaca;
-        }
+            html[data-theme="dark"] .live-badge.status[data-state="error"] {
+                color: #fecaca;
+            }
 
-        html[data-theme="dark"] .live-badge.save-state[data-state="saved"] {
-            color: #dcfce7;
-        }
+            html[data-theme="dark"] .live-badge.save-state[data-state="saved"] {
+                color: #dcfce7;
+            }
 
-        html[data-theme="dark"] .live-badge.save-state[data-state="dirty"] {
-            color: #fde68a;
-        }
+            html[data-theme="dark"] .live-badge.save-state[data-state="dirty"] {
+                color: #fde68a;
+            }
 
-        html[data-theme="dark"] .live-badge.save-state[data-state="saving"] {
-            color: #bae6fd;
-        }
+            html[data-theme="dark"] .live-badge.save-state[data-state="saving"] {
+                color: #bae6fd;
+            }
+
+            .live-action-button {
+                border: 1px solid color-mix(in srgb, var(--editor-border) 80%, transparent);
+                background: var(--editor-panel-bg);
+                color: var(--editor-strong);
+                border-radius: 999px;
+                padding: 8px 12px;
+                cursor: pointer;
+            }
+
+            .live-action-button:disabled {
+                opacity: 0.55;
+                cursor: default;
+            }
 
             .live-stage {
                 position: relative;
-                min-height: 72vh;
+                flex: 1 1 auto;
+                min-height: 0;
+                height: 100%;
                 border-radius: 18px;
                 border: 1px solid var(--editor-border);
                 background: var(--editor-bg);
@@ -190,21 +304,128 @@
                 margin-top: 10px;
             }
 
-            .live-side {
-                display: flex;
-                flex-direction: column;
-                gap: 16px;
-            }
-
-            .live-side-section {
+            .live-rail {
                 display: flex;
                 flex-direction: column;
                 gap: 10px;
+                align-items: center;
+                padding: 12px 8px;
+                border-radius: 20px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-rail-bg);
+                backdrop-filter: blur(18px);
+                box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
             }
 
-            .live-side h3 {
+            .live-rail-button {
+                position: relative;
+                width: 40px;
+                height: 40px;
+                border: 1px solid transparent;
+                border-radius: 14px;
+                background: transparent;
+                color: var(--editor-strong);
+                font: inherit;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+            }
+
+            .live-rail-button:hover,
+            .live-rail-button[aria-pressed="true"] {
+                background: var(--editor-action-bg);
+                border-color: var(--editor-border);
+                transform: translateY(-1px);
+            }
+
+            .live-rail-button.status-live::after,
+            .live-rail-button.status-busy::after,
+            .live-rail-button.status-error::after {
+                content: "";
+                position: absolute;
+                width: 8px;
+                height: 8px;
+                border-radius: 999px;
+                margin-left: 18px;
+                margin-top: -18px;
+                background: #22c55e;
+            }
+
+            .live-rail-button.status-busy::after {
+                background: #f59e0b;
+            }
+
+            .live-rail-button.status-error::after {
+                background: #ef4444;
+            }
+
+            .live-rail-separator {
+                width: 28px;
+                height: 1px;
+                background: var(--editor-border);
+            }
+
+            .live-drawer {
+                position: absolute;
+                top: 0;
+                right: 72px;
+                bottom: 0;
+                width: min(360px, calc(100vw - 120px));
+                padding: 14px;
+                border-radius: 24px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-drawer-bg);
+                backdrop-filter: blur(18px);
+                box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+                overflow: auto;
+                transform: translateX(0);
+                opacity: 1;
+                transition: transform 0.22s ease, opacity 0.22s ease;
+                z-index: 5;
+            }
+
+            .live-drawer[hidden] {
+                display: block;
+                pointer-events: none;
+                opacity: 0;
+                transform: translateX(20px);
+            }
+
+            .live-drawer-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 14px;
+            }
+
+            .live-drawer-close {
+                width: 36px;
+                height: 36px;
+            }
+
+            .live-panel-stack {
+                display: grid;
+                gap: 14px;
+            }
+
+            .live-panel-card {
+                padding: 14px;
+                border-radius: 18px;
+                background: color-mix(in srgb, var(--editor-action-bg) 75%, transparent);
+                border: 1px solid color-mix(in srgb, var(--editor-border) 75%, transparent);
+            }
+
+            .live-panel-card h3,
+            .live-panel-card p {
                 margin: 0;
-                font-size: 0.95rem;
+            }
+
+            .live-panel-card h3 {
+                margin-bottom: 8px;
+                color: var(--editor-strong);
             }
 
             .live-metadata {
@@ -217,27 +438,8 @@
                 font-size: 0.8rem;
                 text-transform: uppercase;
                 letter-spacing: 0.08em;
-                opacity: 0.68;
+                color: var(--editor-muted);
                 margin-bottom: 4px;
-            }
-
-            .presence-chip {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                width: fit-content;
-                border-radius: 999px;
-                padding: 7px 12px;
-                background: rgba(34, 197, 94, 0.12);
-            }
-
-            .presence-chip::before {
-                content: "";
-                width: 9px;
-                height: 9px;
-                border-radius: 999px;
-                background: #22c55e;
-                box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
             }
 
             .presence-list {
@@ -263,16 +465,40 @@
 
             .presence-name {
                 font-weight: 600;
+                color: var(--editor-strong);
             }
 
             .presence-meta {
                 font-size: 0.84rem;
-                opacity: 0.75;
+                color: var(--editor-muted);
             }
 
             .presence-empty {
-                opacity: 0.72;
+                color: var(--editor-muted);
                 font-size: 0.92rem;
+            }
+
+            .lint-list {
+                display: grid;
+                gap: 10px;
+            }
+
+            .lint-item {
+                padding: 10px 12px;
+                border-radius: 14px;
+                background: color-mix(in srgb, var(--editor-action-bg) 85%, transparent);
+            }
+
+            .lint-item strong {
+                display: inline-block;
+                margin-bottom: 4px;
+                color: var(--editor-strong);
+            }
+
+            .lint-item p {
+                margin: 0;
+                color: var(--editor-muted);
+                font-size: 0.88rem;
             }
 
             .ace_editor {
@@ -288,20 +514,20 @@
                 background: rgba(14, 165, 233, 0.08);
             }
 
-        #editorCollaboratorLayer {
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            z-index: 6;
-            overflow: hidden;
-        }
+            #editorCollaboratorLayer {
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                z-index: 6;
+                overflow: hidden;
+            }
 
-        .live-remote-cursor {
-            position: absolute;
-            width: 0;
-            border-left: 2px solid #0f766e;
-            pointer-events: none;
-            z-index: 7;
+            .live-remote-cursor {
+                position: absolute;
+                width: 0;
+                border-left: 2px solid #0f766e;
+                pointer-events: none;
+                z-index: 7;
             }
 
             .live-remote-label {
@@ -319,73 +545,45 @@
             }
 
             @media (max-width: 980px) {
-                .live-subgrid {
+                .page {
+                    padding: 10px;
+                }
+
+                .live-commandbar {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+
+                .live-command-actions {
+                    grid-auto-flow: row;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+
+                .live-layout {
                     grid-template-columns: 1fr;
                 }
 
-                .live-stage {
-                    min-height: 62vh;
+                .live-rail {
+                    position: fixed;
+                    right: 10px;
+                    bottom: 10px;
+                    z-index: 30;
+                }
+
+                .live-drawer {
+                    position: fixed;
+                    top: auto;
+                    right: 10px;
+                    bottom: 68px;
+                    left: 10px;
+                    width: auto;
+                    max-height: 52vh;
                 }
             }
         </style>
     </head>
 
     <body>
-        <header class="topbar">
-            <div class="topbar-inner">
-                <a href="/" class="topbar-brand">InkDrop</a>
-                <div class="topbar-right">
-                    <div
-                        class="theme-switch"
-                        role="group"
-                        aria-label="Theme mode"
-                    >
-                        <button
-                            type="button"
-                            data-theme-set="light"
-                            aria-pressed="false"
-                        >
-                            Light
-                        </button>
-                        <button
-                            type="button"
-                            data-theme-set="dark"
-                            aria-pressed="false"
-                        >
-                            Dark
-                        </button>
-                    </div>
-                    <div class="profile-menu">
-                        <button
-                            type="button"
-                            class="profile-button"
-                            id="profileMenuButton"
-                            aria-haspopup="menu"
-                            aria-expanded="false"
-                            aria-controls="profileMenu"
-                        >
-                            {{.Name}} ▾
-                        </button>
-                        <div
-                            id="profileMenu"
-                            class="profile-dropdown"
-                            role="menu"
-                            hidden
-                        >
-                            <p class="menu-label">Signed in as</p>
-                            <p class="menu-user">{{.Name}}</p>
-                            <a
-                                href="/logout"
-                                class="button-link danger small"
-                                role="menuitem"
-                                >Log Out</a
-                            >
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </header>
-
         <noscript>
             <div
                 style="
@@ -404,29 +602,51 @@
 
         <main class="page">
             <section class="shell live-shell">
-                <div class="panel dark live-hero stack">
-                    <div class="row">
-                        <div class="stack">
-                            <h1 class="intro">{{.EditorFileName}}</h1>
-                            <p class="subtle light">{{.EditorFilePath}}</p>
-                        </div>
-                        <a href="{{.EditorBackURL}}" class="button-link"
-                            >Back to Repository</a
+                <div class="live-commandbar">
+                    <div class="live-titleblock">
+                        <a href="{{.EditorBackURL}}" class="button-link small"
+                            >Back</a
                         >
+                        <div class="live-titlecopy">
+                            <h1>{{.EditorFileName}}</h1>
+                            <p>{{.EditorRepoOwner}} / {{.EditorRepoName}}</p>
+                        </div>
+                    </div>
+                    <div class="live-command-actions">
+                        <div
+                            class="theme-switch"
+                            role="group"
+                            aria-label="Theme mode"
+                        >
+                            <button
+                                type="button"
+                                data-theme-set="light"
+                                aria-pressed="false"
+                            >
+                                Light
+                            </button>
+                            <button
+                                type="button"
+                                data-theme-set="dark"
+                                aria-pressed="false"
+                            >
+                                Dark
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            class="live-action-button"
+                            id="editorSaveAsBtn"
+                            {{if not .EditorEditable}}disabled{{end}}
+                        >
+                            Save As
+                        </button>
                     </div>
                 </div>
 
-                <div class="live-subgrid">
-                    <div class="panel stack">
-                        <div class="live-toolbar">
-                            <div class="stack">
-                                <h2 class="section">Editing Surface</h2>
-                                <p class="subtle">
-                                    Use <strong>Ctrl+S</strong> to save now, or
-                                    <strong>Ctrl+Shift+S</strong> to save a copy
-                                    to a new path.
-                                </p>
-                            </div>
+                <div class="live-layout">
+                    <div class="live-workbench">
+                        <div class="live-stage-chrome">
                             <div class="live-badges">
                                 <span class="live-badge" id="editorModeBadge"
                                     >Mode: {{.EditorMode}}</span
@@ -449,16 +669,14 @@
                                     data-state="saved"
                                     >Saved</span
                                 >
-                                <button
-                                    type="button"
-                                    class="button-link small"
-                                    id="editorSaveAsBtn"
-                                    {{if
-                                    not
-                                    .EditorEditable}}disabled{{end}}
+                                <span class="live-badge" id="editorLintBadge"
+                                    >Lint clean</span
                                 >
-                                    Save As
-                                </button>
+                            </div>
+                            <div class="live-stage-actions">
+                                <span class="subtle" id="editorSavedMeta"
+                                    >Waiting for editor…</span
+                                >
                             </div>
                         </div>
 
@@ -486,10 +704,6 @@
                                         then return here from the repository
                                         browser.{{else}}This file cannot be
                                         loaded into the editor right now.{{end}}
-                                    </p>
-                                    <p class="subtle">
-                                        Only UTF-8 text files smaller than 5 MB
-                                        are opened in this editor surface.
                                     </p>
                                 </div>
                             </div>
@@ -525,46 +739,178 @@
                         </div>
                     </div>
 
-                    <aside class="panel live-side">
-                        <div class="live-side-section">
-                            <h3>Session</h3>
-                            <span class="presence-chip">{{.Name}}</span>
-                        </div>
+                    <aside class="live-rail" aria-label="Editor tools">
+                        <button
+                            type="button"
+                            class="live-rail-button status-live"
+                            id="editorStatusRailBtn"
+                            aria-label="Open editor status"
+                            aria-pressed="false"
+                        >
+                            S
+                        </button>
+                        <button
+                            type="button"
+                            class="live-rail-button"
+                            id="editorPeopleRailBtn"
+                            aria-label="Open collaborators"
+                            aria-pressed="false"
+                        >
+                            1
+                        </button>
+                        <button
+                            type="button"
+                            class="live-rail-button"
+                            id="editorFileRailBtn"
+                            aria-label="Open file info"
+                            aria-pressed="false"
+                        >
+                            #
+                        </button>
+                        <button
+                            type="button"
+                            class="live-rail-button"
+                            id="editorToolsRailBtn"
+                            aria-label="Open editor tools"
+                            aria-pressed="false"
+                        >
+                            {}
+                        </button>
+                        <div class="live-rail-separator" aria-hidden="true"></div>
+                        <button
+                            type="button"
+                            class="live-rail-button"
+                            id="editorHideRailBtn"
+                            aria-label="Close side panel"
+                        >
+                            x
+                        </button>
+                    </aside>
 
-                        <div class="live-side-section">
-                            <h3>Collaborators</h3>
-                            <div class="presence-list" id="editorPresenceList">
-                                <p class="presence-empty">
-                                    Connecting to the live session…
+                    <aside class="live-drawer" id="editorDrawer" hidden>
+                        <div class="live-drawer-head">
+                            <div>
+                                <h2 id="editorDrawerTitle">Editor Status</h2>
+                                <p
+                                    class="subtle"
+                                    id="editorDrawerSubtitle"
+                                >
+                                    Session details and editor health.
                                 </p>
                             </div>
+                            <button
+                                type="button"
+                                class="live-rail-button live-drawer-close"
+                                id="editorDrawerCloseBtn"
+                                aria-label="Close panel"
+                            >
+                                x
+                            </button>
                         </div>
+                        <div class="live-panel-stack">
+                            <section class="live-panel-card" data-panel="status">
+                                <h3>Session</h3>
+                                <div class="live-metadata">
+                                    <div>
+                                        <strong>Status</strong>
+                                        <p id="editorStatusDetail">
+                                            Connecting…
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Save State</strong>
+                                        <p id="editorSaveStateDetail">Saved</p>
+                                    </div>
+                                    <div>
+                                        <strong>Latest Save</strong>
+                                        <p id="editorSavedMetaPanel">
+                                            Waiting for editor…
+                                        </p>
+                                    </div>
+                                </div>
+                            </section>
 
-                        <div class="live-side-section">
-                            <h3>File</h3>
-                            <div class="live-metadata">
-                                <div>
-                                    <strong>Repository</strong>
-                                    <p>
-                                        {{.EditorRepoOwner}}/{{.EditorRepoName}}
+                            <section
+                                class="live-panel-card"
+                                data-panel="collaborators"
+                                hidden
+                            >
+                                <h3>Collaborators</h3>
+                                <div class="presence-list" id="editorPresenceList">
+                                    <p class="presence-empty">
+                                        Connecting to the live session…
                                     </p>
                                 </div>
-                                <div>
-                                    <strong>Path</strong>
-                                    <p id="editorFilePathLabel">
-                                        {{.EditorFilePath}}
-                                    </p>
+                            </section>
+
+                            <section
+                                class="live-panel-card"
+                                data-panel="file"
+                                hidden
+                            >
+                                <h3>File</h3>
+                                <div class="live-metadata">
+                                    <div>
+                                        <strong>Repository</strong>
+                                        <p>
+                                            {{.EditorRepoOwner}}/{{.EditorRepoName}}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Path</strong>
+                                        <p id="editorFilePathLabel">
+                                            {{.EditorFilePath}}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Size</strong>
+                                        <p
+                                            id="editorFileSize"
+                                            data-size="{{.EditorFileSize}}"
+                                        >
+                                            {{.EditorFileSize}} bytes
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Signed In</strong>
+                                        <p>{{.Name}}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <strong>Size</strong>
-                                    <p
-                                        id="editorFileSize"
-                                        data-size="{{.EditorFileSize}}"
-                                    >
-                                        {{.EditorFileSize}} bytes
-                                    </p>
+                            </section>
+
+                            <section
+                                class="live-panel-card"
+                                data-panel="tools"
+                                hidden
+                            >
+                                <h3>Editor Tools</h3>
+                                <div class="live-metadata">
+                                    <div>
+                                        <strong>Linting</strong>
+                                        <p id="editorLintSummary">
+                                            Waiting for language worker…
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Behaviours</strong>
+                                        <p>
+                                            Auto-pairing and newline wrapping are
+                                            enabled for braces, brackets, and
+                                            parentheses.
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Save Shortcuts</strong>
+                                        <p>Ctrl+S saves. Ctrl+Shift+S saves a copy.</p>
+                                    </div>
                                 </div>
-                            </div>
+                                <div class="lint-list" id="editorLintList">
+                                    <div class="lint-item">
+                                        <strong>Lint</strong>
+                                        <p>No diagnostics yet.</p>
+                                    </div>
+                                </div>
+                            </section>
                         </div>
                     </aside>
                 </div>
@@ -646,10 +992,52 @@
                     "editorFilePathLabel",
                 );
                 var editorFileSize = document.getElementById("editorFileSize");
+                var editorSavedMeta =
+                    document.getElementById("editorSavedMeta");
+                var editorSavedMetaPanel = document.getElementById(
+                    "editorSavedMetaPanel",
+                );
+                var editorStatusDetail = document.getElementById(
+                    "editorStatusDetail",
+                );
+                var editorSaveStateDetail = document.getElementById(
+                    "editorSaveStateDetail",
+                );
+                var editorLintBadge =
+                    document.getElementById("editorLintBadge");
+                var editorLintSummary = document.getElementById(
+                    "editorLintSummary",
+                );
+                var editorLintList =
+                    document.getElementById("editorLintList");
                 var saveAsButton = document.getElementById("editorSaveAsBtn");
-                var profileButton =
-                    document.getElementById("profileMenuButton");
-                var profileMenu = document.getElementById("profileMenu");
+                var editorStatusRailButton = document.getElementById(
+                    "editorStatusRailBtn",
+                );
+                var editorPeopleRailButton = document.getElementById(
+                    "editorPeopleRailBtn",
+                );
+                var editorFileRailButton = document.getElementById(
+                    "editorFileRailBtn",
+                );
+                var editorToolsRailButton = document.getElementById(
+                    "editorToolsRailBtn",
+                );
+                var editorHideRailButton = document.getElementById(
+                    "editorHideRailBtn",
+                );
+                var editorDrawer = document.getElementById("editorDrawer");
+                var editorDrawerTitle = document.getElementById(
+                    "editorDrawerTitle",
+                );
+                var editorDrawerSubtitle = document.getElementById(
+                    "editorDrawerSubtitle",
+                );
+                var editorDrawerCloseButton = document.getElementById(
+                    "editorDrawerCloseBtn",
+                );
+                var editorDrawerPanels =
+                    document.querySelectorAll("[data-panel]");
 
                 var editor = null;
                 var editorListenersInstalled = false;
@@ -676,6 +1064,7 @@
                 var localDirty = false;
                 var disconnecting = false;
                 var lastSavedAt = 0;
+                var activeDrawerPanel = "";
 
                 function writeDebug(message) {
                     try {
@@ -768,37 +1157,74 @@
                         });
                 }
 
-                function closeMenu() {
-                    if (!profileMenu || !profileButton) return;
-                    profileMenu.hidden = true;
-                    profileButton.setAttribute("aria-expanded", "false");
+                function syncStatusRail(state) {
+                    if (!editorStatusRailButton) return;
+                    editorStatusRailButton.classList.remove(
+                        "status-live",
+                        "status-busy",
+                        "status-error",
+                    );
+                    editorStatusRailButton.classList.add(
+                        state === "error"
+                            ? "status-error"
+                            : state === "busy"
+                              ? "status-busy"
+                              : "status-live",
+                    );
                 }
 
-                function initProfileMenu() {
-                    if (!profileButton || !profileMenu) return;
-                    profileButton.addEventListener("click", function () {
-                        var isHidden = profileMenu.hidden;
-                        profileMenu.hidden = !isHidden;
-                        profileButton.setAttribute(
-                            "aria-expanded",
-                            String(isHidden),
-                        );
+                function setDrawerPanel(panelName) {
+                    activeDrawerPanel = panelName || "";
+                    var panelMeta = {
+                        status: [
+                            "Editor Status",
+                            "Session details and editor health.",
+                        ],
+                        collaborators: [
+                            "Collaborators",
+                            "Everyone currently connected to this file.",
+                        ],
+                        file: ["File Info", "Repository and path details."],
+                        tools: [
+                            "Editor Tools",
+                            "Linting, pairing, and keyboard helpers.",
+                        ],
+                    };
+                    editorDrawerPanels.forEach(function (panel) {
+                        panel.hidden =
+                            panel.getAttribute("data-panel") !==
+                            activeDrawerPanel;
                     });
-
-                    document.addEventListener("click", function (event) {
-                        if (
-                            !profileMenu.hidden &&
-                            !event.target.closest(".profile-menu")
-                        ) {
-                            closeMenu();
-                        }
+                    [
+                        editorStatusRailButton,
+                        editorPeopleRailButton,
+                        editorFileRailButton,
+                        editorToolsRailButton,
+                    ].forEach(function (button) {
+                        if (!button) return;
+                        var matches =
+                            (button === editorStatusRailButton &&
+                                activeDrawerPanel === "status") ||
+                            (button === editorPeopleRailButton &&
+                                activeDrawerPanel === "collaborators") ||
+                            (button === editorFileRailButton &&
+                                activeDrawerPanel === "file") ||
+                            (button === editorToolsRailButton &&
+                                activeDrawerPanel === "tools");
+                        button.setAttribute("aria-pressed", String(matches));
                     });
-
-                    document.addEventListener("keydown", function (event) {
-                        if (event.key === "Escape") {
-                            closeMenu();
-                        }
-                    });
+                    if (!editorDrawer) return;
+                    if (!activeDrawerPanel) {
+                        editorDrawer.hidden = true;
+                        return;
+                    }
+                    editorDrawer.hidden = false;
+                    if (editorDrawerTitle && editorDrawerSubtitle) {
+                        var nextMeta = panelMeta[activeDrawerPanel] ||
+                            panelMeta.status;
+                        editorDrawerTitle.textContent = nextMeta[0];
+                        editorDrawerSubtitle.textContent = nextMeta[1];
+                    }
                 }
 
                 function formatBytes(bytes) {
@@ -865,6 +1291,10 @@
                         "data-state",
                         state || "live",
                     );
+                    if (editorStatusDetail) {
+                        editorStatusDetail.textContent = message;
+                    }
+                    syncStatusRail(state || "live");
                 }
 
                 function setSaveState(state, savedAt) {
@@ -875,14 +1305,38 @@
                             ? state
                             : "saved";
                     editorSaveStateBadge.setAttribute("data-state", resolved);
+                    if (editorSaveStateDetail) {
+                        editorSaveStateDetail.textContent =
+                            resolved === "dirty"
+                                ? "Unsaved"
+                                : resolved === "saving"
+                                  ? "Saving"
+                                  : "Saved";
+                    }
 
                     if (resolved === "dirty") {
                         editorSaveStateBadge.textContent = "Unsaved";
+                        if (editorSavedMeta) {
+                            editorSavedMeta.textContent =
+                                "Local changes pending";
+                        }
+                        if (editorSavedMetaPanel) {
+                            editorSavedMetaPanel.textContent =
+                                "Local changes pending";
+                        }
                         return;
                     }
 
                     if (resolved === "saving") {
                         editorSaveStateBadge.textContent = "Saving";
+                        if (editorSavedMeta) {
+                            editorSavedMeta.textContent =
+                                "Writing the latest file contents…";
+                        }
+                        if (editorSavedMetaPanel) {
+                            editorSavedMetaPanel.textContent =
+                                "Writing the latest file contents…";
+                        }
                         return;
                     }
 
@@ -891,12 +1345,86 @@
                     }
 
                     editorSaveStateBadge.textContent = "Saved";
+                    var savedLabel = lastSavedAt > 0
+                        ? "Saved " + new Date(lastSavedAt).toLocaleString()
+                        : "Saved";
+                    if (editorSavedMeta) {
+                        editorSavedMeta.textContent = savedLabel;
+                    }
+                    if (editorSavedMetaPanel) {
+                        editorSavedMetaPanel.textContent = savedLabel;
+                    }
                     if (lastSavedAt > 0) {
                         editorSaveStateBadge.title =
                             "Saved " +
                             new Date(lastSavedAt).toLocaleTimeString();
                     } else {
                         editorSaveStateBadge.removeAttribute("title");
+                    }
+                }
+
+                function updateLintSummaryFromAnnotations() {
+                    var annotations = [];
+                    if (editor && editor.session && editor.session.getAnnotations) {
+                        annotations = editor.session.getAnnotations() || [];
+                    }
+
+                    if (!editorLintBadge && !editorLintSummary && !editorLintList) {
+                        return;
+                    }
+
+                    if (!annotations.length) {
+                        if (editorLintBadge) {
+                            editorLintBadge.textContent = "Lint clean";
+                        }
+                        if (editorLintSummary) {
+                            editorLintSummary.textContent =
+                                "No diagnostics in the current buffer.";
+                        }
+                        if (editorLintList) {
+                            editorLintList.innerHTML =
+                                '<div class="lint-item"><strong>Lint</strong><p>No diagnostics yet.</p></div>';
+                        }
+                        return;
+                    }
+
+                    if (editorLintBadge) {
+                        editorLintBadge.textContent =
+                            annotations.length + " issue" +
+                            (annotations.length === 1 ? "" : "s");
+                    }
+                    if (editorLintSummary) {
+                        editorLintSummary.textContent =
+                            annotations.length +
+                            " diagnostic" +
+                            (annotations.length === 1 ? "" : "s") +
+                            " in the current buffer.";
+                    }
+                    if (editorLintList) {
+                        editorLintList.innerHTML = annotations
+                            .slice(0, 8)
+                            .map(function (annotation) {
+                                var row = Number(annotation.row || 0) + 1;
+                                var column =
+                                    Number(annotation.column || 0) + 1;
+                                var kind = String(
+                                    annotation.type || "info",
+                                ).toUpperCase();
+                                return (
+                                    '<div class="lint-item"><strong>' +
+                                    kind +
+                                    " at line " +
+                                    row +
+                                    ", col " +
+                                    column +
+                                    "</strong><p>" +
+                                    escapeHTML(
+                                        annotation.text || "Unknown issue",
+                                    ) +
+                                    "</p></div>"
+                                );
+                            })
+                            .join("");
                     }
                 }
 
@@ -935,6 +1463,9 @@
                         editor.setOptions({
                             enableBasicAutocompletion: true,
                             enableLiveAutocompletion: true,
+                            enableSnippets: true,
+                            behavioursEnabled: true,
+                            wrapBehavioursEnabled: true,
                             fontSize: "14px",
                             highlightActiveLine: true,
                             printMargin: false,
@@ -944,9 +1475,13 @@
                             wrap: false,
                         });
                         editor.session.setUseWrapMode(false);
+                        editor.session.setUseWorker(true);
+                        editor.setBehavioursEnabled(true);
+                        editor.setWrapBehavioursEnabled(true);
                         setEditorMode(editorConfig.modeHint);
                         installEditorListeners();
                         installEditorViewportListeners();
+                        updateLintSummaryFromAnnotations();
                     }
                     return editor;
                 }
@@ -1220,6 +1755,9 @@
                         if (editorPresenceBadge) {
                             editorPresenceBadge.textContent = "1 active";
                         }
+                        if (editorPeopleRailButton) {
+                            editorPeopleRailButton.textContent = "1";
+                        }
                         return;
                     }
 
@@ -1254,6 +1792,11 @@
                     if (editorPresenceBadge) {
                         editorPresenceBadge.textContent =
                             latestPresence.length + " active";
+                    }
+                    if (editorPeopleRailButton) {
+                        editorPeopleRailButton.textContent = String(
+                            latestPresence.length,
+                        );
                     }
                 }
 
@@ -1364,7 +1907,12 @@
                             new Blob([editor.getValue()]).size,
                         );
                         queueSync(false);
+                        updateLintSummaryFromAnnotations();
                     });
+                    editor.session.on(
+                        "changeAnnotation",
+                        updateLintSummaryFromAnnotations,
+                    );
                     editor.selection.on("changeCursor", function () {
                         queuePresenceUpdate();
                     });
@@ -1385,6 +1933,13 @@
                             new Blob([editorFallback.value]).size,
                         );
                         queueSync(false);
+                        if (editorLintBadge) {
+                            editorLintBadge.textContent = "Lint unavailable";
+                        }
+                        if (editorLintSummary) {
+                            editorLintSummary.textContent =
+                                "Diagnostics are unavailable in fallback mode.";
+                        }
                     });
                     ["keyup", "click", "select"].forEach(function (eventName) {
                         editorFallback.addEventListener(eventName, function () {
@@ -1791,7 +2346,7 @@
                             Boolean(editorConfig.editable),
                     );
                     initTheme();
-                    initProfileMenu();
+                    setDrawerPanel("status");
                     setEditorMode(editorConfig.modeHint);
                     updateFileMetadata(
                         editorConfig.filePath,
@@ -1804,6 +2359,70 @@
 
                     if (saveAsButton) {
                         saveAsButton.addEventListener("click", triggerSaveAs);
+                    }
+                    if (editorStatusRailButton) {
+                        editorStatusRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel(
+                                    activeDrawerPanel === "status"
+                                        ? ""
+                                        : "status",
+                                );
+                            },
+                        );
+                    }
+                    if (editorPeopleRailButton) {
+                        editorPeopleRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel(
+                                    activeDrawerPanel === "collaborators"
+                                        ? ""
+                                        : "collaborators",
+                                );
+                            },
+                        );
+                    }
+                    if (editorFileRailButton) {
+                        editorFileRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel(
+                                    activeDrawerPanel === "file"
+                                        ? ""
+                                        : "file",
+                                );
+                            },
+                        );
+                    }
+                    if (editorToolsRailButton) {
+                        editorToolsRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel(
+                                    activeDrawerPanel === "tools"
+                                        ? ""
+                                        : "tools",
+                                );
+                            },
+                        );
+                    }
+                    if (editorDrawerCloseButton) {
+                        editorDrawerCloseButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel("");
+                            },
+                        );
+                    }
+                    if (editorHideRailButton) {
+                        editorHideRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel("");
+                            },
+                        );
                     }
 
                     if (!editorConfig.editable) {
