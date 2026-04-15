@@ -139,6 +139,15 @@ func SearchRepositories(query string) ([]map[string]string, error) {
 
 	all := q == "/" || q == "*"
 	q = strings.ToLower(q)
+	searchUser := ""
+	searchRepo := ""
+	if strings.Contains(q, "/") {
+		parts := strings.SplitN(q, "/", 2)
+		searchUser = strings.TrimSpace(parts[0])
+		searchRepo = strings.TrimSpace(parts[1])
+		searchRepo = strings.TrimSuffix(searchRepo, "/")
+	}
+
 	var results []map[string]string
 
 	users, err := os.ReadDir(RepoDir)
@@ -169,13 +178,27 @@ func SearchRepositories(query string) ([]map[string]string, error) {
 				continue
 			}
 			repoName := repoDirEntry.Name()
-			// Load meta description if available, but only expose public repositories
 			meta, err := LoadRepoMeta(userName, repoName)
-			if err != nil || meta == nil || !meta.Public {
+			if err != nil {
 				continue
 			}
-			desc := meta.Description
-			if all || strings.Contains(strings.ToLower(userName), q) || strings.Contains(strings.ToLower(repoName), q) || strings.Contains(strings.ToLower(desc), q) {
+			if meta != nil && !meta.Public {
+				continue
+			}
+			desc := ""
+			if meta != nil {
+				desc = meta.Description
+			}
+
+			matches := all || strings.Contains(strings.ToLower(userName), q) || strings.Contains(strings.ToLower(repoName), q) || strings.Contains(strings.ToLower(desc), q)
+			if searchUser != "" {
+				if searchRepo != "" {
+					matches = strings.Contains(strings.ToLower(userName), searchUser) && strings.Contains(strings.ToLower(repoName), searchRepo)
+				} else {
+					matches = strings.Contains(strings.ToLower(userName), searchUser)
+				}
+			}
+			if matches {
 				results = append(results, map[string]string{"user": userName, "repo": repoName, "description": desc})
 			}
 		}
@@ -214,10 +237,16 @@ func ListPublicRepositories() ([]map[string]string, error) {
 			if strings.HasPrefix(repoName, "_") {
 				continue
 			}
-			if meta, err := LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+			meta, err := LoadRepoMeta(userName, repoName)
+			if err != nil {
+				continue
+			}
+			if meta != nil {
 				if meta.Public {
 					results = append(results, map[string]string{"user": userName, "repo": repoName, "description": meta.Description})
 				}
+			} else {
+				results = append(results, map[string]string{"user": userName, "repo": repoName, "description": ""})
 			}
 		}
 	}
