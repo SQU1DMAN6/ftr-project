@@ -396,6 +396,16 @@ func RepositorySettings(w http.ResponseWriter, r *http.Request) {
 			owners = []string{repoOwner}
 		}
 	}
+	ownerExists := false
+	for _, o := range owners {
+		if o == repoOwner {
+			ownerExists = true
+			break
+		}
+	}
+	if !ownerExists {
+		owners = append(owners, repoOwner)
+	}
 
 	newMeta := &repository.RepoMeta{
 		Owners:      owners,
@@ -1218,7 +1228,9 @@ func RepositoryIndex(w http.ResponseWriter, r *http.Request) {
 	searchQuery := strings.TrimSpace(query.Get("search"))
 	apiMode := query.Get("api") == "1"
 	if apiMode && searchQuery != "" {
-		matches, err := repository.SearchRepositories(searchQuery)
+		SS := config.GetSessionManager()
+		currentUser := SS.GetString(r.Context(), "name")
+		matches, err := repository.SearchRepositories(searchQuery, currentUser)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 			return

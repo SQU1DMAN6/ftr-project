@@ -131,7 +131,7 @@ func ListUserRepositories(userName string) ([]string, error) {
 	return clean, nil
 }
 
-func SearchRepositories(query string) ([]map[string]string, error) {
+func SearchRepositories(query string, currentUser string) ([]map[string]string, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return nil, nil
@@ -182,9 +182,22 @@ func SearchRepositories(query string) ([]map[string]string, error) {
 			if err != nil {
 				continue
 			}
-			if meta != nil && !meta.Public {
+
+			isPublic := meta == nil || meta.Public
+			isOwnRepo := currentUser != "" && currentUser == userName
+			isShared := false
+			if currentUser != "" && meta != nil {
+				for _, o := range meta.Owners {
+					if o == currentUser {
+						isShared = true
+						break
+					}
+				}
+			}
+			if !isPublic && !isOwnRepo && !isShared {
 				continue
 			}
+
 			desc := ""
 			if meta != nil {
 				desc = meta.Description

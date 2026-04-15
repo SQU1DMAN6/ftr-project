@@ -19,7 +19,7 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 
 echo "Please sign in to your InkDrop account to use FtR."
-go run . get qchef/ftr-manager
+go run . get JFtR/ftr-manager
 
 echo "FtR package manager has been installed successfully. Use 'ftr' as shell command to use it."
 echo "ftr --help"
