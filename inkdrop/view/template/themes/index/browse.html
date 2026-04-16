@@ -1124,6 +1124,7 @@
             }
 
             panel.addEventListener("mousedown", beginSelectionDrag);
+            previewPanel.removeEventListener("mousedown", beginSelectionDrag);
             document.addEventListener("mousemove", updateSelectionDrag);
             document.addEventListener("mouseup", endSelectionDrag);
 
@@ -1365,4 +1366,6 @@
         })();
     </script>
 </body>
+<style>
+</style>
 </html>

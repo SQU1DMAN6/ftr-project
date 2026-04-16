@@ -78,7 +78,8 @@ func SecureHeaders(next http.Handler) http.Handler {
 			"media-src 'self' blob:;",
 			"connect-src 'self' https://cdn.jsdelivr.net https://esm.sh blob:;",
 			"worker-src 'self' blob:;",
-			"object-src 'none';",
+			"object-src 'self' blob:;",
+			"frame-src 'self' blob:;",
 			"frame-ancestors 'none';",
 			"base-uri 'self';",
 		}, " ")
