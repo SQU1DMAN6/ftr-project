@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -99,30 +100,46 @@ func scanForNewFiles(after time.Time) []string {
 // DetectAndBuild attempts to detect how to build or install the package and
 // returns a path to a produced binary (or installer) when available.
 func (b *Builder) DetectAndBuild() (string, error) {
-	// 1) Prefer pre-built linux binaries placed under BUILD/linux
-	linuxDir := filepath.Join(b.WorkDir, "BUILD", "linux")
-	if info, err := os.Stat(linuxDir); err == nil && info.IsDir() {
-		if entries, err := os.ReadDir(linuxDir); err == nil {
-			var found string
-			for _, e := range entries {
-				if e.IsDir() {
-					continue
-				}
-				if e.Name() == b.RepoName {
-					found = e.Name()
-					break
-				}
-			}
-			if found == "" {
+	// 1) Prefer pre-built linux binaries placed under BUILD/linux-{arch}
+	// Detect current system architecture
+	currentArch := runtime.GOARCH
+	if currentArch == "amd64" {
+		currentArch = "x64"
+	} else if currentArch == "arm64" {
+		currentArch = "arm64"
+	} else if currentArch == "arm" {
+		currentArch = "arm"
+	}
+
+	archSpecificDirs := []string{
+		filepath.Join(b.WorkDir, "BUILD", fmt.Sprintf("linux-%s", currentArch)),
+		filepath.Join(b.WorkDir, "BUILD", "linux"),
+	}
+
+	for _, linuxDir := range archSpecificDirs {
+		if info, err := os.Stat(linuxDir); err == nil && info.IsDir() {
+			if entries, err := os.ReadDir(linuxDir); err == nil {
+				var found string
 				for _, e := range entries {
-					if !e.IsDir() {
+					if e.IsDir() {
+						continue
+					}
+					if e.Name() == b.RepoName {
 						found = e.Name()
 						break
 					}
 				}
-			}
-			if found != "" {
-				return filepath.Join(linuxDir, found), nil
+				if found == "" {
+					for _, e := range entries {
+						if !e.IsDir() {
+							found = e.Name()
+							break
+						}
+					}
+				}
+				if found != "" {
+					return filepath.Join(linuxDir, found), nil
+				}
 			}
 		}
 	}
