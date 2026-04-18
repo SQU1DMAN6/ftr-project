@@ -1147,14 +1147,14 @@
 
                 entryList.addEventListener("dragover", function (event) {
                     var entry = event.target.closest(".repo-card");
-                    if (!entry || entryKind(entry) !== "folder") return;
+                    if (!entry || (entryKind(entry) !== "folder" && entryKind(entry) !== "parent")) return;
                     event.preventDefault();
                     event.dataTransfer.dropEffect = "move";
                 });
 
                 entryList.addEventListener("drop", function (event) {
                     var entry = event.target.closest(".repo-card");
-                    if (!entry || entryKind(entry) !== "folder") return;
+                    if (!entry || (entryKind(entry) !== "folder" && entryKind(entry) !== "parent")) return;
                     event.preventDefault();
                     moveSelectedEntriesToFolder(entry.getAttribute("data-name")).catch(function (error) {
                         window.alert(error.message || "Move failed");
