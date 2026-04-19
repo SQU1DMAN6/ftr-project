@@ -42,11 +42,57 @@ var packCmd = &cobra.Command{
 		sqarCompress, _ := cmd.Flags().GetBool("sqar-compress")
 
 		if useFsdl {
-			fsdlFileName := fmt.Sprintf("%s.fsdl", repoName)
-			if err := createFsdl(directoryPath, fsdlFileName); err != nil {
-				return err
+			meta, _ := boxlet.ReadMeta(directoryPath)
+			version := "0.0.0"
+			arch := "all"
+			osName := "all"
+			if meta != nil {
+				if v, ok := meta["VERSION"]; ok && v != "" {
+					version = v
+				}
+				if a, ok := meta["TARGET_ARCHITECTURE"]; ok && a != "" {
+					arch = a
+				}
+				if o, ok := meta["TARGET_OS"]; ok && o != "" {
+					osName = o
+				}
 			}
-			fmt.Printf("Successfully packed '%s' into '%s'\n", directoryPath, fsdlFileName)
+
+			archList := []string{arch}
+			osList := []string{osName}
+			if strings.Contains(arch, ",") {
+				archList = nil
+				for _, s := range strings.Split(arch, ",") {
+					archList = append(archList, strings.TrimSpace(s))
+				}
+			}
+			if strings.Contains(osName, ",") {
+				osList = nil
+				for _, s := range strings.Split(osName, ",") {
+					osList = append(osList, strings.TrimSpace(s))
+				}
+			}
+
+			for _, a := range archList {
+				for _, o := range osList {
+					useArch := a
+					useOS := o
+
+					fsdlFileName := fmt.Sprintf("%s-%s-%s-%s.fsdl", repoName, version, useArch, useOS)
+
+					tmpSrc, cleanup, err := preparePackSrc(directoryPath)
+					if err != nil {
+						return fmt.Errorf("failed to prepare source for packing: %w", err)
+					}
+
+					if err := createFsdl(tmpSrc, fsdlFileName); err != nil {
+						cleanup()
+						return err
+					}
+					fmt.Printf("Successfully packed '%s' into '%s'\n", directoryPath, fsdlFileName)
+					cleanup()
+				}
+			}
 			return nil
 		}
 

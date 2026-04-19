@@ -1,0 +1,3 @@
+#!/bin/sh
+# Dummy prebuilt binary marker for testing
+echo "tooling binary" > /tmp/tooling-binary.txt

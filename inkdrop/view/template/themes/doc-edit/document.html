@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/assets/root.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@harbour-enterprises/superdoc/dist/style.css">
+    <title>InkDrop - {{ .Title }}</title>
+    <style>
+        :root {
+            --doc-page-bg: linear-gradient(180deg, #e9eef5 0%, #dbe4ef 100%);
+            --doc-panel-bg: rgba(255, 255, 255, 0.9);
+            --doc-stage-bg: #ffffff;
+            --doc-stage-shell: linear-gradient(180deg, #edf3fb 0%, #e2ebf6 100%);
+            --doc-border: rgba(15, 23, 42, 0.1);
+            --doc-muted: #526172;
+            --doc-strong: #102033;
+            --doc-surface-shadow: 0 26px 70px rgba(15, 23, 42, 0.12);
+            --doc-rail-bg: rgba(255, 255, 255, 0.82);
+            --doc-drawer-bg: rgba(255, 255, 255, 0.92);
+            --doc-action-bg: rgba(15, 23, 42, 0.04);
+        }
+
+        html[data-theme="dark"] {
+            --doc-page-bg: linear-gradient(180deg, #171c23 0%, #10151b 100%);
+            --doc-panel-bg: rgba(28, 34, 43, 0.88);
+            --doc-stage-bg: #2a313b;
+            --doc-stage-shell: linear-gradient(180deg, #1f2630 0%, #171d25 100%);
+            --doc-border: rgba(148, 163, 184, 0.18);
+            --doc-muted: #aab9c8;
+            --doc-strong: #edf3fb;
+            --doc-surface-shadow: 0 32px 80px rgba(0, 0, 0, 0.38);
+            --doc-rail-bg: rgba(23, 29, 37, 0.88);
+            --doc-drawer-bg: rgba(22, 27, 35, 0.94);
+            --doc-action-bg: rgba(255, 255, 255, 0.08);
+        }
+
+        body {
+            background: var(--doc-page-bg);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .page {
+            max-width: none;
+            height: 100vh;
+            padding: 12px;
+            overflow: hidden;
+        }
+
+        .shell.doc-shell {
+            width: 100%;
+            max-width: none;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .doc-commandbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 10px 14px;
+            border-radius: 18px;
+            border: 1px solid var(--doc-border);
+            background: var(--doc-panel-bg);
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(20px);
+        }
+
+        .doc-titleblock {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .doc-backlink {
+            white-space: nowrap;
+        }
+
+        .doc-filemeta {
+            min-width: 0;
+        }
+
+        .doc-filemeta h1,
+        .doc-filemeta p {
+            margin: 0;
+        }
+
+        .doc-filemeta h1 {
+            font-size: 1rem;
+            line-height: 1.2;
+            color: var(--doc-strong);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .doc-filemeta p {
+            font-size: 0.82rem;
+            color: var(--doc-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .doc-command-actions {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: max-content;
+            gap: 8px;
+            align-items: start;
+        }
+
+        .doc-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .doc-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: var(--doc-action-bg);
+            font-size: 0.82rem;
+            color: var(--doc-strong);
+        }
+
+        .doc-badge.status[data-state="busy"] {
+            background: rgba(245, 158, 11, 0.18);
+        }
+
+        .doc-badge.status[data-state="error"] {
+            background: rgba(239, 68, 68, 0.16);
+            color: #b91c1c;
+        }
+
+        .doc-badge.save-state[data-state="saved"] {
+            background: rgba(34, 197, 94, 0.16);
+            color: #166534;
+        }
+
+        .doc-badge.save-state[data-state="dirty"] {
+            background: rgba(245, 158, 11, 0.18);
+            color: #92400e;
+        }
+
+        .doc-badge.save-state[data-state="saving"] {
+            background: rgba(14, 165, 233, 0.16);
+            color: #075985;
+        }
+
+        html[data-theme="dark"] .doc-badge.status[data-state="error"] {
+            color: #fecaca;
+        }
+
+        html[data-theme="dark"] .doc-badge.save-state[data-state="saved"] {
+            color: #dcfce7;
+        }
+
+        html[data-theme="dark"] .doc-badge.save-state[data-state="dirty"] {
+            color: #fde68a;
+        }
+
+        html[data-theme="dark"] .doc-badge.save-state[data-state="saving"] {
+            color: #bae6fd;
+        }
+
+        .doc-layout {
+            position: relative;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 56px;
+            gap: 12px;
+            min-height: 0;
+            height: 100%;
+            align-items: stretch;
+        }
+
+        .doc-workbench {
+            min-height: 0;
+            height: 100%;
+            border-radius: 24px;
+            border: 1px solid var(--doc-border);
+            background: var(--doc-stage-shell);
+            box-shadow: var(--doc-surface-shadow);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+        }
+
+        .doc-stage-chrome {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 12px;
+            color: var(--doc-muted);
+            font-size: 0.82rem;
+        }
+
+        #docEditorSurface {
+            flex: 1 1 auto;
+            min-height: 0;
+            height: 100%;
+            border-radius: 18px;
+            overflow: hidden;
+            background: var(--doc-stage-bg);
+            border: 1px solid color-mix(in srgb, var(--doc-border) 80%, transparent);
+        }
+
+        #docEditorSurface[hidden],
+        #docToolbarSurface[hidden],
+        #docEmptyState[hidden] {
+            display: none !important;
+        }
+
+        .doc-empty {
+            min-height: 68vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 30px;
+            border-radius: 18px;
+            background: var(--doc-stage-bg);
+        }
+
+        .doc-rail {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            padding: 12px 8px;
+            border-radius: 20px;
+            border: 1px solid var(--doc-border);
+            background: var(--doc-rail-bg);
+            backdrop-filter: blur(18px);
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+        }
+
+        .doc-rail-button {
+            position: relative;
+            width: 40px;
+            height: 40px;
+            border: 1px solid transparent;
+            border-radius: 14px;
+            background: transparent;
+            color: var(--doc-strong);
+            font: inherit;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+        }
+
+        .doc-rail-button:hover,
+        .doc-rail-button[aria-pressed="true"] {
+            background: var(--doc-action-bg);
+            border-color: var(--doc-border);
+            transform: translateY(-1px);
+        }
+
+        .doc-rail-button.status-live::after,
+        .doc-rail-button.status-busy::after,
+        .doc-rail-button.status-error::after {
+            content: "";
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            margin-left: 18px;
+            margin-top: -18px;
+            background: #22c55e;
+        }
+
+        .doc-rail-button.status-busy::after {
+            background: #f59e0b;
+        }
+
+        .doc-rail-button.status-error::after {
+            background: #ef4444;
+        }
+
+        .doc-rail-separator {
+            width: 28px;
+            height: 1px;
+            background: var(--doc-border);
+        }
+
+        .doc-drawer {
+            position: absolute;
+            top: 0;
+            right: 72px;
+            bottom: 0;
+            width: min(360px, calc(100vw - 120px));
+            padding: 14px;
+            border-radius: 24px;
+            border: 1px solid var(--doc-border);
+            background: var(--doc-drawer-bg);
+            backdrop-filter: blur(18px);
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+            overflow: auto;
+            transform: translateX(0);
+            opacity: 1;
+            transition: transform 0.22s ease, opacity 0.22s ease;
+            z-index: 5;
+        }
+
+        .doc-drawer[hidden] {
+            display: block;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateX(20px);
+        }
+
+        .doc-drawer-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .doc-drawer-head h2,
+        .doc-drawer-head p {
+            margin: 0;
+        }
+
+        .doc-drawer-close {
+            width: 36px;
+            height: 36px;
+        }
+
+        .doc-panel-stack {
+            display: grid;
+            gap: 14px;
+        }
+
+        .doc-panel-card {
+            padding: 14px;
+            border-radius: 18px;
+            background: color-mix(in srgb, var(--doc-action-bg) 75%, transparent);
+            border: 1px solid color-mix(in srgb, var(--doc-border) 75%, transparent);
+        }
+
+        .doc-panel-card h3,
+        .doc-panel-card p {
+            margin: 0;
+        }
+
+        .doc-panel-card h3 {
+            margin-bottom: 8px;
+            color: var(--doc-strong);
+        }
+
+        .doc-presence {
+            display: grid;
+            gap: 10px;
+        }
+
+        .doc-presence-item {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .doc-presence-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+            margin-top: 4px;
+        }
+
+        .doc-presence-name {
+            font-weight: 600;
+            color: var(--doc-strong);
+        }
+
+        .doc-presence-meta {
+            font-size: 0.84rem;
+            color: var(--doc-muted);
+        }
+
+        .doc-metadata {
+            display: grid;
+            gap: 10px;
+        }
+
+        .doc-metadata strong {
+            display: block;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--doc-muted);
+            margin-bottom: 4px;
+        }
+
+        .doc-proofing {
+            display: grid;
+            gap: 10px;
+            font-size: 0.92rem;
+            color: var(--doc-strong);
+        }
+
+        .doc-proofing code {
+            font-size: 0.86rem;
+        }
+
+        .doc-stage-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .doc-stage-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .doc-action-button {
+            border: 1px solid color-mix(in srgb, var(--doc-border) 80%, transparent);
+            background: var(--doc-panel-bg);
+            color: var(--doc-strong);
+            border-radius: 999px;
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .doc-action-button:disabled {
+            opacity: 0.55;
+            cursor: default;
+        }
+
+        @media (max-width: 980px) {
+            .page {
+                padding: 10px;
+            }
+
+            .doc-commandbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .doc-command-actions {
+                grid-auto-flow: row;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .doc-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .doc-rail {
+                position: fixed;
+                right: 10px;
+                bottom: 10px;
+                z-index: 30;
+            }
+
+            .doc-drawer {
+                position: fixed;
+                top: auto;
+                right: 10px;
+                bottom: 68px;
+                left: 10px;
+                width: auto;
+                max-height: 52vh;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <section class="shell doc-shell">
+            <div class="doc-commandbar">
+                <div class="doc-titleblock">
+                    <a href="{{.EditorBackURL}}" class="button-link small doc-backlink">Back</a>
+                    <div class="doc-filemeta">
+                        <h1>{{.EditorFileName}}</h1>
+                        <p>{{.EditorRepoOwner}} / {{.EditorRepoName}}</p>
+                    </div>
+                </div>
+                <div class="doc-command-actions">
+                    <div class="theme-switch" role="group" aria-label="Theme mode">
+                        <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+                        <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+                    </div>
+                    <button type="button" class="doc-action-button" id="docOpenBtn" {{if not .EditorEditable}}disabled{{end}}>Open</button>
+                    <button type="button" class="doc-action-button" id="docSaveAsBtn" {{if not .EditorEditable}}disabled{{end}}>Save As</button>
+                    <button type="button" class="doc-action-button" id="docExportBtn" {{if not .EditorEditable}}disabled{{end}}>⤓ DOCX</button>
+                    <button type="button" class="doc-action-button" id="docExportPdfBtn" {{if not .EditorEditable}}disabled{{end}}>⤓ PDF</button>
+                </div>
+            </div>
+
+            <div class="doc-layout">
+                <div class="doc-workbench">
+                    <div class="doc-stage-chrome">
+                        <div class="doc-stage-status">
+                            <span class="doc-badge status" id="docStatusBadge" data-state="{{if .EditorEditable}}live{{else}}error{{end}}">{{if .EditorEditable}}Loading…{{else}}Unavailable{{end}}</span>
+                            <span class="doc-badge save-state" id="docSaveStateBadge" data-state="saved">Saved</span>
+                            <span class="doc-badge" id="docPresenceBadge">1 active</span>
+                        </div>
+                        <div class="doc-stage-actions">
+                            <span class="subtle" id="docSavedMeta">Waiting for editor…</span>
+                        </div>
+                    </div>
+
+                    {{if .Error}}
+                    <div class="alert">
+                        {{range $key, $msg := .Error}}
+                        <p>{{$msg}}</p>
+                        {{end}}
+                    </div>
+                    {{end}}
+
+                    <div id="docToolbarSurface" hidden></div>
+                    <div id="docEditorSurface" {{if not .EditorEditable}}hidden{{end}}></div>
+                    <div class="doc-empty" id="docEmptyState" {{if .EditorEditable}}hidden{{end}}>
+                        <div class="stack">
+                            <h3 class="section">Document Editor Not Available</h3>
+                            <p>{{if .Error}}Resolve the issue above, then return here from the repository browser.{{else}}This file cannot be opened as a DOCX document right now.{{end}}</p>
+                        </div>
+                    </div>
+                    <input type="file" id="docLocalFileInput" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+                </div>
+
+                <aside class="doc-rail" aria-label="Document tools">
+                    <button type="button" class="doc-rail-button status-live" id="docStatusRailBtn" aria-label="Open document status" aria-pressed="false">●</button>
+                    <button type="button" class="doc-rail-button" id="docPeopleRailBtn" aria-label="Open collaborators" aria-pressed="false">1</button>
+                    <button type="button" class="doc-rail-button" id="docInfoRailBtn" aria-label="Open document info" aria-pressed="false">#</button>
+                    <button type="button" class="doc-rail-button" id="docProofRailBtn" aria-label="Open proofing details" aria-pressed="false">Aa</button>
+                    <div class="doc-rail-separator" aria-hidden="true"></div>
+                    <button type="button" class="doc-rail-button" id="docHideRailBtn" aria-label="Close side panel">×</button>
+                </aside>
+
+                <aside class="doc-drawer" id="docDrawer" hidden>
+                    <div class="doc-drawer-head">
+                        <div>
+                            <h2 id="docDrawerTitle">Document Status</h2>
+                            <p class="subtle" id="docDrawerSubtitle">Session details and editor health.</p>
+                        </div>
+                        <button type="button" class="doc-rail-button doc-drawer-close" id="docDrawerCloseBtn" aria-label="Close panel">×</button>
+                    </div>
+                    <div class="doc-panel-stack" id="docDrawerPanels">
+                        <section class="doc-panel-card" data-panel="status">
+                            <h3>Session</h3>
+                            <div class="doc-metadata">
+                                <div>
+                                    <strong>Status</strong>
+                                    <p id="docStatusDetail">Loading editor…</p>
+                                </div>
+                                <div>
+                                    <strong>Save State</strong>
+                                    <p id="docSaveStateDetail">Saved</p>
+                                </div>
+                                <div>
+                                    <strong>Latest Save</strong>
+                                    <p id="docSavedMetaPanel">Waiting for editor…</p>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="doc-panel-card" data-panel="collaborators" hidden>
+                            <h3>Collaborators</h3>
+                            <div class="doc-presence" id="docPresenceList">
+                                <p class="subtle">Connecting to the shared document session…</p>
+                            </div>
+                        </section>
+
+                        <section class="doc-panel-card" data-panel="info" hidden>
+                            <h3>Document</h3>
+                            <div class="doc-metadata">
+                                <div>
+                                    <strong>Repository</strong>
+                                    <p>{{.EditorRepoOwner}}/{{.EditorRepoName}}</p>
+                                </div>
+                                <div>
+                                    <strong>Path</strong>
+                                    <p id="docPathLabel">{{.EditorFilePath}}</p>
+                                </div>
+                                <div>
+                                    <strong>Back</strong>
+                                    <p><a href="{{.EditorBackURL}}">Return to repository</a></p>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="doc-panel-card" data-panel="proofing" hidden>
+                            <h3>Proofing</h3>
+                            <div class="doc-proofing">
+                                <p id="docProofingStatus">Spell and grammar services will attach here as the document surface initializes.</p>
+                                <p class="subtle">Grammarly is treated as an optional client-side integration hook. Browser extension support works best while a dedicated SDK path is finalized.</p>
+                            </div>
+                        </section>
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <script id="docEditorConfigJson" type="application/json">
+{
+  "editable": {{if .EditorEditable}}true{{else}}false{{end}},
+  "name": {{toJSON .Name}},
+  "fileName": {{toJSON .EditorFileName}},
+  "filePath": {{toJSON .EditorFilePath}},
+  "backURL": {{toJSON .EditorBackURL}},
+  "fileURL": {{toJSON .DocumentEditorFileURL}},
+  "loadURL": {{toJSON .DocumentEditorLoadURL}},
+  "syncURL": {{toJSON .DocumentEditorSyncURL}},
+  "streamURL": {{toJSON .DocumentEditorStreamURL}},
+  "version": {{.DocumentEditorVersion}},
+  "savedAt": {{.DocumentEditorSavedAt}}
+}
+    </script>
+    <script type="module">
+        const config = JSON.parse(document.getElementById("docEditorConfigJson").textContent || "{}");
+        const themeKey = "inkdrop-theme";
+        const toolbarSurface = document.getElementById("docToolbarSurface");
+        const statusBadge = document.getElementById("docStatusBadge");
+        const statusRailButton = document.getElementById("docStatusRailBtn");
+        const saveStateBadge = document.getElementById("docSaveStateBadge");
+        const presenceBadge = document.getElementById("docPresenceBadge");
+        const presenceList = document.getElementById("docPresenceList");
+        const pathLabel = document.getElementById("docPathLabel");
+        const savedMeta = document.getElementById("docSavedMeta");
+        const savedMetaPanel = document.getElementById("docSavedMetaPanel");
+        const statusDetail = document.getElementById("docStatusDetail");
+        const saveStateDetail = document.getElementById("docSaveStateDetail");
+        const proofingStatus = document.getElementById("docProofingStatus");
+        const emptyState = document.getElementById("docEmptyState");
+        const editorSurface = document.getElementById("docEditorSurface");
+        const openButton = document.getElementById("docOpenBtn");
+        const saveAsButton = document.getElementById("docSaveAsBtn");
+        const exportButton = document.getElementById("docExportBtn");
+        const exportPdfButton = document.getElementById("docExportPdfBtn");
+        const localFileInput = document.getElementById("docLocalFileInput");
+        const drawer = document.getElementById("docDrawer");
+        const drawerTitle = document.getElementById("docDrawerTitle");
+        const drawerSubtitle = document.getElementById("docDrawerSubtitle");
+        const drawerCloseButton = document.getElementById("docDrawerCloseBtn");
+        const peopleRailButton = document.getElementById("docPeopleRailBtn");
+        const infoRailButton = document.getElementById("docInfoRailBtn");
+        const proofRailButton = document.getElementById("docProofRailBtn");
+        const hideRailButton = document.getElementById("docHideRailBtn");
+        const drawerPanels = document.querySelectorAll("[data-panel]");
+        const SUPERDOC_INGEST_PREFIX = "https://ingest.superdoc.dev/";
+        const SUPEREDITOR_MODULE_URL = "https://esm.sh/@harbour-enterprises/superdoc/super-editor?bundle";
+
+        let SuperEditorCtor = null;
+        let documentEditor = null;
+        let eventSource = null;
+        let snapshotPollTimer = null;
+        let presenceTimer = null;
+        let syncTimer = null;
+        let syncInFlight = false;
+        let dirty = false;
+        let disconnecting = false;
+        let editorReady = false;
+        let currentVersion = Number(config.version || 0);
+        let lastSavedAt = Number(config.savedAt || 0);
+        let latestPresence = [];
+        let currentDocumentSource = config.fileURL || "";
+        let pendingRemoteFileURL = "";
+        let activeDrawerPanel = "";
+        let activeMountToken = 0;
+        const clientId = "doc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+        const DOC_DEBUG = true;
+
+        function docLog(level, message, details) {
+            if (!DOC_DEBUG || !console || typeof console[level] !== "function") {
+                return;
+            }
+            const prefix = "[InkDrop Doc] " + new Date().toISOString() + " " + message;
+            if (typeof details === "undefined") {
+                console[level](prefix);
+                return;
+            }
+            console[level](prefix, details);
+        }
+
+        function docStateSnapshot(extra) {
+            return Object.assign({
+                editable: Boolean(config.editable),
+                editorReady: editorReady,
+                activeMountToken: activeMountToken,
+                currentVersion: currentVersion,
+                emptyHidden: emptyState ? emptyState.hidden : null,
+                emptyDisplay: emptyState ? window.getComputedStyle(emptyState).display : null,
+                surfaceHidden: editorSurface ? editorSurface.hidden : null,
+                surfaceDisplay: editorSurface ? window.getComputedStyle(editorSurface).display : null,
+                pendingRemoteFileURL: pendingRemoteFileURL || "",
+                dirty: dirty,
+                syncInFlight: syncInFlight,
+            }, extra || {});
+        }
+
+        function showDocumentError(message) {
+            docLog("error", "showDocumentError invoked", docStateSnapshot({
+                message: message || "Failed to initialize the document editor.",
+            }));
+            emptyState.hidden = false;
+            editorSurface.hidden = true;
+            if (toolbarSurface) {
+                toolbarSurface.hidden = true;
+            }
+            const messageNode = emptyState.querySelector("p");
+            if (messageNode) {
+                messageNode.textContent = message || "Failed to initialize the document editor.";
+            }
+            setStatus(message || "Document editor failed", "error");
+        }
+
+        function syncStatusRail(state) {
+            if (!statusRailButton) return;
+            statusRailButton.classList.remove("status-live", "status-busy", "status-error");
+            statusRailButton.classList.add(
+                state === "error" ? "status-error" : state === "busy" ? "status-busy" : "status-live"
+            );
+        }
+
+        function setDrawerPanel(panelName) {
+            activeDrawerPanel = panelName || "";
+            const panelMeta = {
+                status: ["Document Status", "Session details and editor health."],
+                collaborators: ["Collaborators", "Everyone currently connected to this document."],
+                info: ["Document Info", "Repository and path details."],
+                proofing: ["Proofing", "Spelling, grammar, and writing assistance."],
+            };
+            drawerPanels.forEach((panel) => {
+                panel.hidden = panel.getAttribute("data-panel") !== activeDrawerPanel;
+            });
+            [statusRailButton, peopleRailButton, infoRailButton, proofRailButton].forEach((button) => {
+                if (!button) return;
+                const matches = button === statusRailButton && activeDrawerPanel === "status"
+                    || button === peopleRailButton && activeDrawerPanel === "collaborators"
+                    || button === infoRailButton && activeDrawerPanel === "info"
+                    || button === proofRailButton && activeDrawerPanel === "proofing";
+                button.setAttribute("aria-pressed", String(matches));
+            });
+            if (!drawer) return;
+            if (!activeDrawerPanel) {
+                drawer.hidden = true;
+                return;
+            }
+            drawer.hidden = false;
+            if (drawerTitle && drawerSubtitle) {
+                const nextMeta = panelMeta[activeDrawerPanel] || panelMeta.status;
+                drawerTitle.textContent = nextMeta[0];
+                drawerSubtitle.textContent = nextMeta[1];
+            }
+        }
+
+        function setStatus(message, state) {
+            if (!statusBadge) return;
+            statusBadge.textContent = message;
+            statusBadge.setAttribute("data-state", state || "live");
+            if (statusDetail) {
+                statusDetail.textContent = message;
+            }
+            syncStatusRail(state || "live");
+            docLog("debug", "status updated", docStateSnapshot({
+                status: message,
+                state: state || "live",
+            }));
+        }
+
+        function setSaveState(state, savedAt) {
+            if (!saveStateBadge) return;
+            const resolved = state === "dirty" || state === "saving" ? state : "saved";
+            saveStateBadge.setAttribute("data-state", resolved);
+            if (saveStateDetail) {
+                saveStateDetail.textContent = resolved === "dirty" ? "Unsaved" : resolved === "saving" ? "Saving" : "Saved";
+            }
+            if (resolved === "dirty") {
+                saveStateBadge.textContent = "Unsaved";
+                savedMeta.textContent = "Local changes pending";
+                if (savedMetaPanel) {
+                    savedMetaPanel.textContent = "Local changes pending";
+                }
+                docLog("debug", "save state updated", docStateSnapshot({
+                    saveState: resolved,
+                    savedAt: lastSavedAt,
+                }));
+                return;
+            }
+            if (resolved === "saving") {
+                saveStateBadge.textContent = "Saving";
+                savedMeta.textContent = "Writing latest DOCX snapshot…";
+                if (savedMetaPanel) {
+                    savedMetaPanel.textContent = "Writing latest DOCX snapshot…";
+                }
+                docLog("debug", "save state updated", docStateSnapshot({
+                    saveState: resolved,
+                    savedAt: lastSavedAt,
+                }));
+                return;
+            }
+            if (typeof savedAt === "number" && savedAt > 0) {
+                lastSavedAt = savedAt;
+            }
+            saveStateBadge.textContent = "Saved";
+            const nextSavedMessage = lastSavedAt > 0
+                ? "Saved " + new Date(lastSavedAt).toLocaleString()
+                : "Saved";
+            savedMeta.textContent = nextSavedMessage;
+            if (savedMetaPanel) {
+                savedMetaPanel.textContent = nextSavedMessage;
+            }
+            docLog("debug", "save state updated", docStateSnapshot({
+                saveState: resolved,
+                savedAt: lastSavedAt,
+            }));
+        }
+
+        function normalizeTheme(theme) {
+            return theme === "dark" ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+            const value = normalizeTheme(theme);
+            document.documentElement.setAttribute("data-theme", value);
+            document.querySelectorAll("[data-theme-set]").forEach((button) => {
+                button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === value));
+            });
+        }
+
+        function initTheme() {
+            const stored = localStorage.getItem(themeKey);
+            applyTheme(stored === "dark" || stored === "light" ? stored : "light");
+            document.querySelectorAll("[data-theme-set]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const theme = normalizeTheme(button.getAttribute("data-theme-set"));
+                    applyTheme(theme);
+                    localStorage.setItem(themeKey, theme);
+                });
+            });
+        }
+
+        function installSuperDocTelemetryBlockers() {
+            try {
+                const originalFetch = globalThis.fetch ? globalThis.fetch.bind(globalThis) : null;
+                if (originalFetch && !originalFetch.__inkdropSuperDocWrapped) {
+                    const wrappedFetch = async function (input, init) {
+                        const requestURL = typeof input === "string"
+                            ? input
+                            : input && typeof input.url === "string"
+                                ? input.url
+                                : "";
+                        if (requestURL.startsWith(SUPERDOC_INGEST_PREFIX)) {
+                            return new Response("{}", {
+                                status: 204,
+                                headers: {
+                                    "Content-Type": "application/json",
+                                },
+                            });
+                        }
+                        return originalFetch(input, init);
+                    };
+                    wrappedFetch.__inkdropSuperDocWrapped = true;
+                    globalThis.fetch = wrappedFetch;
+                }
+            } catch (_) {}
+
+            try {
+                if (navigator.sendBeacon && !navigator.sendBeacon.__inkdropSuperDocWrapped) {
+                    const originalSendBeacon = navigator.sendBeacon.bind(navigator);
+                    const wrappedSendBeacon = function (url, data) {
+                        if (String(url || "").startsWith(SUPERDOC_INGEST_PREFIX)) {
+                            return true;
+                        }
+                        return originalSendBeacon(url, data);
+                    };
+                    wrappedSendBeacon.__inkdropSuperDocWrapped = true;
+                    navigator.sendBeacon = wrappedSendBeacon;
+                }
+            } catch (_) {}
+        }
+
+        async function ensureSuperEditorLoaded() {
+            if (SuperEditorCtor) {
+                docLog("debug", "SuperEditor constructor reused");
+                return SuperEditorCtor;
+            }
+            docLog("info", "Loading SuperEditor module", {
+                moduleURL: SUPEREDITOR_MODULE_URL,
+            });
+            installSuperDocTelemetryBlockers();
+            const module = await import(SUPEREDITOR_MODULE_URL);
+            const ctor = module && (
+                module.Editor ||
+                module.SuperEditor ||
+                (module.default && (module.default.Editor || module.default.SuperEditor)) ||
+                module.default
+            );
+            if (ctor && typeof ctor.open === "function") {
+                SuperEditorCtor = ctor;
+                docLog("info", "SuperEditor module loaded", {
+                    exportedKeys: Object.keys(module || {}),
+                });
+                return SuperEditorCtor;
+            }
+            docLog("error", "SuperEditor module did not expose an open() API", {
+                exportedKeys: Object.keys(module || {}),
+            });
+            throw new Error("SuperEditor failed to load");
+        }
+
+        function resolveDocumentSource(documentSource) {
+            if (typeof documentSource === "string") {
+                return documentSource;
+            }
+            if (documentSource instanceof File || documentSource instanceof Blob) {
+                return documentSource;
+            }
+            return null;
+        }
+
+        function destroyDocumentEditorInstance(instance) {
+            if (!instance || typeof instance.destroy !== "function") {
+                return;
+            }
+            try {
+                docLog("debug", "Destroying document editor instance");
+                instance.destroy();
+            } catch (error) {
+                console.warn("InkDrop document editor destroy failed", error);
+            }
+        }
+
+        function createFreshMountNode(mountToken) {
+            editorSurface.innerHTML = "";
+            const mountNode = document.createElement("div");
+            mountNode.id = "docEditorMount-" + String(mountToken);
+            mountNode.style.width = "100%";
+            mountNode.style.height = "100%";
+            editorSurface.appendChild(mountNode);
+            return mountNode;
+        }
+
+        function renderPresence(presence) {
+            latestPresence = Array.isArray(presence) ? presence.slice() : [];
+            if (!presenceList) return;
+            presenceList.innerHTML = "";
+            if (latestPresence.length === 0) {
+                const empty = document.createElement("p");
+                empty.className = "subtle";
+                empty.textContent = "Only you are here right now.";
+                presenceList.appendChild(empty);
+                presenceBadge.textContent = "1 active";
+                if (peopleRailButton) {
+                    peopleRailButton.textContent = "1";
+                }
+                return;
+            }
+            latestPresence.forEach((person) => {
+                const item = document.createElement("div");
+                item.className = "doc-presence-item";
+                const dot = document.createElement("span");
+                dot.className = "doc-presence-dot";
+                dot.style.background = person.color || "#0f766e";
+                dot.style.boxShadow = "0 0 0 4px " + ((person.color || "#0f766e") + "22");
+                const body = document.createElement("div");
+                const name = document.createElement("p");
+                name.className = "doc-presence-name";
+                name.textContent = person.user + (person.clientId === clientId ? " (You)" : "");
+                const meta = document.createElement("p");
+                meta.className = "doc-presence-meta";
+                meta.textContent = person.selection ? "Active in document" : "Watching document";
+                body.appendChild(name);
+                body.appendChild(meta);
+                item.appendChild(dot);
+                item.appendChild(body);
+                presenceList.appendChild(item);
+            });
+            presenceBadge.textContent = latestPresence.length + " active";
+            if (peopleRailButton) {
+                peopleRailButton.textContent = String(latestPresence.length);
+            }
+        }
+
+        function markDirty() {
+            dirty = true;
+            setSaveState("dirty");
+        }
+
+        function requestJSON(url, options) {
+            return fetch(url, options).then(async (response) => {
+                const text = await response.text();
+                let payload = {};
+                if (text) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch {
+                        payload = { success: false, error: text };
+                    }
+                }
+                if (!response.ok || payload.success === false) {
+                    const error = new Error(payload.error || (response.status + " " + response.statusText));
+                    error.response = response;
+                    error.payload = payload;
+                    throw error;
+                }
+                return payload;
+            });
+        }
+
+        async function mountDocument(documentSource) {
+            const mountToken = ++activeMountToken;
+            const SuperEditor = await ensureSuperEditorLoaded();
+            if (mountToken !== activeMountToken) {
+                docLog("warn", "mountDocument aborted because a newer mount token is active", {
+                    mountToken,
+                    activeMountToken,
+                });
+                return;
+            }
+            currentDocumentSource = documentSource;
+            editorReady = false;
+            docLog("info", "mountDocument start", docStateSnapshot({
+                mountToken,
+                sourceType: typeof documentSource === "string"
+                    ? "url"
+                    : documentSource instanceof File
+                        ? "file"
+                        : documentSource instanceof Blob
+                            ? "blob"
+                            : typeof documentSource,
+                source: typeof documentSource === "string"
+                    ? documentSource
+                    : documentSource && documentSource.name
+                        ? documentSource.name
+                        : null,
+            }));
+
+            if (!editorSurface) {
+                docLog("error", "Editor surface missing in DOM");
+                throw new Error("Editor surface element (#docEditorSurface) not found in DOM");
+            }
+
+            const previousInstance = documentEditor;
+            documentEditor = null;
+            destroyDocumentEditorInstance(previousInstance);
+            editorSurface.hidden = false;
+            emptyState.hidden = true;
+            if (toolbarSurface) {
+                toolbarSurface.hidden = true;
+                toolbarSurface.innerHTML = "";
+            }
+            const mountNode = createFreshMountNode(mountToken);
+            setStatus("Loading…", "busy");
+            proofingStatus.textContent = "Starting document engine…";
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            docLog("debug", "mountDocument mount node prepared", {
+                mountToken,
+                mountNodeID: mountNode.id,
+            });
+
+            await new Promise((resolve, reject) => {
+                let settled = false;
+                let timeoutID = 0;
+                let instance = null;
+                const mountOptions = {
+                    element: mountNode,
+                    mode: "docx",
+                    documentMode: config.editable ? "editing" : "viewing",
+                    editable: Boolean(config.editable),
+                    pagination: true,
+                    documentId: config.filePath || config.fileName || ("inkdrop-doc-" + clientId),
+                    user: {
+                        name: config.name || "InkDrop User",
+                        email: "inkdrop+" + clientId + "@local.invalid",
+                    },
+                    onUpdate: (payload = {}) => {
+                        const transaction = payload.transaction;
+                        if (isStaleMount() || !editorReady) {
+                            return;
+                        }
+                        if (!transaction || transaction.docChanged !== false) {
+                            docLog("debug", "SuperEditor onUpdate docChanged", {
+                                mountToken,
+                                docChanged: transaction ? transaction.docChanged : null,
+                            });
+                            markDirty();
+                        }
+                    },
+                    onSelectionUpdate: () => {
+                        if (isStaleMount()) {
+                            return;
+                        }
+                        docLog("debug", "SuperEditor selection updated", {
+                            mountToken,
+                        });
+                        queuePresenceUpdate();
+                    },
+                    onContentError: (payload = {}) => {
+                        const error = payload.error;
+                        if (isStaleMount()) {
+                            destroyDocumentEditorInstance(instance);
+                            return;
+                        }
+                        docLog("error", "SuperEditor onContentError fired", {
+                            mountToken,
+                            error: error ? String(error.message || error) : "unknown content error",
+                        });
+                        finishReject(error || new Error("The DOCX engine could not load this file"));
+                    },
+                    onFirstRender: () => {
+                        if (isStaleMount()) {
+                            return;
+                        }
+                        docLog("info", "SuperEditor first render", {
+                            mountToken,
+                        });
+                        proofingStatus.textContent = "Document layout is ready. InkDrop save/export controls are live.";
+                    },
+                    onDestroy: () => {
+                        docLog("warn", "SuperEditor onDestroy fired", {
+                            mountToken,
+                            wasActiveInstance: documentEditor === instance,
+                        });
+                        if (documentEditor === instance) {
+                            documentEditor = null;
+                            editorReady = false;
+                        }
+                    },
+                };
+
+                function isStaleMount() {
+                    return mountToken !== activeMountToken;
+                }
+
+                function finishResolve() {
+                    if (settled) return;
+                    settled = true;
+                    if (timeoutID) {
+                        window.clearTimeout(timeoutID);
+                    }
+                    docLog("info", "mountDocument resolved", docStateSnapshot({
+                        mountToken,
+                    }));
+                    resolve();
+                }
+
+                function finishReject(error) {
+                    if (settled) return;
+                    settled = true;
+                    if (timeoutID) {
+                        window.clearTimeout(timeoutID);
+                    }
+                    destroyDocumentEditorInstance(instance);
+                    if (documentEditor === instance) {
+                        documentEditor = null;
+                    }
+                    docLog("error", "mountDocument rejected", docStateSnapshot({
+                        mountToken,
+                        error: error instanceof Error ? error.message : String(error || "Document load failed"),
+                    }));
+                    reject(error instanceof Error ? error : new Error(String(error || "Document load failed")));
+                }
+
+                timeoutID = window.setTimeout(() => {
+                    docLog("error", "mountDocument timed out", {
+                        mountToken,
+                    });
+                    finishReject(new Error("Document engine did not finish initializing"));
+                }, 30000);
+
+                Promise.resolve()
+                    .then(async () => {
+                        const source = resolveDocumentSource(documentSource);
+                        if (!source) {
+                            throw new Error("Unsupported document source");
+                        }
+                        docLog("info", "Calling SuperEditor.open", {
+                            mountToken,
+                            hasSource: Boolean(source),
+                            mountNodeID: mountNode.id,
+                            documentMode: mountOptions.documentMode,
+                            editable: mountOptions.editable,
+                        });
+                        instance = await SuperEditor.open(source, mountOptions);
+                        if (isStaleMount()) {
+                            destroyDocumentEditorInstance(instance);
+                            return;
+                        }
+                        documentEditor = instance;
+                        editorReady = true;
+                        setStatus("Live", "live");
+                        proofingStatus.textContent = "Document editor is ready. InkDrop save/export controls are live.";
+                        docLog("info", "SuperEditor.open resolved", {
+                            mountToken,
+                            instanceKeys: Object.keys(instance || {}),
+                        });
+                        finishResolve();
+                    })
+                    .catch((error) => {
+                        if (isStaleMount()) {
+                            destroyDocumentEditorInstance(instance);
+                            return;
+                        }
+                        docLog("error", "SuperEditor.open threw", {
+                            mountToken,
+                            error: error instanceof Error ? error.message : String(error),
+                            stack: error && error.stack ? error.stack : null,
+                        });
+                        finishReject(error instanceof Error ? error : new Error(String(error || "Document editor initialization failed")));
+                    });
+            });
+        }
+
+        async function exportCurrentDocument(exportType = "docx") {
+            if (!documentEditor) {
+                throw new Error("Document editor is not ready yet");
+            }
+            if (exportType !== "docx") {
+                throw new Error("PDF export is not available in this browser build yet");
+            }
+            let exported = null;
+            if (typeof documentEditor.exportDocument === "function") {
+                exported = await documentEditor.exportDocument();
+            } else if (typeof documentEditor.exportDocx === "function") {
+                exported = await documentEditor.exportDocx();
+            }
+            if (exported instanceof Blob) {
+                return exported;
+            }
+            if (exported instanceof ArrayBuffer) {
+                return new Blob([exported], {
+                    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                });
+            }
+            if (ArrayBuffer.isView(exported)) {
+                return new Blob([exported], {
+                    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                });
+            }
+            if (exported != null) {
+                return new Blob([exported], {
+                    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                });
+            }
+            throw new Error("DOCX export is not available from the document editor");
+        }
+
+        async function blobToBase64(blob) {
+            const buffer = await blob.arrayBuffer();
+            let binary = "";
+            const bytes = new Uint8Array(buffer);
+            const chunkSize = 0x8000;
+            for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+                binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+            }
+            return btoa(binary);
+        }
+
+        async function flushSync(explicitSave = false) {
+            if (!config.editable || disconnecting || !dirty || syncInFlight) {
+                return;
+            }
+            syncInFlight = true;
+            setSaveState("saving");
+            setStatus(explicitSave ? "Saving…" : "Syncing…", "busy");
+            docLog("info", "flushSync start", {
+                explicitSave,
+                currentVersion,
+            });
+            try {
+                const blob = await exportCurrentDocument("docx");
+                const payload = await requestJSON(config.syncURL, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    body: JSON.stringify({
+                        op: explicitSave ? "save" : "sync",
+                        clientId: clientId,
+                        version: currentVersion,
+                        documentData: await blobToBase64(blob),
+                    }),
+                });
+                dirty = false;
+                currentVersion = Number(payload.version || currentVersion);
+                if (payload.path) {
+                    pathLabel.textContent = payload.path;
+                }
+                renderPresence(payload.presence);
+                setSaveState("saved", Number(payload.savedAt || 0));
+                setStatus("Live", "live");
+                docLog("info", "flushSync success", {
+                    explicitSave,
+                    nextVersion: payload.version,
+                    savedAt: payload.savedAt,
+                });
+            } catch (error) {
+                setSaveState("dirty");
+                setStatus(error.message || "Sync failed", "error");
+                docLog("error", "flushSync failed", {
+                    explicitSave,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                throw error;
+            } finally {
+                syncInFlight = false;
+            }
+        }
+
+        function queueSync(explicitSave = false) {
+            if (syncTimer) {
+                clearTimeout(syncTimer);
+                syncTimer = null;
+            }
+            if (explicitSave) {
+                flushSync(true);
+                return;
+            }
+            syncTimer = setTimeout(() => flushSync(false), 900);
+        }
+
+        function queuePresenceUpdate() {
+            if (!config.editable || disconnecting) return;
+            requestJSON(config.syncURL, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                body: JSON.stringify({
+                    op: "presence",
+                    clientId: clientId,
+                    version: currentVersion,
+                }),
+            }).then((payload) => {
+                renderPresence(payload.presence);
+            }).catch(() => {});
+        }
+
+        async function reloadRemoteDocument(fileURL, savedAt, version, external) {
+            if (!fileURL) return;
+            if (dirty || syncInFlight) {
+                pendingRemoteFileURL = fileURL;
+                setStatus("Remote changes waiting for save", "busy");
+                docLog("warn", "Remote document reload deferred", {
+                    fileURL,
+                    version,
+                    external,
+                });
+                return;
+            }
+            docLog("info", "Reloading remote document", {
+                fileURL,
+                version,
+                external,
+            });
+            await mountDocument(fileURL);
+            currentVersion = Math.max(currentVersion, Number(version || 0));
+            setSaveState("saved", Number(savedAt || 0));
+            setStatus(external ? "External change synced" : "Remote change synced", "live");
+        }
+
+        function connectStream() {
+            if (!config.editable) return;
+            docLog("info", "Opening document event stream", {
+                streamURL: config.streamURL,
+                clientId,
+            });
+            eventSource = new EventSource(config.streamURL + "&client=" + encodeURIComponent(clientId));
+            eventSource.onopen = () => {
+                docLog("info", "Document event stream open", {
+                    clientId,
+                });
+                setStatus("Live", "live");
+                queuePresenceUpdate();
+            };
+            eventSource.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data);
+                    docLog("debug", "Document stream message", {
+                        type: payload.type,
+                        version: payload.version,
+                        clientId: payload.clientId,
+                        external: payload.external,
+                    });
+                    if (Array.isArray(payload.presence)) {
+                        renderPresence(payload.presence);
+                    }
+                    if (payload.type === "snapshot") {
+                        if (payload.clientId === clientId) {
+                            currentVersion = Math.max(currentVersion, Number(payload.version || 0));
+                            setSaveState("saved", Number(payload.savedAt || 0));
+                            return;
+                        }
+                        const incomingVersion = Number(payload.version || 0);
+                        if (incomingVersion <= currentVersion) {
+                            if (payload.fileUrl) {
+                                currentDocumentSource = payload.fileUrl;
+                            }
+                            return;
+                        }
+                        reloadRemoteDocument(payload.fileUrl, payload.savedAt, payload.version, payload.external).catch((error) => {
+                            console.warn("InkDrop document reload failed", error);
+                            setStatus(error.message || "Remote reload failed", "error");
+                        });
+                    }
+                } catch (error) {
+                    console.warn("InkDrop document stream parse failed", error);
+                }
+            };
+            eventSource.onerror = () => {
+                docLog("warn", "Document event stream error");
+                setStatus("Reconnecting…", "busy");
+            };
+        }
+
+        function startSnapshotPolling() {
+            docLog("info", "Starting snapshot polling", {
+                intervalMS: 2000,
+            });
+            snapshotPollTimer = setInterval(() => {
+                if (dirty || syncInFlight) return;
+                requestJSON(config.loadURL, {
+                    cache: "no-store",
+                    credentials: "same-origin",
+                    headers: {
+                        "Accept": "application/json",
+                    },
+                }).then((payload) => {
+                    if (Number(payload.version || 0) > currentVersion && payload.fileUrl) {
+                        docLog("info", "Snapshot poll detected newer version", {
+                            polledVersion: payload.version,
+                            currentVersion,
+                            fileUrl: payload.fileUrl,
+                        });
+                        reloadRemoteDocument(payload.fileUrl, payload.savedAt, payload.version, true).catch((error) => {
+                            console.warn("InkDrop document polling reload failed", error);
+                        });
+                    } else {
+                        docLog("debug", "Snapshot poll no-op", {
+                            polledVersion: payload.version,
+                            currentVersion,
+                        });
+                        currentVersion = Math.max(currentVersion, Number(payload.version || 0));
+                    }
+                }).catch(() => {});
+            }, 2000);
+        }
+
+        function downloadBlob(blob, fileName) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        async function triggerSaveAs() {
+            const requestedPath = window.prompt("Save As path", config.filePath || config.fileName);
+            if (requestedPath == null) return;
+            const savePath = requestedPath.trim();
+            if (!savePath) return;
+            setStatus("Saving copy…", "busy");
+            const blob = await exportCurrentDocument("docx");
+            const payload = await requestJSON(config.syncURL, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                body: JSON.stringify({
+                    op: "save_as",
+                    clientId: clientId,
+                    version: currentVersion,
+                    savePath: savePath,
+                    documentData: await blobToBase64(blob),
+                }),
+            });
+            window.location.assign(payload.editURL || config.syncURL);
+        }
+
+        function disconnectSession() {
+            if (disconnecting) return;
+            disconnecting = true;
+            if (syncTimer) clearTimeout(syncTimer);
+            if (snapshotPollTimer) clearInterval(snapshotPollTimer);
+            if (presenceTimer) clearInterval(presenceTimer);
+            if (eventSource) eventSource.close();
+            fetch(config.syncURL, {
+                method: "POST",
+                credentials: "same-origin",
+                keepalive: true,
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                body: JSON.stringify({
+                    op: "leave",
+                    clientId: clientId,
+                }),
+            }).catch(() => {});
+        }
+
+        document.addEventListener("keydown", (event) => {
+            if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") {
+                return;
+            }
+            event.preventDefault();
+            if (event.shiftKey) {
+                triggerSaveAs().catch((error) => setStatus(error.message || "Save As failed", "error"));
+            } else {
+                queueSync(true);
+            }
+        });
+
+        openButton?.addEventListener("click", () => localFileInput?.click());
+        localFileInput?.addEventListener("change", async () => {
+            const file = localFileInput.files && localFileInput.files[0];
+            if (!file) return;
+            docLog("info", "Local DOCX file selected", {
+                name: file.name,
+                size: file.size,
+                type: file.type,
+            });
+            try {
+                await mountDocument(file);
+                markDirty();
+                setStatus("Loaded local DOCX", "busy");
+            } catch (error) {
+                console.error("InkDrop local document load failed", error);
+                showDocumentError(error.message || "Failed to open the selected DOCX file.");
+            }
+        });
+        saveAsButton?.addEventListener("click", () => {
+            triggerSaveAs().catch((error) => setStatus(error.message || "Save As failed", "error"));
+        });
+        exportButton?.addEventListener("click", async () => {
+            try {
+                const blob = await exportCurrentDocument("docx");
+                downloadBlob(blob, (config.fileName || "document").replace(/\.docx$/i, "") + ".docx");
+            } catch (error) {
+                setStatus(error.message || "Export failed", "error");
+            }
+        });
+        exportPdfButton?.addEventListener("click", async () => {
+            try {
+                const blob = await exportCurrentDocument("pdf");
+                downloadBlob(blob, (config.fileName || "document").replace(/\.docx$/i, "") + ".pdf");
+            } catch (error) {
+                setStatus("PDF export is not available in this browser build yet", "error");
+            }
+        });
+        statusRailButton?.addEventListener("click", () => {
+            setDrawerPanel(activeDrawerPanel === "status" ? "" : "status");
+        });
+        peopleRailButton?.addEventListener("click", () => {
+            setDrawerPanel(activeDrawerPanel === "collaborators" ? "" : "collaborators");
+        });
+        infoRailButton?.addEventListener("click", () => {
+            setDrawerPanel(activeDrawerPanel === "info" ? "" : "info");
+        });
+        proofRailButton?.addEventListener("click", () => {
+            setDrawerPanel(activeDrawerPanel === "proofing" ? "" : "proofing");
+        });
+        drawerCloseButton?.addEventListener("click", () => {
+            setDrawerPanel("");
+        });
+        hideRailButton?.addEventListener("click", () => {
+            setDrawerPanel("");
+        });
+
+        initTheme();
+        setDrawerPanel("status");
+        docLog("info", "Document editor boot", {
+            editable: Boolean(config.editable),
+            fileName: config.fileName,
+            filePath: config.filePath,
+            fileURL: config.fileURL,
+            version: config.version,
+            savedAt: config.savedAt,
+            clientId,
+        });
+
+        if (!config.editable || !config.fileURL) {
+            setStatus("Unavailable", "error");
+            setSaveState("saved", config.savedAt);
+        } else {
+            mountDocument(config.fileURL)
+                .then(() => {
+                    setSaveState("saved", config.savedAt);
+                    queuePresenceUpdate();
+                    presenceTimer = setInterval(queuePresenceUpdate, 10000);
+                    connectStream();
+                    startSnapshotPolling();
+                })
+                .catch((error) => {
+                    console.error("InkDrop document editor failed", error);
+                    showDocumentError(error.message || "Failed to initialize the document editor.");
+                });
+        }
+
+        window.addEventListener("pagehide", disconnectSession);
+        window.addEventListener("beforeunload", disconnectSession);
+    </script>
+</body>
+</html>

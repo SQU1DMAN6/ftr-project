@@ -19,6 +19,7 @@ var listCmd = &cobra.Command{
 		upgradeableOnly, _ := cmd.Flags().GetBool("upgradeable")
 		quiet, _ := cmd.Flags().GetBool("quiet")
 		alternative, _ := cmd.Flags().GetBool("alternative")
+		showDesc, _ := cmd.Flags().GetBool("description")
 
 		// default to installed if no flags
 		if !installedOnly && !upgradeableOnly && !quiet {
@@ -56,6 +57,9 @@ var listCmd = &cobra.Command{
 					fmt.Println(p.Name)
 				} else {
 					fmt.Printf("%s %s (%s)\n", p.Name, ver, p.Source)
+					if showDesc && strings.TrimSpace(p.Description) != "" {
+						fmt.Printf("    %s\n", strings.TrimSpace(p.Description))
+					}
 				}
 			}
 		}
@@ -134,6 +138,7 @@ func init() {
 	listCmd.Flags().BoolP("upgradeable", "U", false, "List upgradeable packages with remote versions")
 	listCmd.Flags().BoolP("quiet", "q", false, "Quiet: list only package names")
 	listCmd.Flags().BoolP("alternative", "a", false, "Alternative display: list package sources")
+	listCmd.Flags().BoolP("description", "d", false, "Show package description under each package")
 	rootCmd.AddCommand(listCmd)
 }
 

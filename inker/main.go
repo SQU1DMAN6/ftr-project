@@ -284,16 +284,68 @@ func main() {
 									defer func() { uiQueue <- func() { progressDialog.Hide() } }()
 
 									repoPath := fmt.Sprintf("%s/%s", user, repo)
-									// Use a unique temporary directory to avoid permission issues
-									// with a shared /tmp/fsdl folder owned by root from previous runs.
-									tmpDir, err := os.MkdirTemp("", "fsdl-*")
-									if err != nil {
-										log.Printf("failed to create temp directory: %v", err)
-										uiQueue <- func() {
-											progressDialog.Hide()
-											dialog.ShowError(fmt.Errorf("failed to create temp directory: %w", err), w)
+									tmpDir := "/tmp/fsdl"
+
+									// Check if directory exists and is not empty
+									if _, err := os.Stat(tmpDir); err == nil {
+										if entries, _ := os.ReadDir(tmpDir); len(entries) > 0 {
+											choiceCh := make(chan int, 1)
+											uiQueue <- func() {
+												lbl := widget.NewLabel(fmt.Sprintf("The build directory %s is not empty.\nHow would you like to proceed?", tmpDir))
+												var d dialog.Dialog
+												btnCancel := widget.NewButton("Cancel", func() { d.Hide(); choiceCh <- 1 })
+												btnClear := widget.NewButton("Clear directory", func() { d.Hide(); choiceCh <- 2 })
+												btnKeep := widget.NewButton("Do not clear", func() { d.Hide(); choiceCh <- 3 })
+												content := container.NewVBox(lbl, btnCancel, btnClear, btnKeep)
+												d = dialog.NewCustomWithoutButtons("Build Directory Conflict", content, w)
+												d.Show()
+											}
+
+											choice := <-choiceCh
+											switch choice {
+											case 1: // Cancel
+												uiQueue <- func() {
+													progressDialog.Hide()
+													dialog.ShowInformation("Cancelled", "Installation cancelled.", w)
+												}
+												return
+											case 2: // Clear
+												if err := os.RemoveAll(tmpDir); err != nil {
+													log.Printf("failed to clear temp directory: %v", err)
+													uiQueue <- func() {
+														progressDialog.Hide()
+														dialog.ShowError(fmt.Errorf("failed to clear temp directory: %w", err), w)
+													}
+													return
+												}
+												if err := os.MkdirAll(tmpDir, 0755); err != nil {
+													log.Printf("failed to create temp directory: %v", err)
+													uiQueue <- func() {
+														progressDialog.Hide()
+														dialog.ShowError(fmt.Errorf("failed to create temp directory: %w", err), w)
+													}
+													return
+												}
+											case 3: // Do not clear
+												if err := os.MkdirAll(tmpDir, 0755); err != nil {
+													log.Printf("failed to ensure temp directory: %v", err)
+													uiQueue <- func() {
+														progressDialog.Hide()
+														dialog.ShowError(fmt.Errorf("failed to ensure temp directory: %w", err), w)
+													}
+													return
+												}
+											}
 										}
-										return
+									} else {
+										if err := os.MkdirAll(tmpDir, 0755); err != nil {
+											log.Printf("failed to create temp directory: %v", err)
+											uiQueue <- func() {
+												progressDialog.Hide()
+												dialog.ShowError(fmt.Errorf("failed to create temp directory: %w", err), w)
+											}
+											return
+										}
 									}
 									cleanupTmp := true
 									defer func() {

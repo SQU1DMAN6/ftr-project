@@ -1,0 +1,1371 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/assets/root.css" />
+    <title>{{ .Title }}</title>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="topbar-brand">InkDrop</a>
+            <div class="topbar-right">
+                <div class="theme-switch" role="group" aria-label="Theme mode">
+                    <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+                    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+                </div>
+                <div class="profile-menu">
+                    <button
+                        type="button"
+                        class="profile-button"
+                        id="profileMenuButton"
+                        aria-haspopup="menu"
+                        aria-expanded="false"
+                        aria-controls="profileMenu"
+                    >
+                        {{.Name}} ▾
+                    </button>
+                    <div id="profileMenu" class="profile-dropdown" role="menu" hidden>
+                        <p class="menu-label">Signed in as</p>
+                        <p class="menu-user">{{.Name}}</p>
+                        <a href="/logout" class="button-link danger small" role="menuitem">Log Out</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="page">
+        <section class="shell stack-lg">
+            <div class="panel dark stack">
+                <h1 class="intro">{{ .Title }}</h1>
+                <p class="subtle light">{{ .Message }}</p>
+                <div class="row">
+                    <a href="/" class="button-link">Back to Workspace</a>
+                    <p class="subtle light">Current path: <strong>{{.Message2}}/{{.Message3}}{{.Path}}</strong></p>
+                </div>
+                <div>
+                    <button type="button" class="menu-item settings-trigger small" id="openSettingsBtnMenu" style="width: max-content">Open Settings</button>
+                </div>
+                {{if .RepoDescription}}
+                <div class="panel stack">
+                    <p class="subtle">{{.RepoDescription}}</p>
+                </div>
+                {{end}}
+            </div>
+
+            <div class="panel stack" id="filePanel" tabindex="0" aria-label="Repository browser">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <h2 class="section">Repository Manager</h2>
+                    <div class="row">
+                        <button type="button" class="button-link small" id="newFileBtnInline">New File</button>
+                        <button type="button" class="button-link small" id="newFolderBtnInline">New Folder</button>
+                        <button type="button" class="button-link small" id="uploadFileBtnInline">Upload Files</button>
+                        <a href="/downloadrepo/{{.Message2}}/{{.Message3}}"><button type="button" class="button-link small" id="downloadRepoInline">Download Repository</button></a>
+                    </div>
+                </div>
+                <p class="subtle">Tips: Double-click folder to open. Select a folder then press <strong>F2</strong> or <strong>Enter</strong> to rename/move, <strong>Del</strong> or <strong>Backspace</strong> to delete.</p>
+
+                {{if .Error}}
+                <div class="alert">
+                    {{range $key, $msg := .Error}}
+                    <p>{{$msg}}</p>
+                    {{end}}
+                </div>
+                {{else}}
+                {{if .RepoList}}
+                <div class="clean-list browser-list row" id="entryList">
+                    {{range $i, $entry := .RepoList}}
+                    {{if eq $entry ".."}}
+                    <li class="repo-card folder parent" data-kind="parent" data-name=".." tabindex="0">
+                        <p class="repo-name">..</p>
+                    </li>
+                    {{else if hasSuffix $entry "/"}}
+                    <li class="repo-card folder" data-kind="folder" data-name="{{trimSuffix $entry "/"}}" tabindex="0">
+                        <p class="repo-name">{{trimSuffix $entry "/"}}</p>
+                    </li>
+                    {{else}}
+                    <li class="repo-card file" data-kind="file" data-name="{{$entry}}" tabindex="0">
+                        <p class="repo-name">{{$entry}}</p>
+                    </li>
+                    {{end}}
+                    {{end}}
+                </div>
+                {{else}}
+                <div class="empty-state">
+                    <p>This folder is empty.</p>
+                    <small class="helper">Upload files with Inker or FtR tools to populate this repository.</small>
+                </div>
+                {{end}}
+                {{end}}
+
+                <div class="file-preview-panel" id="filePreviewPanel" aria-live="polite" aria-label="File preview">
+                    <div class="row space preview-header">
+                        <div>
+                            <h3 class="section">File Preview</h3>
+                        </div>
+                        <button type="button" class="button-link small" id="refreshPreviewBtn" disabled>Refresh</button>
+                    </div>
+                    <div class="preview-content" id="previewContent">
+                        <div class="preview-placeholder">
+                            <p class="subtle">No file selected yet.</p>
+                        </div>
+                    </div>
+                    <div class="preview-meta" id="previewMeta"></div>
+                </div>
+
+                <div class="context-menu" id="contextMenu" hidden>
+                    <button type="button" class="menu-item" id="newFileBtn">New File</button>
+                    <button type="button" class="menu-item" id="newFolderBtn">New Folder</button>
+                    <button type="button" class="menu-item" id="renameBtn">Rename / Move</button>
+                    <button type="button" class="menu-item" id="downloadBtn">Download File</button>
+                    <button type="button" class="menu-item" id="liveEditBtn">Edit File</button>
+                    <button type="button" class="menu-item danger-item" id="deleteBtn">Delete Folder</button>
+                    <button type="button" class="menu-item danger-item" id="deleteFileBtn">Delete File</button>
+                </div>
+
+                <dialog class="settings-modal center popup" id="newFolderDialog">
+                    <form method="post" action="/new/dir" class="stack">
+                        <h3 class="section">Create New Folder</h3>
+                        <input
+                            type="text"
+                            name="folderName"
+                            placeholder="Folder name"
+                            pattern="[-A-Za-z0-9_ ]+"
+                            title="Letters, numbers, spaces, underscores and hyphens only"
+                            required
+                        />
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="user" value="{{.Message2}}" />
+                        <input type="hidden" name="working-directory" value="{{.Path}}" />
+                        <div class="row">
+                            <button type="submit" class="redirect">Create</button>
+                            <button type="button" class="button-link" id="cancelDialog">Cancel</button>
+                        </div>
+                    </form>
+                </dialog>
+
+                <dialog class="settings-modal center popup" id="newFileDialog">
+                    <form id="newFileForm" method="post" action="/new/file" class="stack">
+                        <h3 class="section">Create New File</h3>
+                        <label class="field-label" for="newFileName">File Name</label>
+                        <input
+                            type="text"
+                            name="fileName"
+                            id="newFileName"
+                            placeholder="Untitled"
+                            required
+                        />
+
+                        <label class="field-label" for="newFileType">File Type</label>
+                        <select name="fileType" id="newFileType" class="details" style="padding: 8px; border-radius: 7px;">
+                            <option value="text">Plain Text</option>
+                            <option value="document">DOCX Document</option>
+                        </select>
+
+                        <label class="field-label" for="newFileExtension">Extension</label>
+                        <input
+                            type="text"
+                            name="fileExtension"
+                            id="newFileExtension"
+                            placeholder=".txt"
+                            value=".txt"
+                        />
+
+                        <p class="subtle" id="newFilePreview">Creates: Untitled.txt</p>
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="user" value="{{.Message2}}" />
+                        <input type="hidden" name="working-directory" value="{{.Path}}" />
+                        <div class="row">
+                            <button type="submit" class="redirect">Create</button>
+                            <button type="button" class="button-link" id="cancelNewFile">Cancel</button>
+                        </div>
+                    </form>
+                </dialog>
+
+                <dialog class="settings-modal center popup" id="renameDialog">
+                    <form id="renameForm" method="post" action="/rename" class="stack">
+                        <h3 class="section">Rename / Move Folder</h3>
+                        <p class="subtle">You can move a folder by entering a destination path, for example: <code>archive/project_a</code>.</p>
+                        <input
+                            type="text"
+                            name="newName"
+                            id="renameInput"
+                            placeholder="New name or destination path"
+                            title="Use folder names separated by /"
+                            required
+                        />
+                        <input type="hidden" name="oldName" id="renameOldName" />
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="user" value="{{.Message2}}" />
+                        <input type="hidden" name="working-directory" value="{{.Path}}" />
+                        <div class="row">
+                            <button type="submit" class="redirect">Apply</button>
+                            <button type="button" class="button-link" id="cancelRename">Cancel</button>
+                        </div>
+                    </form>
+                </dialog>
+
+                <dialog class="settings-modal center popup" id="settingsDialog">
+                    <form id="settingsForm" method="post" action="/repo/settings" class="stack">
+                        <h3 class="section">Repository Settings</h3>
+                        <label class="field-label">Description</label>
+                        <textarea name="description" rows="3" class="details" style="resize: none; padding: 8px; border-radius: 7px;">{{.RepoDescription}}</textarea>
+
+                        <label class="field-label">Owners</label>
+                        <div id="ownersWidget" class="stack">
+                            <div id="ownersList" class="owners-list" aria-live="polite" aria-label="Repository owners list">
+                                <!-- owner tokens are rendered by JS -->
+                            </div>
+                            <div class="row" style="gap:8px; align-items:center;">
+                                <input type="text" id="newOwnerInput" class="details" placeholder="Type a username and press +" />
+                                <button type="button" id="addOwnerBtn" class="button-link small">+</button>
+                            </div>
+                            <input type="hidden" name="owners" id="ownersHidden" value="{{.RepoOwners}}" />
+                        </div>
+
+                        <label class="field-label">Public</label>
+                        <div>
+                            <label><input type="checkbox" name="public" value="1" {{if .RepoPublic}}checked{{end}} /> Allow read access to all users</label>
+                        </div>
+
+                        <input type="hidden" name="repository" value="{{.Message3}}" />
+                        <input type="hidden" name="user" value="{{.Message2}}" />
+                        <div class="row">
+                            <button type="submit" class="redirect">Save</button>
+                            <button type="button" class="button-link" id="cancelSettings">Cancel</button>
+                        </div>
+
+                        <div class="danger-zone">
+                            <h4>Danger Zone</h4>
+                            <p>Deleting this repository will permanently remove all files and metadata. This action cannot be undone.</p>
+                            <div class="row">
+                                <button type="button" id="cancelDeleteSettings" class="button-link" style="width: 100%;">Cancel</button>
+                                <button type="button" id="confirmDeleteRepo" class="danger-item menu-item button-link" style="width: 100%;">Delete Repository</button>
+                            </div>
+                        </div>
+                    </form>
+                </dialog>
+
+                {{template "uploadForm". }}
+
+                <form id="deleteForm" method="post" action="/delete/item" hidden>
+                    <input type="hidden" name="repository" value="{{.Message3}}" />
+                    <input type="hidden" name="working-directory" value="{{.Path}}" />
+                    <input type="hidden" name="user" value="{{.Message2}}" />
+                    <input type="hidden" name="itemName" id="deleteItemName" />
+                </form>
+
+                <form id="downloadForm" method="post" action="/download" hidden>
+                    <input type="hidden" name="repository" value="{{.Message3}}" />
+                    <input type="hidden" name="working-directory" value="{{.Path}}" />
+                    <input type="hidden" name="user" value="{{.Message2}}" />
+                    <input type="hidden" name="itemName" id="downloadItemName">
+                </form>
+
+                <!-- Hidden top-level form used to delete the entire repository. Kept outside the settings form to avoid nested-form issues. -->
+                <form id="deleteRepoForm" method="post" action="/deleterepo" hidden>
+                    <input type="hidden" name="reponame" value="{{.Message3}}" />
+                    <input type="hidden" name="user" value="{{.Message2}}" />
+                </form>
+            </div>
+        </section>
+    </main>
+
+    {{template "uploadFormJS". }}
+
+    <script>
+        (function () {
+            var themeKey = "inkdrop-theme";
+
+            function setTheme(theme) {
+                var value = theme === "dark" ? "dark" : "light";
+                document.documentElement.setAttribute("data-theme", value);
+                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
+                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === value));
+                });
+            }
+
+            function getSavedTheme() {
+                var stored = localStorage.getItem(themeKey);
+                if (stored === "dark" || stored === "light") {
+                    return stored;
+                }
+                if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+                    return "dark";
+                }
+                return "light";
+            }
+
+            function initTheme() {
+                setTheme(getSavedTheme());
+                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
+                    button.type = "button";
+                    button.addEventListener("click", function () {
+                        var theme = button.getAttribute("data-theme-set");
+                        setTheme(theme);
+                        localStorage.setItem(themeKey, theme);
+                    });
+                });
+            }
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", initTheme);
+            } else {
+                initTheme();
+            }
+
+            var profileButton = document.getElementById("profileMenuButton");
+            var profileMenu = document.getElementById("profileMenu");
+
+            function closeProfileMenu() {
+                profileMenu.hidden = true;
+                profileButton.setAttribute("aria-expanded", "false");
+            }
+
+            profileButton.addEventListener("click", function () {
+                var willOpen = profileMenu.hidden;
+                profileMenu.hidden = !willOpen;
+                profileButton.setAttribute("aria-expanded", String(willOpen));
+            });
+
+            document.addEventListener("click", function (event) {
+                if (!profileMenu.hidden && !event.target.closest(".profile-menu")) {
+                    closeProfileMenu();
+                }
+            });
+
+            document.addEventListener("keydown", function (event) {
+                if (event.key === "Escape") {
+                    closeProfileMenu();
+                }
+            });
+
+            var currentPath = "{{.Path}}";
+            var currentUser = "{{.Message2}}";
+            var currentRepo = "{{.Message3}}";
+
+            var panel = document.getElementById("filePanel");
+            var contextMenu = document.getElementById("contextMenu");
+            var entryList = document.getElementById("entryList");
+            var renameBtn = document.getElementById("renameBtn");
+            var newFileBtn = document.getElementById("newFileBtn");
+            var newFileBtnInline = document.getElementById("newFileBtnInline");
+            var deleteBtn = document.getElementById("deleteBtn");
+            var newFolderBtn = document.getElementById("newFolderBtn");
+            var newFolderBtnInline = document.getElementById("newFolderBtnInline");
+            var newFileDialog = document.getElementById("newFileDialog");
+            var newFileForm = document.getElementById("newFileForm");
+            var newFileNameInput = document.getElementById("newFileName");
+            var newFileTypeInput = document.getElementById("newFileType");
+            var newFileExtensionInput = document.getElementById("newFileExtension");
+            var newFilePreview = document.getElementById("newFilePreview");
+            var newFolderDialog = document.getElementById("newFolderDialog");
+            var renameDialog = document.getElementById("renameDialog");
+            var renameForm = document.getElementById("renameForm");
+            var renameInput = document.getElementById("renameInput");
+            var renameOldName = document.getElementById("renameOldName");
+            var cancelNewFile = document.getElementById("cancelNewFile");
+            var cancelDialog = document.getElementById("cancelDialog");
+            var cancelRename = document.getElementById("cancelRename");
+            var deleteForm = document.getElementById("deleteForm");
+            var deleteItemName = document.getElementById("deleteItemName");
+            var uploadFileBtnInline = document.getElementById("uploadFileBtnInline");
+            var uploadDialog = document.getElementById("uploadDialog");
+            var cancelUpload = document.getElementById("cancelUpload");
+            var deleteFileBtn = document.getElementById("deleteFileBtn")
+            var downloadBtn = document.getElementById("downloadBtn")
+            var downloadForm = document.getElementById("downloadForm")
+            var downloadItemName = document.getElementById("downloadItemName")
+            var deleteRepoBtn = document.getElementById("deleteRepoBtn")
+            var deleteRepoForm = document.getElementById("deleteRepoForm")
+            var openSettingsBtnMenu = document.getElementById("openSettingsBtnMenu")
+            var settingsDialog = document.getElementById("settingsDialog")
+            var settingsForm = document.getElementById("settingsForm")
+            var cancelSettings = document.getElementById("cancelSettings")
+            var cancelDeleteSettings = document.getElementById("cancelDeleteSettings")
+            var liveEditBtn = document.getElementById("liveEditBtn")
+
+            var previewPanel = document.getElementById("filePreviewPanel")
+            var previewContent = document.getElementById("previewContent")
+            var previewMeta = document.getElementById("previewMeta")
+            var previewRefreshBtn = document.getElementById("refreshPreviewBtn")
+            var previewBlobUrl = null
+
+            var selectedEntry = null;
+            var selectionAnchorEntry = null;
+            var selectionBox = null;
+            var selectionDragState = null;
+            var newFileDefaultExtensions = {
+                text: ".txt",
+                document: ".docx",
+            };
+            var lastAutoFileExtension = newFileExtensionInput ? String(newFileExtensionInput.value || "") : "";
+
+            if (contextMenu) {
+                contextMenu.hidden = true;
+                if (contextMenu.parentElement !== document.body) {
+                    document.body.appendChild(contextMenu);
+                }
+            }
+
+            function normalizePath(pathValue) {
+                var parts = String(pathValue || "/").split("/").filter(Boolean);
+                return "/" + parts.join("/");
+            }
+
+            function parentPath(pathValue) {
+                var parts = normalizePath(pathValue).split("/").filter(Boolean);
+                if (parts.length === 0) return "/";
+                parts.pop();
+                return parts.length === 0 ? "/" : "/" + parts.join("/");
+            }
+
+            function buildBrowseURL(pathValue) {
+                var safePath = normalizePath(pathValue);
+                var base = "/browse/" + encodeURIComponent(currentUser) + "/" + encodeURIComponent(currentRepo);
+                if (safePath === "/") return base;
+                var encodedPath = safePath
+                    .split("/")
+                    .filter(Boolean)
+                    .map(encodeURIComponent)
+                    .join("/");
+                return base + "/" + encodedPath;
+            }
+
+            function buildEditURL(fileName, pathValue) {
+                var safePath = normalizePath(pathValue);
+                var base =
+                    "/edit/" +
+                    encodeURIComponent(fileName) +
+                    "/" +
+                    encodeURIComponent(currentUser) +
+                    "/" +
+                    encodeURIComponent(currentRepo);
+                if (safePath === "/") return base;
+                var encodedPath = safePath
+                    .split("/")
+                    .filter(Boolean)
+                    .map(encodeURIComponent)
+                    .join("/");
+                return base + "/" + encodedPath;
+            }
+
+            function getAllEntries() {
+                if (!entryList) return [];
+                return Array.prototype.slice.call(entryList.querySelectorAll(".repo-card"));
+            }
+
+            function getSelectedEntries() {
+                return getAllEntries().filter(function (entry) {
+                    return entry.classList.contains("selected");
+                });
+            }
+
+            function getSelectionNames() {
+                return getSelectedEntries().map(function (entry) {
+                    return entry.getAttribute("data-name");
+                }).filter(Boolean);
+            }
+
+            function applySelection(entries, anchorEntry) {
+                var selected = Array.isArray(entries) ? entries.filter(Boolean) : [];
+                getAllEntries().forEach(function (entry) {
+                    entry.classList.toggle("selected", selected.indexOf(entry) !== -1);
+                });
+
+                if (selected.length === 0) {
+                    selectedEntry = null;
+                } else if (selected.indexOf(selectedEntry) === -1) {
+                    selectedEntry = selected[selected.length - 1];
+                }
+
+                if (selectedEntry && selected.indexOf(selectedEntry) !== -1) {
+                    selectedEntry.classList.add("selected");
+                }
+
+                if (anchorEntry) {
+                    selectionAnchorEntry = anchorEntry;
+                } else if (!selectionAnchorEntry || selected.indexOf(selectionAnchorEntry) === -1) {
+                    selectionAnchorEntry = selectedEntry;
+                }
+
+                updatePreviewState();
+            }
+
+            function selectEntry(entry) {
+                selectedEntry = entry || null;
+                applySelection(entry ? [entry] : [], entry || null);
+            }
+
+            function toggleEntrySelection(entry) {
+                var selected = getSelectedEntries();
+                var idx = selected.indexOf(entry);
+                if (idx === -1) {
+                    selected.push(entry);
+                    selectedEntry = entry;
+                } else {
+                    selected.splice(idx, 1);
+                    if (selectedEntry === entry) {
+                        selectedEntry = selected[selected.length - 1] || null;
+                    }
+                }
+                applySelection(selected, entry);
+            }
+
+            function selectEntryRange(entry) {
+                var entries = getAllEntries();
+                var anchor = selectionAnchorEntry || selectedEntry || entry;
+                var startIdx = entries.indexOf(anchor);
+                var endIdx = entries.indexOf(entry);
+                if (startIdx === -1 || endIdx === -1) {
+                    selectEntry(entry);
+                    return;
+                }
+                var range = entries.slice(Math.min(startIdx, endIdx), Math.max(startIdx, endIdx) + 1);
+                selectedEntry = entry;
+                applySelection(range, anchor);
+            }
+
+            function clearPreview() {
+                if (!previewContent) return;
+                if (previewBlobUrl) {
+                    URL.revokeObjectURL(previewBlobUrl);
+                    previewBlobUrl = null;
+                }
+                previewContent.innerHTML = '<div class="preview-placeholder"><p class="subtle">No file selected yet.</p></div>';
+                if (previewMeta) previewMeta.textContent = "";
+                if (previewRefreshBtn) previewRefreshBtn.disabled = true;
+            }
+
+            function setPreviewStatus(message) {
+                if (!previewContent) return;
+                previewContent.innerHTML = '<div class="preview-placeholder"><p class="subtle">' + message + '</p></div>';
+            }
+
+            function setPreviewMeta(fileName, contentType, size) {
+                if (!previewMeta) return;
+                var meta = '<span class="preview-badge"><strong>' + fileName + '</strong></span>';
+                meta += '<span class="preview-badge">' + contentType + '</span>';
+                if (size) {
+                    meta += '<span class="preview-badge">' + size + '</span>';
+                }
+                previewMeta.innerHTML = meta;
+            }
+
+            function formatBytes(bytes) {
+                if (!bytes || isNaN(bytes) || bytes <= 0) return "";
+                var units = ["B", "KB", "MB", "GB"];
+                var idx = 0;
+                var value = Number(bytes);
+                while (value >= 1024 && idx < units.length - 1) {
+                    value /= 1024;
+                    idx += 1;
+                }
+                return value.toFixed(1) + " " + units[idx];
+            }
+
+            function updatePreviewState() {
+                if (!previewRefreshBtn) return;
+                var selected = getSelectedEntries();
+                var canPreview = selected.length === 1 && canDownload(selected[0]);
+                previewRefreshBtn.disabled = !canPreview;
+                if (canPreview) {
+                    selectedEntry = selected[0];
+                    previewSelectedFile();
+                } else {
+                    clearPreview();
+                    if (selected.length > 1) {
+                        setPreviewStatus(selected.length + " items selected.");
+                    }
+                }
+            }
+
+            function renderPreviewText(text, mime) {
+                if (!previewContent) return;
+                previewContent.innerHTML = '<pre class="preview-text"></pre>';
+                var pre = previewContent.querySelector("pre");
+                pre.textContent = text.length > 32768 ? text.slice(0, 32768) + "\n\n…preview truncated" : text;
+            }
+
+            function renderPreviewBlob(blob, mime, fileName) {
+                if (!previewContent) return;
+                if (previewBlobUrl) {
+                    URL.revokeObjectURL(previewBlobUrl);
+                    previewBlobUrl = null;
+                }
+                previewBlobUrl = URL.createObjectURL(blob);
+                var markup = "";
+                if (mime.startsWith("image/")) {
+                    markup = '<img class="preview-image" src="' + previewBlobUrl + '" alt="Preview of ' + fileName + '">';
+                } else if (mime.startsWith("video/")) {
+                    markup = '<video controls class="preview-video"><source src="' + previewBlobUrl + '" type="' + mime + '">Your browser cannot play this preview.</video>';
+                } else if (mime.startsWith("audio/")) {
+                    markup = '<audio controls class="preview-audio"><source src="' + previewBlobUrl + '" type="' + mime + '">Your browser cannot play this preview.</audio>';
+                } else if (mime === "application/pdf") {
+                    markup = '<object class="preview-pdf" data="' + previewBlobUrl + '" type="application/pdf">Preview unavailable. <a href="' + previewBlobUrl + '">Open PDF</a></object>';
+                } else {
+                    markup = '<div class="preview-placeholder"><p class="subtle">This file cannot be previewed in-browser, but it is available for secure download.</p></div>';
+                }
+                previewContent.innerHTML = markup;
+            }
+
+            function previewSelectedFile() {
+                if (!canDownload(selectedEntry)) {
+                    clearPreview();
+                    return;
+                }
+                var file = selectedEntry.getAttribute("data-name");
+                if (!file) {
+                    clearPreview();
+                    return;
+                }
+                setPreviewStatus("Loading file preview...");
+                var params = new URLSearchParams({
+                    repository: currentRepo,
+                    user: currentUser,
+                    "working-directory": currentPath,
+                    itemName: file,
+                });
+                fetch("/preview?" + params.toString(), { credentials: "same-origin" })
+                    .then(function (response) {
+                        if (!response.ok) {
+                            // Try to display server-provided error details
+                            return response.text().then(function (bodyText) {
+                                var message = bodyText || (response.status + " " + response.statusText);
+                                setPreviewStatus(message);
+                                if (previewMeta) previewMeta.textContent = "";
+                                if (previewRefreshBtn) previewRefreshBtn.disabled = false;
+                                throw new Error(message);
+                            });
+                        }
+                        var contentType = response.headers.get("content-type") || "application/octet-stream";
+                        var mime = contentType.split(";")[0].trim();
+                        var contentLength = response.headers.get("content-length");
+                        setPreviewMeta(file, mime, contentLength ? formatBytes(Number(contentLength)) : "");
+                        if (mime.startsWith("text/") || mime === "application/json" || mime === "application/xml" || mime === "application/javascript") {
+                            return response.text().then(function (text) {
+                                renderPreviewText(text, mime);
+                                previewRefreshBtn.disabled = false;
+                            });
+                        }
+                        return response.blob().then(function (blob) {
+                            renderPreviewBlob(blob, mime, file);
+                            previewRefreshBtn.disabled = false;
+                        });
+                    })
+                    .catch(function (error) {
+                        if (!error || !error.message) {
+                            setPreviewStatus("Preview unavailable.");
+                        }
+                        if (previewMeta && !previewMeta.textContent) previewMeta.textContent = "";
+                        if (previewRefreshBtn) previewRefreshBtn.disabled = false;
+                        console.warn("Preview failed:", error);
+                    });
+            }
+
+            function entryKind(entry) {
+                return entry ? entry.getAttribute("data-kind") : "";
+            }
+
+            function canRename(entry) {
+                return entry && (entryKind(entry) === "folder" || entryKind(entry) === "file");
+            }
+
+            function canDelete(entry) {
+                return entry && entryKind(entry) === "folder";
+            }
+
+            function canDeleteFile(entry) {
+                return entry && entryKind(entry) === "file";
+            }
+
+            function canDownload(entry) {
+                return entry && entryKind(entry) === "file";
+            }
+
+            function canEditFile(entry) {
+                return entry && entryKind(entry) === "file";
+            }
+
+            function openEntry(entry) {
+                if (!entry) return;
+                var kind = entryKind(entry);
+                var name = entry.getAttribute("data-name");
+                if (kind === "parent") {
+                    window.location.href = buildBrowseURL(parentPath(currentPath));
+                    return;
+                }
+                if (kind === "folder") {
+                    var base = normalizePath(currentPath);
+                    var next = base === "/" ? "/" + name : base + "/" + name;
+                    window.location.href = buildBrowseURL(next);
+                }
+            }
+
+            function showContextMenu(x, y) {
+                if (!contextMenu) return;
+                var selected = getSelectedEntries();
+                var primary = selectedEntry || selected[selected.length - 1] || null;
+                var singleSelection = selected.length <= 1 ? primary : null;
+                var hasFolders = selected.some(function (entry) { return canDelete(entry); });
+                var hasFiles = selected.some(function (entry) { return canDeleteFile(entry); });
+                var canDownloadSelection = selected.length > 0 && selected.every(function (entry) {
+                    return entryKind(entry) === "file" || entryKind(entry) === "folder";
+                });
+                var canEditSelection = selected.length === 1 && canEditFile(singleSelection);
+
+                renameBtn.disabled = !(selected.length === 1 && canRename(singleSelection));
+                deleteBtn.disabled = !hasFolders;
+                deleteFileBtn.disabled = !hasFiles;
+                downloadBtn.disabled = !canDownloadSelection;
+                liveEditBtn.disabled = !canEditSelection;
+
+                if (hasFolders === true) {
+                    deleteBtn.style.display = "block"
+                } else {
+                    deleteBtn.style.display = "none"
+                }
+                if (selected.length === 1 && canRename(singleSelection) === true) {
+                    renameBtn.style.display = "block"
+                } else {
+                    renameBtn.style.display = "none"
+                }
+                if (hasFiles === true) {
+                    deleteFileBtn.style.display = "block"
+                } else {
+                    deleteFileBtn.style.display = "none"
+                }
+                if (canDownloadSelection === true) {
+                    downloadBtn.style.display = "block"
+                } else {
+                    downloadBtn.style.display = "none"
+                }
+                if (canEditSelection === true) {
+                    liveEditBtn.style.display = "block"
+                } else {
+                    liveEditBtn.style.display = "none"
+                }
+
+                contextMenu.hidden = false;
+
+                var rect = contextMenu.getBoundingClientRect();
+                var pad = 8;
+                var left = x;
+                var top = y;
+                if (left + rect.width > window.innerWidth - pad) {
+                    left = window.innerWidth - rect.width - pad;
+                }
+                if (top + rect.height > window.innerHeight - pad) {
+                    top = window.innerHeight - rect.height - pad;
+                }
+                if (left < pad) left = pad;
+                if (top < pad) top = pad;
+
+                contextMenu.style.left = left + "px";
+                contextMenu.style.top = top + "px";
+            }
+
+            function hideContextMenu() {
+                if (!contextMenu) return;
+                contextMenu.hidden = true;
+            }
+
+            function openNewFolderDialog() {
+                hideContextMenu();
+                newFolderDialog.showModal();
+                var input = newFolderDialog.querySelector("input[name='folderName']");
+                if (input) input.focus();
+            }
+
+            function normalizeExtensionInput(value) {
+                var clean = String(value || "").trim();
+                if (!clean) return "";
+                if (clean.charAt(0) !== ".") {
+                    clean = "." + clean;
+                }
+                if (clean === ".") return "";
+                return clean;
+            }
+
+            function updateNewFilePreview() {
+                if (!newFilePreview || !newFileNameInput || !newFileExtensionInput) return;
+                var baseName = newFileNameInput.value.trim() || "Untitled";
+                var ext = normalizeExtensionInput(newFileExtensionInput.value);
+                if (ext && baseName.toLowerCase().slice(-ext.length) === ext.toLowerCase()) {
+                    newFilePreview.textContent = "Creates: " + baseName;
+                    return;
+                }
+                newFilePreview.textContent = "Creates: " + baseName + ext;
+            }
+
+            function syncNewFileExtension(force) {
+                if (!newFileTypeInput || !newFileExtensionInput) return;
+                var selectedType = String(newFileTypeInput.value || "text");
+                var nextExtension = newFileDefaultExtensions[selectedType] || "";
+                var currentExtension = normalizeExtensionInput(newFileExtensionInput.value);
+
+                if (force || currentExtension === "" || currentExtension === lastAutoFileExtension) {
+                    newFileExtensionInput.value = nextExtension;
+                    currentExtension = nextExtension;
+                }
+
+                lastAutoFileExtension = nextExtension;
+                updateNewFilePreview();
+            }
+
+            function openNewFileDialog() {
+                hideContextMenu();
+                if (!newFileDialog) return;
+                syncNewFileExtension(false);
+                newFileDialog.showModal();
+                if (newFileNameInput) {
+                    newFileNameInput.focus();
+                    newFileNameInput.select();
+                }
+            }
+
+            function openDeleteRepoDialog() {
+                hideContextMenu();
+                deleteRepoDialog.showModal();
+            }
+
+            function openUploadDialog() {
+                hideContextMenu();
+                uploadDialog.showModal();
+                var input = uploadDialog.querySelector("input[name='uploadFile']");
+                if (input) input.focus();
+            }
+
+            function openRenameDialog() {
+                if (!canRename(selectedEntry) || getSelectedEntries().length !== 1) return;
+                hideContextMenu();
+                var oldName = selectedEntry.getAttribute("data-name");
+                renameOldName.value = oldName;
+                renameInput.value = oldName;
+                renameDialog.showModal();
+                renameInput.focus();
+                renameInput.select();
+            }
+
+            function setRepeatedHiddenValues(form, name, values) {
+                if (!form) return;
+                Array.prototype.slice.call(form.querySelectorAll('input[data-generated="' + name + '"]')).forEach(function (node) {
+                    node.remove();
+                });
+                values.forEach(function (value) {
+                    var input = document.createElement("input");
+                    input.type = "hidden";
+                    input.name = name;
+                    input.value = value;
+                    input.setAttribute("data-generated", name);
+                    form.appendChild(input);
+                });
+            }
+
+            function deleteSelectedFolder() {
+                var folderNames = getSelectedEntries().filter(function (entry) {
+                    return canDelete(entry);
+                }).map(function (entry) {
+                    return entry.getAttribute("data-name");
+                });
+                if (folderNames.length === 0) return;
+                var ok = window.confirm("Delete " + folderNames.length + " folder(s)? This cannot be undone.");
+                if (!ok) return;
+                deleteItemName.value = folderNames[0] || "";
+                setRepeatedHiddenValues(deleteForm, "itemName", folderNames.slice(1));
+                deleteForm.submit();
+            }
+
+            function deleteSelectedFile() {
+                var fileNames = getSelectedEntries().filter(function (entry) {
+                    return canDeleteFile(entry);
+                }).map(function (entry) {
+                    return entry.getAttribute("data-name");
+                });
+                if (fileNames.length === 0) return;
+                var ok = window.confirm("Delete " + fileNames.length + " file(s)? This cannot be undone.");
+                if (!ok) return;
+                deleteItemName.value = fileNames[0] || "";
+                setRepeatedHiddenValues(deleteForm, "itemName", fileNames.slice(1));
+                deleteForm.submit();
+            }
+
+            function downloadSelectedFile() {
+                var selection = getSelectionNames();
+                if (selection.length === 0 && canDownload(selectedEntry)) {
+                    selection = [selectedEntry.getAttribute("data-name")];
+                }
+                if (selection.length === 0) return;
+
+                selection.forEach(function (file, index) {
+                    if (!file) return;
+                    var frameName = "downloadFrame_" + Date.now() + "_" + index;
+                    var iframe = document.createElement("iframe");
+                    iframe.name = frameName;
+                    iframe.style.display = "none";
+                    document.body.appendChild(iframe);
+
+                    var tempForm = document.createElement("form");
+                    tempForm.method = "post";
+                    tempForm.action = "/download";
+                    tempForm.enctype = "application/x-www-form-urlencoded";
+                    tempForm.target = frameName;
+
+                    var hiddenFields = {
+                        repository: currentRepo,
+                        user: currentUser,
+                        "working-directory": currentPath,
+                        itemName: file,
+                    };
+                    Object.keys(hiddenFields).forEach(function (name) {
+                        var input = document.createElement("input");
+                        input.type = "hidden";
+                        input.name = name;
+                        input.value = hiddenFields[name];
+                        tempForm.appendChild(input);
+                    });
+
+                    document.body.appendChild(tempForm);
+                    tempForm.submit();
+
+                    window.setTimeout(function () {
+                        document.body.removeChild(tempForm);
+                        if (iframe.parentNode) {
+                            iframe.parentNode.removeChild(iframe);
+                        }
+                    }, 60000);
+                });
+            }
+
+            function liveEditSelectedFile() {
+                if (!canEditFile(selectedEntry) || getSelectedEntries().length !== 1) return;
+                var fileName = selectedEntry.getAttribute("data-name");
+                window.location.href = buildEditURL(fileName, currentPath);
+            }
+
+            function isTypingContext(target) {
+                if (!target) return false;
+                if (target.closest && target.closest("dialog[open]")) return true;
+                var tag = target.tagName;
+                if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+                if (target.isContentEditable) return true;
+                return false;
+            }
+
+            function isValidMovePath(candidate) {
+                // if (!candidate) return false;
+                // if (candidate.startsWith("/") || candidate.includes("..")) return false;
+                // var parts = candidate.split("/");
+                // for (var i = 0; i < parts.length; i += 1) {
+                //     if (!/^[A-Za-z0-9_-]+$/.test(parts[i])) {
+                //         return false;
+                //     }
+                // }
+                return true;
+            }
+
+            if (entryList) {
+                entryList.addEventListener("click", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry) return;
+                    if (event.shiftKey) {
+                        selectEntryRange(entry);
+                    } else if (event.ctrlKey || event.metaKey) {
+                        toggleEntrySelection(entry);
+                    } else if (getSelectedEntries().length === 1 && selectedEntry === entry) {
+                        selectEntry(null);
+                    } else {
+                        selectEntry(entry);
+                    }
+                    panel.focus();
+                });
+
+                entryList.addEventListener("dblclick", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry) return;
+                    openEntry(entry);
+                });
+
+                entryList.addEventListener("contextmenu", function (event) {
+                    event.preventDefault();
+                    var entry = event.target.closest(".repo-card");
+                    if (entry && !entry.classList.contains("selected")) {
+                        selectEntry(entry);
+                    }
+                    showContextMenu(event.clientX, event.clientY);
+                });
+            }
+
+            panel.addEventListener("contextmenu", function (event) {
+                if (event.target.closest(".repo-card")) return;
+                event.preventDefault();
+                selectEntry(null);
+                showContextMenu(event.clientX, event.clientY);
+            });
+
+            panel.addEventListener("keydown", function (event) {
+                if (isTypingContext(event.target) || isTypingContext(document.activeElement)) {
+                    return;
+                }
+                if (!selectedEntry && getSelectedEntries().length === 0) return;
+                if (event.key === "Enter" || event.key === "F2") {
+                    event.preventDefault();
+                    openRenameDialog();
+                }
+                if (event.key === "Delete" || event.key === "Backspace") {
+                    event.preventDefault();
+                    deleteSelectedFolder();
+                    deleteSelectedFile();
+                }
+            });
+
+            function moveSelectedEntriesToFolder(targetFolderName) {
+                var selection = getSelectedEntries().filter(function (entry) {
+                    return entryKind(entry) === "file" || entryKind(entry) === "folder";
+                });
+                if (selection.length === 0 || !targetFolderName) {
+                    return Promise.resolve();
+                }
+                var requests = selection.map(function (entry) {
+                    var oldName = entry.getAttribute("data-name");
+                    if (!oldName || oldName === targetFolderName) {
+                        return Promise.resolve();
+                    }
+                    var destination = targetFolderName + "/" + oldName;
+                    var formData = new URLSearchParams();
+                    formData.set("repository", currentRepo);
+                    formData.set("user", currentUser);
+                    formData.set("working-directory", currentPath);
+                    formData.set("oldName", oldName);
+                    formData.set("newName", destination);
+                    return fetch("/rename", {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                        },
+                        body: formData.toString(),
+                    }).then(function (response) {
+                        if (!response.ok) {
+                            return response.text().then(function (text) {
+                                throw new Error(text || "Move failed");
+                            });
+                        }
+                    });
+                });
+                return Promise.all(requests).then(function () {
+                    window.location.reload();
+                });
+            }
+
+            if (panel && window.getComputedStyle(panel).position === "static") {
+                panel.style.position = "relative";
+            }
+
+            function ensureSelectionBox() {
+                if (selectionBox) return selectionBox;
+                selectionBox = document.createElement("div");
+                selectionBox.style.position = "absolute";
+                selectionBox.style.border = "1px solid rgba(37, 99, 235, 0.9)";
+                selectionBox.style.background = "rgba(59, 130, 246, 0.18)";
+                selectionBox.style.pointerEvents = "none";
+                selectionBox.style.zIndex = "25";
+                selectionBox.hidden = true;
+                panel.appendChild(selectionBox);
+                return selectionBox;
+            }
+
+            function beginSelectionDrag(event) {
+                if (!panel || event.button !== 0) return;
+                if (event.target.closest(".repo-card") || isTypingContext(event.target)) return;
+                var rect = panel.getBoundingClientRect();
+                selectionDragState = {
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    rect: rect,
+                };
+                selectEntry(null);
+                ensureSelectionBox().hidden = false;
+                event.preventDefault();
+            }
+
+            function updateSelectionDrag(event) {
+                if (!selectionDragState || !selectionBox) return;
+                var panelRect = selectionDragState.rect;
+                var left = Math.max(Math.min(selectionDragState.startX, event.clientX), panelRect.left);
+                var right = Math.min(Math.max(selectionDragState.startX, event.clientX), panelRect.right);
+                var top = Math.max(Math.min(selectionDragState.startY, event.clientY), panelRect.top);
+                var bottom = Math.min(Math.max(selectionDragState.startY, event.clientY), panelRect.bottom);
+                selectionBox.style.left = (left - panelRect.left + panel.scrollLeft) + "px";
+                selectionBox.style.top = (top - panelRect.top + panel.scrollTop) + "px";
+                selectionBox.style.width = Math.max(0, right - left) + "px";
+                selectionBox.style.height = Math.max(0, bottom - top) + "px";
+
+                var selected = getAllEntries().filter(function (entry) {
+                    var entryRect = entry.getBoundingClientRect();
+                    return !(entryRect.right < left || entryRect.left > right || entryRect.bottom < top || entryRect.top > bottom);
+                });
+                if (selected.length > 0) {
+                    selectedEntry = selected[selected.length - 1];
+                }
+                applySelection(selected, selectionAnchorEntry);
+            }
+
+            function endSelectionDrag() {
+                if (!selectionDragState) return;
+                selectionDragState = null;
+                if (selectionBox) {
+                    selectionBox.hidden = true;
+                    selectionBox.style.width = "0px";
+                    selectionBox.style.height = "0px";
+                }
+            }
+
+            panel.addEventListener("mousedown", beginSelectionDrag);
+            previewPanel.removeEventListener("mousedown", beginSelectionDrag);
+            document.addEventListener("mousemove", updateSelectionDrag);
+            document.addEventListener("mouseup", endSelectionDrag);
+
+            getAllEntries().forEach(function (entry) {
+                if (entryKind(entry) === "file" || entryKind(entry) === "folder") {
+                    entry.setAttribute("draggable", "true");
+                }
+            });
+
+            if (entryList) {
+                entryList.addEventListener("dragstart", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry) return;
+                    if (!entry.classList.contains("selected")) {
+                        selectEntry(entry);
+                    }
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", entry.getAttribute("data-name") || "");
+                });
+
+                entryList.addEventListener("dragover", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry || (entryKind(entry) !== "folder" && entryKind(entry) !== "parent")) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                });
+
+                entryList.addEventListener("drop", function (event) {
+                    var entry = event.target.closest(".repo-card");
+                    if (!entry || (entryKind(entry) !== "folder" && entryKind(entry) !== "parent")) return;
+                    event.preventDefault();
+                    moveSelectedEntriesToFolder(entry.getAttribute("data-name")).catch(function (error) {
+                        window.alert(error.message || "Move failed");
+                    });
+                });
+            }
+
+            renameForm.addEventListener("submit", function (event) {
+                var value = renameInput.value.trim();
+                if (!isValidMovePath(value)) {
+                    event.preventDefault();
+                    window.alert("Invalid destination. Use letters/numbers/underscore/hyphen and optional / separators.");
+                }
+            });
+
+            if (newFileBtn) newFileBtn.addEventListener("click", openNewFileDialog);
+            if (newFileBtnInline) newFileBtnInline.addEventListener("click", openNewFileDialog);
+            newFolderBtn.addEventListener("click", openNewFolderDialog);
+            newFolderBtnInline.addEventListener("click", openNewFolderDialog);
+            if (openSettingsBtnMenu) {
+                openSettingsBtnMenu.addEventListener("click", function () {
+                    hideContextMenu();
+                    if (settingsDialog) settingsDialog.showModal();
+                });
+            }
+            uploadFileBtnInline.addEventListener("click", openUploadDialog);
+            renameBtn.addEventListener("click", openRenameDialog);
+            deleteBtn.addEventListener("click", deleteSelectedFolder);
+            deleteFileBtn.addEventListener("click", deleteSelectedFile);
+            if (previewRefreshBtn) {
+                previewRefreshBtn.addEventListener("click", previewSelectedFile);
+            }
+            if (newFileTypeInput) {
+                newFileTypeInput.addEventListener("change", function () {
+                    syncNewFileExtension(false);
+                });
+            }
+            if (newFileNameInput) {
+                newFileNameInput.addEventListener("input", updateNewFilePreview);
+            }
+            if (newFileExtensionInput) {
+                newFileExtensionInput.addEventListener("input", updateNewFilePreview);
+            }
+            if (newFileForm) {
+                newFileForm.addEventListener("submit", function () {
+                    if (newFileNameInput) {
+                        newFileNameInput.value = newFileNameInput.value.trim();
+                    }
+                    if (newFileExtensionInput) {
+                        newFileExtensionInput.value = normalizeExtensionInput(newFileExtensionInput.value);
+                    }
+                });
+            }
+            if (cancelNewFile) {
+                cancelNewFile.addEventListener("click", function () {
+                    if (newFileDialog) newFileDialog.close();
+                });
+            }
+            cancelDialog.addEventListener("click", function () {
+                newFolderDialog.close();
+            });
+            cancelRename.addEventListener("click", function () {
+                renameDialog.close();
+            });
+            cancelUpload.addEventListener("click", function () {
+                uploadDialog.close()
+            });
+            if (cancelSettings) {
+                cancelSettings.addEventListener("click", function () {
+                    if (settingsDialog) settingsDialog.close()
+                })
+            }
+            if (cancelDeleteSettings) {
+                cancelDeleteSettings.addEventListener("click", function () {
+                    if (settingsDialog) settingsDialog.close()
+                })
+            }
+            var confirmDeleteRepoBtn = document.getElementById("confirmDeleteRepo");
+            var deleteRepoFormElem = document.getElementById("deleteRepoForm");
+            if (confirmDeleteRepoBtn && deleteRepoFormElem) {
+                confirmDeleteRepoBtn.addEventListener("click", function () {
+                    if (window.confirm("Delete repository '{{.Message2}}/{{.Message3}}'? This cannot be undone.")) {
+                        deleteRepoFormElem.submit();
+                    }
+                });
+            }
+            downloadBtn.addEventListener("click", downloadSelectedFile);
+            liveEditBtn.addEventListener("click", liveEditSelectedFile);
+
+            // deletion is handled via the settings dialog's Danger Zone form
+
+            document.addEventListener("click", function (event) {
+                if (!event.target.closest("#contextMenu")) {
+                    hideContextMenu();
+                }
+            });
+
+            document.addEventListener("keydown", function (event) {
+                if (event.key === "Escape") {
+                    hideContextMenu();
+                }
+            });
+
+            window.addEventListener("resize", hideContextMenu);
+            window.addEventListener("scroll", hideContextMenu, true);
+
+            var newFolderForm = newFolderDialog.querySelector("form");
+            newFolderForm.addEventListener("submit", function () {
+                var input = newFolderDialog.querySelector("input[name='folderName']");
+                if (!input) return;
+                input.value = input.value.trim().replace(/\s+/g, "_");
+            });
+
+            updateNewFilePreview();
+
+            // Owners widget: render tokens, allow add/remove, and populate hidden owners field on submit
+            (function () {
+                var ownersListElem = document.getElementById("ownersList");
+                var ownersHidden = document.getElementById("ownersHidden");
+                var newOwnerInput = document.getElementById("newOwnerInput");
+                var addOwnerBtn = document.getElementById("addOwnerBtn");
+
+                if (!ownersListElem || !ownersHidden) return;
+
+                function parseOwnersValue(val) {
+                    if (!val) return [];
+                    return val
+                        .split(",")
+                        .map(function (s) {
+                            return s.trim();
+                        })
+                        .filter(Boolean);
+                }
+
+                function renderOwners() {
+                    var owners = parseOwnersValue(ownersHidden.value);
+                    ownersListElem.innerHTML = "";
+                    if (owners.length === 0) {
+                        var p = document.createElement("p");
+                        p.className = "subtle";
+                        p.textContent = "No owners listed.";
+                        ownersListElem.appendChild(p);
+                        return;
+                    }
+                    owners.forEach(function (o) {
+                        var span = document.createElement("span");
+                        span.className = "owner-token";
+                        span.setAttribute("data-owner", o);
+                        var txt = document.createElement("span");
+                        txt.textContent = o;
+                        txt.style.marginRight = "8px";
+                        var btn = document.createElement("button");
+                        btn.type = "button";
+                        btn.className = "remove-owner";
+                        btn.setAttribute("aria-label", "Remove " + o);
+                        btn.textContent = "−";
+                        btn.addEventListener("click", function () {
+                            removeOwner(o);
+                        });
+                        span.appendChild(txt);
+                        span.appendChild(btn);
+                        ownersListElem.appendChild(span);
+                    });
+                }
+
+                function addOwner(o) {
+                    o = String(o || "").trim();
+                    if (!o) return;
+                    var owners = parseOwnersValue(ownersHidden.value);
+                    if (owners.indexOf(o) !== -1) return;
+                    owners.push(o);
+                    ownersHidden.value = owners.join(",");
+                    renderOwners();
+                }
+
+                function removeOwner(o) {
+                    var owners = parseOwnersValue(ownersHidden.value);
+                    owners = owners.filter(function (x) {
+                        return x !== o;
+                    });
+                    ownersHidden.value = owners.join(",");
+                    renderOwners();
+                }
+
+                addOwnerBtn.addEventListener("click", function () {
+                    addOwner(newOwnerInput.value);
+                    newOwnerInput.value = "";
+                    newOwnerInput.focus();
+                });
+
+                newOwnerInput.addEventListener("keydown", function (e) {
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        addOwner(newOwnerInput.value);
+                        newOwnerInput.value = "";
+                    }
+                });
+
+                if (settingsForm) {
+                    settingsForm.addEventListener("submit", function () {
+                        var owners = parseOwnersValue(ownersHidden.value);
+                        ownersHidden.value = owners.join(",");
+                    });
+                }
+
+                // initial render
+                renderOwners();
+            })();
+        })();
+    </script>
+</body>
+<style>
+</style>
+</html>

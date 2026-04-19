@@ -14,6 +14,7 @@ type PackageInfo struct {
 	Name        string    `json:"name"`
 	Version     string    `json:"version,omitempty"`
 	Source      string    `json:"source,omitempty"` // user/repo
+	Description string    `json:"description,omitempty"`
 	InstalledAt time.Time `json:"installed_at"`
 	InstallPath string    `json:"install_path,omitempty"`
 	BinaryPath  string    `json:"binary_path,omitempty"`

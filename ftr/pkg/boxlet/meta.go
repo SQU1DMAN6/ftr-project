@@ -39,9 +39,21 @@ func WriteMeta(dir string, meta MetaKeyValue) error {
 
 // ReadMeta reads /BUILD/Meta.config and returns key/value pairs
 func ReadMeta(dir string) (MetaKeyValue, error) {
-	filePath := filepath.Join(dir, "BUILD", "Meta.config")
-	f, err := os.Open(filePath)
-	if err != nil {
+	// Prefer the new fsdlbuild.ftr file but fall back to legacy Meta.config for compatibility
+	candidates := []string{
+		filepath.Join(dir, "BUILD", "fsdlbuild.ftr"),
+		filepath.Join(dir, "BUILD", "Meta.config"),
+	}
+
+	var f *os.File
+	var err error
+	for _, p := range candidates {
+		f, err = os.Open(p)
+		if err == nil {
+			break
+		}
+	}
+	if f == nil {
 		return nil, fmt.Errorf("failed to open meta file: %w", err)
 	}
 	defer f.Close()
@@ -54,10 +66,12 @@ func ReadMeta(dir string) (MetaKeyValue, error) {
 			continue
 		}
 		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
+		if len(parts) == 1 {
+			// Handle flags without values (e.g., INSTALL_AS_CLI) by setting them to "true"
+			meta[strings.TrimSpace(parts[0])] = "true"
+		} else if len(parts) == 2 {
+			meta[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
 		}
-		meta[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read meta file: %w", err)

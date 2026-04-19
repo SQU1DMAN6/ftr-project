@@ -4,10 +4,11 @@ dev:
 	go run cmd/main.go
 
 build:
-	@./bin/ftrchat
+	go build -o ./bin/inkdrop ./cmd
 
-run: build
-	@./bin/ftrchat
+run:
+	chmod 755 ./bin/inkdrop
+	./bin/inkdrop
 
 create:
 	sudo mkdir -p bin
@@ -17,25 +18,24 @@ reload:
 	sudo systemctl daemon-reload
 
 start:
-	sudo systemctl start ftrchat
+	sudo systemctl start inkdrop
 
 enable:
-	sudo systemctl enable ftrchat
+	sudo systemctl enable inkdrop
 
 stop:
-	sudo systemctl stop ftrchat
+	sudo systemctl stop inkdrop
 
 restart:
-	sudo systemctl restart ftrchat
+	sudo systemctl restart inkdrop
 
 status:
-	sudo systemctl status ftrchat
+	sudo systemctl status inkdrop
 
 log:
-	journalctl -u ftrchat -f
+	journalctl -u inkdrop -f
 
 pull:
 	git pull
 
-update:
-	pull build restart status log
+update: pull build reload restart status log

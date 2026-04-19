@@ -1,0 +1,220 @@
+{{define "uploadForm"}}
+<dialog class="settings-modal center popup" id="uploadDialog">
+    <h3 class="section">Upload Files to Repository</h3>
+    <p class="subtle">
+        Upload multiple files to the working directory
+        {{.Name}}/{{.Message3}}{{.Path}}
+    </p>
+    <br />
+    <div class="drop-zone">
+        <p>Drop files into this area or</p>
+        <label for="fileToUpload" style="text-decoration: underline">
+            Choose Files to Upload
+        </label>
+        <input type="file" name="fileToUpload" placeholder="Choose Files to Upload" id="uploadFile" multiple hidden />
+    </div>
+    <br />
+    <div class="row">
+        <button type="button" class="button-link" id="cancelUpload">
+            Cancel
+        </button>
+    </div>
+
+    <div id="progressWrap" class="upload-progress-panel" hidden>
+        <div id="uploadSummary" class="upload-summary" hidden>
+            Uploading <span id="uploadCount">0</span> files...
+        </div>
+        <div id="progressList" class="upload-progress-list"></div>
+    </div>
+</dialog>
+{{end}}
+<!--nested javascript things-->
+{{define "uploadFormJS"}}
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@latest/dist/tus.min.js"></script>
+<script>
+    const dropZone = document.querySelector(".drop-zone");
+    const fileInput = document.querySelector("#uploadFile");
+    const progressWrap = document.querySelector("#progressWrap");
+    const progressList = document.querySelector("#progressList");
+    const uploadSummary = document.querySelector("#uploadSummary");
+    const uploadCount = document.querySelector("#uploadCount");
+
+    // session and repository context provided by server
+    const sessionUser = "{{.Name}}";
+    const repoOwner = "{{.Message2}}";
+    const repoName = "{{.Message3}}";
+    const repoWorkingDir = "{{.Path}}";
+
+    const maxConcurrentUploads = 3;
+    const uploadQueue = [];
+    let activeUploads = 0;
+    let pendingUploads = 0;
+
+    function createProgressItem(fileName) {
+        const container = document.createElement("div");
+        container.className = "upload-progress-item";
+
+        const label = document.createElement("div");
+        label.className = "upload-progress-label";
+        label.textContent = fileName;
+
+        const progressBar = document.createElement("progress");
+        progressBar.className = "upload-progress-bar";
+        progressBar.value = 0;
+        progressBar.max = 100;
+
+        const statusEl = document.createElement("div");
+        statusEl.className = "upload-progress-status";
+        statusEl.textContent = "Queued";
+
+        container.appendChild(label);
+        container.appendChild(progressBar);
+        container.appendChild(statusEl);
+
+        return {container, progressBar, statusEl};
+    }
+
+    function updateUploadSummary() {
+        uploadSummary.hidden = pendingUploads === 0;
+        uploadCount.textContent = pendingUploads;
+        progressWrap.hidden = pendingUploads === 0;
+    }
+
+    function processUploadQueue() {
+        while (activeUploads < maxConcurrentUploads && uploadQueue.length > 0) {
+            const nextFile = uploadQueue.shift();
+            startUpload(nextFile);
+        }
+        updateUploadSummary();
+    }
+
+    function enqueueUpload(file) {
+        uploadQueue.push(file);
+        pendingUploads += 1;
+        progressWrap.hidden = false;
+        updateUploadSummary();
+        processUploadQueue();
+    }
+
+    function startUpload(file) {
+        activeUploads += 1;
+        const item = createProgressItem(file.name);
+        progressList.appendChild(item.container);
+        item.statusEl.textContent = "Preparing...";
+
+        // Before creating the upload, verify we have permission to upload to the target repo.
+        checkUploadAllowed(repoOwner, repoName).then(function (allowed) {
+            if (!allowed) {
+                item.statusEl.textContent = `Permission denied to upload to ${repoOwner}/${repoName}`;
+                activeUploads -= 1;
+                pendingUploads -= 1;
+                updateUploadSummary();
+                processUploadQueue();
+                return;
+            }
+
+            const upload = new tus.Upload(file, {
+                endpoint: "/upload/",
+                retryDelays: [0, 1000, 2000, 3000, 4000, 5000],
+                chunkSize: 5 * 1024 * 1024,
+                metadata: {
+                    filename: file.name,
+                    filetype: file.type,
+                    // TUS handler expects the repository owner in the username field
+                    username: repoOwner,
+                    repository: repoName,
+                    workingDirectory: repoWorkingDir,
+                },
+            onError(error) {
+                item.statusEl.textContent = `Error: ${error.message}`;
+                console.error("Upload error:", error);
+                activeUploads -= 1;
+                pendingUploads -= 1;
+                updateUploadSummary();
+                processUploadQueue();
+            },
+            onProgress(bytesUploaded, bytesTotal) {
+                const pct = ((bytesUploaded / bytesTotal) * 100).toFixed(2);
+                item.progressBar.value = pct;
+                item.statusEl.textContent = `${pct}% • ${(bytesUploaded / 1024 / 1024).toFixed(2)} / ${(bytesTotal / 1024 / 1024).toFixed(2)} MB`;
+            },
+            onSuccess() {
+                item.progressBar.value = 100;
+                item.statusEl.textContent = "Completed";
+                activeUploads -= 1;
+                pendingUploads -= 1;
+                updateUploadSummary();
+                processUploadQueue();
+                if (activeUploads === 0 && uploadQueue.length === 0) {
+                    setTimeout(() => window.location.reload(), 800);
+                }
+            },
+        });
+
+            upload.findPreviousUploads().then((prev) => {
+                if (prev.length > 0) {
+                    upload.resumeFromPreviousUpload(prev[0]);
+                    item.statusEl.textContent = "Resuming upload...";
+                }
+                upload.start();
+            });
+        });
+    }
+
+    // Check whether the current session user is allowed to upload to the named repo.
+    function checkUploadAllowed(owner, repo) {
+        // If not logged in, deny.
+        if (!sessionUser || sessionUser === "") return Promise.resolve(false);
+        const params = new URLSearchParams({ name: repo, user: owner, meta: "1", api: "1" });
+        return fetch(`/repo.php?${params.toString()}`, { credentials: "same-origin", headers: { Accept: "application/json" } })
+            .then((resp) => {
+                if (!resp.ok) {
+                    // If repository not found, only the path owner may create it.
+                    if (resp.status === 404) return sessionUser === owner;
+                    return false;
+                }
+                return resp.json().then((j) => {
+                    if (!j || !j.success) return false;
+                    const m = j.meta || {};
+                    const owners = m.owners || [];
+                    if (Array.isArray(owners) && owners.length > 0) {
+                        for (let i = 0; i < owners.length; i++) {
+                            if (owners[i] === sessionUser) return true;
+                        }
+                        return sessionUser === owner;
+                    }
+                    return sessionUser === owner;
+                }).catch(() => false);
+            })
+            .catch(() => false);
+    }
+
+    dropZone.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (e) => {
+        const files = e.target.files;
+        if (!files) {
+            return;
+        }
+        for (let i = 0; i < files.length; i++) {
+            enqueueUpload(files[i]);
+        }
+    });
+
+    dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropZone.classList.add("hover");
+    });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("hover"));
+    dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("hover");
+        const files = e.dataTransfer.files;
+        if (!files) {
+            return;
+        }
+        for (let i = 0; i < files.length; i++) {
+            enqueueUpload(files[i]);
+        }
+    });
+</script>
+{{end}}

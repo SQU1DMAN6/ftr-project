@@ -1,0 +1,2473 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="/assets/root.css" />
+        <title>InkDrop - {{ .Title }}</title>
+        <style>
+            :root {
+                --editor-page-bg: linear-gradient(180deg, #e9eef5 0%, #dbe4ef 100%);
+                --editor-panel-bg: rgba(255, 255, 255, 0.9);
+                --editor-stage-shell: linear-gradient(180deg, #edf3fb 0%, #e2ebf6 100%);
+                --editor-bg: #ffffff;
+                --editor-border: rgba(15, 23, 42, 0.12);
+                --editor-cursor: #111827;
+                --editor-fg: #0f172a;
+                --editor-overlay: rgba(248, 250, 252, 0.88);
+                --editor-muted: #526172;
+                --editor-strong: #102033;
+                --editor-shadow: 0 26px 70px rgba(15, 23, 42, 0.12);
+                --editor-rail-bg: rgba(255, 255, 255, 0.82);
+                --editor-drawer-bg: rgba(255, 255, 255, 0.92);
+                --editor-action-bg: rgba(15, 23, 42, 0.04);
+            }
+
+            html[data-theme="dark"] {
+                --editor-page-bg: linear-gradient(180deg, #171c23 0%, #10151b 100%);
+                --editor-panel-bg: rgba(28, 34, 43, 0.88);
+                --editor-stage-shell: linear-gradient(180deg, #1f2630 0%, #171d25 100%);
+                --editor-bg: #141a22;
+                --editor-border: rgba(148, 163, 184, 0.24);
+                --editor-cursor: #f8fafc;
+                --editor-fg: #e2e8f0;
+                --editor-overlay: rgba(15, 23, 42, 0.82);
+                --editor-muted: #aab9c8;
+                --editor-strong: #edf3fb;
+                --editor-shadow: 0 32px 80px rgba(0, 0, 0, 0.38);
+                --editor-rail-bg: rgba(23, 29, 37, 0.88);
+                --editor-drawer-bg: rgba(22, 27, 35, 0.94);
+                --editor-action-bg: rgba(255, 255, 255, 0.08);
+            }
+
+            body {
+                background: var(--editor-page-bg);
+                height: 100vh;
+                overflow: hidden;
+            }
+
+            .page {
+                max-width: none;
+                height: 100vh;
+                padding: 12px;
+                overflow: hidden;
+            }
+
+            .live-shell {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                height: 100%;
+            }
+
+            .live-commandbar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                padding: 8px 12px;
+                border-radius: 18px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-panel-bg);
+                box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+                backdrop-filter: blur(20px);
+            }
+
+            .live-titleblock {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                min-width: 0;
+            }
+
+            .live-titlecopy {
+                min-width: 0;
+            }
+
+            .live-titlecopy h1,
+            .live-titlecopy p,
+            .live-drawer-head h2,
+            .live-drawer-head p,
+            .presence-list p {
+                margin: 0;
+            }
+
+            .live-titlecopy h1 {
+                font-size: 1rem;
+                line-height: 1.2;
+                color: var(--editor-strong);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .live-titlecopy p {
+                font-size: 0.82rem;
+                color: var(--editor-muted);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .live-command-actions {
+                display: grid;
+                grid-auto-flow: column;
+                grid-auto-columns: max-content;
+                gap: 8px;
+                align-items: center;
+            }
+
+            .live-layout {
+                position: relative;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 56px;
+                gap: 12px;
+                min-height: 0;
+                height: 100%;
+                align-items: stretch;
+            }
+
+            .live-workbench {
+                min-height: 0;
+                height: 100%;
+                border-radius: 24px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-stage-shell);
+                box-shadow: var(--editor-shadow);
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                padding: 14px;
+            }
+
+            .live-stage-chrome {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 12px;
+                color: var(--editor-muted);
+                font-size: 0.82rem;
+            }
+
+            .live-badges {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                align-items: center;
+            }
+
+            .live-stage-actions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+
+            .live-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                border-radius: 999px;
+                padding: 6px 10px;
+                background: var(--editor-action-bg);
+                color: var(--editor-strong);
+                font-size: 0.82rem;
+            }
+
+            .live-badge.status {
+                background: rgba(14, 165, 233, 0.16);
+            }
+
+            .live-badge.status[data-state="busy"] {
+                background: rgba(234, 179, 8, 0.18);
+            }
+
+            .live-badge.status[data-state="error"] {
+                background: rgba(239, 68, 68, 0.16);
+                color: #b91c1c;
+            }
+
+            .live-badge.save-state[data-state="saved"] {
+                background: rgba(34, 197, 94, 0.14);
+                color: #166534;
+            }
+
+            .live-badge.save-state[data-state="dirty"] {
+                background: rgba(245, 158, 11, 0.18);
+                color: #92400e;
+            }
+
+            .live-badge.save-state[data-state="saving"] {
+                background: rgba(14, 165, 233, 0.14);
+                color: #0c4a6e;
+            }
+
+            html[data-theme="dark"] .live-badge.status[data-state="error"] {
+                color: #fecaca;
+            }
+
+            html[data-theme="dark"] .live-badge.save-state[data-state="saved"] {
+                color: #dcfce7;
+            }
+
+            html[data-theme="dark"] .live-badge.save-state[data-state="dirty"] {
+                color: #fde68a;
+            }
+
+            html[data-theme="dark"] .live-badge.save-state[data-state="saving"] {
+                color: #bae6fd;
+            }
+
+            .live-action-button {
+                border: 1px solid color-mix(in srgb, var(--editor-border) 80%, transparent);
+                background: var(--editor-panel-bg);
+                color: var(--editor-strong);
+                border-radius: 999px;
+                padding: 8px 12px;
+                cursor: pointer;
+            }
+
+            .live-action-button:disabled {
+                opacity: 0.55;
+                cursor: default;
+            }
+
+            .live-stage {
+                position: relative;
+                flex: 1 1 auto;
+                min-height: 0;
+                height: 100%;
+                border-radius: 18px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-bg);
+                overflow: hidden;
+            }
+
+            #editorSurface,
+            #editorFallback {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 4;
+            }
+
+            #editorFallback {
+                display: block;
+                resize: none;
+                border: 0;
+                outline: 0;
+                padding: 20px;
+                background: var(--editor-bg);
+                color: var(--editor-fg);
+                font:
+                    14px/1.6 "SFMono-Regular",
+                    "Cascadia Code",
+                    "JetBrains Mono",
+                    Menlo,
+                    Consolas,
+                    monospace;
+            }
+
+            .editor-overlay,
+            .editor-empty {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+                text-align: center;
+                background: var(--editor-overlay);
+                z-index: 2;
+            }
+
+            .editor-empty {
+                background: linear-gradient(
+                    135deg,
+                    rgba(14, 165, 233, 0.08),
+                    rgba(30, 41, 59, 0.03)
+                );
+            }
+
+            .editor-empty-card {
+                max-width: 520px;
+            }
+
+            .editor-empty-card p {
+                margin: 0;
+            }
+
+            .editor-empty-card .subtle {
+                margin-top: 10px;
+            }
+
+            .live-rail {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                align-items: center;
+                padding: 12px 8px;
+                border-radius: 20px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-rail-bg);
+                backdrop-filter: blur(18px);
+                box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+            }
+
+            .live-rail-button {
+                position: relative;
+                width: 40px;
+                height: 40px;
+                border: 1px solid transparent;
+                border-radius: 14px;
+                background: transparent;
+                color: var(--editor-strong);
+                font: inherit;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+            }
+
+            .live-rail-button:hover,
+            .live-rail-button[aria-pressed="true"] {
+                background: var(--editor-action-bg);
+                border-color: var(--editor-border);
+                transform: translateY(-1px);
+            }
+
+            .live-rail-button.status-live::after,
+            .live-rail-button.status-busy::after,
+            .live-rail-button.status-error::after {
+                content: "";
+                position: absolute;
+                width: 8px;
+                height: 8px;
+                border-radius: 999px;
+                margin-left: 18px;
+                margin-top: -18px;
+                background: #22c55e;
+            }
+
+            .live-rail-button.status-busy::after {
+                background: #f59e0b;
+            }
+
+            .live-rail-button.status-error::after {
+                background: #ef4444;
+            }
+
+            .live-rail-separator {
+                width: 28px;
+                height: 1px;
+                background: var(--editor-border);
+            }
+
+            .live-drawer {
+                position: absolute;
+                top: 0;
+                right: 72px;
+                bottom: 0;
+                width: min(360px, calc(100vw - 120px));
+                padding: 14px;
+                border-radius: 24px;
+                border: 1px solid var(--editor-border);
+                background: var(--editor-drawer-bg);
+                backdrop-filter: blur(18px);
+                box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+                overflow: auto;
+                transform: translateX(0);
+                opacity: 1;
+                transition: transform 0.22s ease, opacity 0.22s ease;
+                z-index: 5;
+            }
+
+            .live-drawer[hidden] {
+                display: block;
+                pointer-events: none;
+                opacity: 0;
+                transform: translateX(20px);
+            }
+
+            .live-drawer-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 14px;
+            }
+
+            .live-drawer-close {
+                width: 36px;
+                height: 36px;
+            }
+
+            .live-panel-stack {
+                display: grid;
+                gap: 14px;
+            }
+
+            .live-panel-card {
+                padding: 14px;
+                border-radius: 18px;
+                background: color-mix(in srgb, var(--editor-action-bg) 75%, transparent);
+                border: 1px solid color-mix(in srgb, var(--editor-border) 75%, transparent);
+            }
+
+            .live-panel-card h3,
+            .live-panel-card p {
+                margin: 0;
+            }
+
+            .live-panel-card h3 {
+                margin-bottom: 8px;
+                color: var(--editor-strong);
+            }
+
+            .live-metadata {
+                display: grid;
+                gap: 10px;
+            }
+
+            .live-metadata strong {
+                display: block;
+                font-size: 0.8rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: var(--editor-muted);
+                margin-bottom: 4px;
+            }
+
+            .presence-list {
+                display: grid;
+                gap: 10px;
+            }
+
+            .presence-item {
+                display: flex;
+                gap: 10px;
+                align-items: flex-start;
+            }
+
+            .presence-dot {
+                flex: 0 0 auto;
+                width: 12px;
+                height: 12px;
+                margin-top: 4px;
+                border-radius: 999px;
+                background: #0f766e;
+                box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+            }
+
+            .presence-name {
+                font-weight: 600;
+                color: var(--editor-strong);
+            }
+
+            .presence-meta {
+                font-size: 0.84rem;
+                color: var(--editor-muted);
+            }
+
+            .presence-empty {
+                color: var(--editor-muted);
+                font-size: 0.92rem;
+            }
+
+            .lint-list {
+                display: grid;
+                gap: 10px;
+            }
+
+            .lint-item {
+                padding: 10px 12px;
+                border-radius: 14px;
+                background: color-mix(in srgb, var(--editor-action-bg) 85%, transparent);
+            }
+
+            .lint-item strong {
+                display: inline-block;
+                margin-bottom: 4px;
+                color: var(--editor-strong);
+            }
+
+            .lint-item p {
+                margin: 0;
+                color: var(--editor-muted);
+                font-size: 0.88rem;
+            }
+
+            .ace_editor {
+                background: var(--editor-bg);
+                color: var(--editor-fg);
+            }
+
+            .ace_editor .ace_cursor {
+                border-left: 2px solid var(--editor-cursor) !important;
+            }
+
+            .ace_editor .ace_marker-layer .ace_active-line {
+                background: rgba(14, 165, 233, 0.08);
+            }
+
+            #editorCollaboratorLayer {
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                z-index: 6;
+                overflow: hidden;
+            }
+
+            .live-remote-cursor {
+                position: absolute;
+                width: 0;
+                border-left: 2px solid #0f766e;
+                pointer-events: none;
+                z-index: 7;
+            }
+
+            .live-remote-label {
+                position: absolute;
+                padding: 2px 6px;
+                border-radius: 999px;
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: 700;
+                line-height: 1.2;
+                white-space: nowrap;
+                transform: translateY(-100%);
+                pointer-events: none;
+                z-index: 7;
+            }
+
+            @media (max-width: 980px) {
+                .page {
+                    padding: 10px;
+                }
+
+                .live-commandbar {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+
+                .live-command-actions {
+                    grid-auto-flow: row;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+
+                .live-layout {
+                    grid-template-columns: 1fr;
+                }
+
+                .live-rail {
+                    position: fixed;
+                    right: 10px;
+                    bottom: 10px;
+                    z-index: 30;
+                }
+
+                .live-drawer {
+                    position: fixed;
+                    top: auto;
+                    right: 10px;
+                    bottom: 68px;
+                    left: 10px;
+                    width: auto;
+                    max-height: 52vh;
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+        <noscript>
+            <div
+                style="
+                    margin: 12px;
+                    padding: 12px;
+                    border-radius: 6px;
+                    background: #fff3f3;
+                    color: #b91c1c;
+                    text-align: center;
+                "
+            >
+                JavaScript is disabled — the live editor requires JavaScript.
+                Please enable JavaScript in your browser.
+            </div>
+        </noscript>
+
+        <main class="page">
+            <section class="shell live-shell">
+                <div class="live-commandbar">
+                    <div class="live-titleblock">
+                        <a href="{{.EditorBackURL}}" class="button-link small"
+                            >Back</a
+                        >
+                        <div class="live-titlecopy">
+                            <h1>{{.EditorFileName}}</h1>
+                            <p>{{.EditorRepoOwner}} / {{.EditorRepoName}}</p>
+                        </div>
+                    </div>
+                    <div class="live-command-actions">
+                        <div
+                            class="theme-switch"
+                            role="group"
+                            aria-label="Theme mode"
+                        >
+                            <button
+                                type="button"
+                                data-theme-set="light"
+                                aria-pressed="false"
+                            >
+                                Light
+                            </button>
+                            <button
+                                type="button"
+                                data-theme-set="dark"
+                                aria-pressed="false"
+                            >
+                                Dark
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            class="live-action-button"
+                            id="editorSaveAsBtn"
+                            {{if not .EditorEditable}}disabled{{end}}
+                        >
+                            Save As
+                        </button>
+                    </div>
+                </div>
+
+                <div class="live-layout">
+                    <div class="live-workbench">
+                        <div class="live-stage-chrome">
+                            <div class="live-badges">
+                                <span class="live-badge" id="editorModeBadge"
+                                    >Mode: {{.EditorMode}}</span
+                                >
+                                <span
+                                    class="live-badge status"
+                                    id="editorStatusBadge"
+                                    data-state="{{if .EditorEditable}}live{{else}}error{{end}}"
+                                    >{{if
+                                    .EditorEditable}}Connecting…{{else}}Unavailable{{end}}</span
+                                >
+                                <span
+                                    class="live-badge"
+                                    id="editorPresenceBadge"
+                                    >1 active</span
+                                >
+                                <span
+                                    class="live-badge save-state"
+                                    id="editorSaveStateBadge"
+                                    data-state="saved"
+                                    >Saved</span
+                                >
+                                <span class="live-badge" id="editorLintBadge"
+                                    >Lint clean</span
+                                >
+                            </div>
+                            <div class="live-stage-actions">
+                                <span class="subtle" id="editorSavedMeta"
+                                    >Waiting for editor…</span
+                                >
+                            </div>
+                        </div>
+
+                        {{if .Error}}
+                        <div class="alert">
+                            {{range $key, $msg := .Error}}
+                            <p>{{$msg}}</p>
+                            {{end}}
+                        </div>
+                        {{end}}
+
+                        <div class="live-stage">
+                            <div
+                                class="editor-empty"
+                                id="editorEmptyState"
+                                {{if
+                                .EditorEditable}}hidden{{end}}
+                            >
+                                <div class="editor-empty-card stack">
+                                    <h3 class="section">
+                                        Editor Not Available
+                                    </h3>
+                                    <p>
+                                        {{if .Error}}Resolve the issue above,
+                                        then return here from the repository
+                                        browser.{{else}}This file cannot be
+                                        loaded into the editor right now.{{end}}
+                                    </p>
+                                </div>
+                            </div>
+                            <div
+                                class="editor-overlay"
+                                id="editorLoadingOverlay"
+                                {{if
+                                not
+                                .EditorEditable}}hidden{{end}}
+                            >
+                                <div class="editor-empty-card stack">
+                                    <h3 class="section">Loading File</h3>
+                                    <p>Connecting the live editing session.</p>
+                                </div>
+                            </div>
+                            <div
+                                id="editorSurface"
+                                {{if
+                                not
+                                .EditorEditable}}hidden{{end}}
+                            ></div>
+                            <div
+                                id="editorCollaboratorLayer"
+                                {{if
+                                not
+                                .EditorEditable}}hidden{{end}}
+                            ></div>
+                            <textarea
+                                id="editorFallback"
+                                hidden
+                                spellcheck="false"
+                            ></textarea>
+                        </div>
+                    </div>
+
+                    <aside class="live-rail" aria-label="Editor tools">
+                        <button
+                            type="button"
+                            class="live-rail-button status-live"
+                            id="editorStatusRailBtn"
+                            aria-label="Open editor status"
+                            aria-pressed="false"
+                        >
+                            S
+                        </button>
+                        <button
+                            type="button"
+                            class="live-rail-button"
+                            id="editorPeopleRailBtn"
+                            aria-label="Open collaborators"
+                            aria-pressed="false"
+                        >
+                            1
+                        </button>
+                        <button
+                            type="button"
+                            class="live-rail-button"
+                            id="editorFileRailBtn"
+                            aria-label="Open file info"
+                            aria-pressed="false"
+                        >
+                            #
+                        </button>
+                        <button
+                            type="button"
+                            class="live-rail-button"
+                            id="editorToolsRailBtn"
+                            aria-label="Open editor tools"
+                            aria-pressed="false"
+                        >
+                            {}
+                        </button>
+                        <div class="live-rail-separator" aria-hidden="true"></div>
+                        <button
+                            type="button"
+                            class="live-rail-button"
+                            id="editorHideRailBtn"
+                            aria-label="Close side panel"
+                        >
+                            x
+                        </button>
+                    </aside>
+
+                    <aside class="live-drawer" id="editorDrawer" hidden>
+                        <div class="live-drawer-head">
+                            <div>
+                                <h2 id="editorDrawerTitle">Editor Status</h2>
+                                <p
+                                    class="subtle"
+                                    id="editorDrawerSubtitle"
+                                >
+                                    Session details and editor health.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                class="live-rail-button live-drawer-close"
+                                id="editorDrawerCloseBtn"
+                                aria-label="Close panel"
+                            >
+                                x
+                            </button>
+                        </div>
+                        <div class="live-panel-stack">
+                            <section class="live-panel-card" data-panel="status">
+                                <h3>Session</h3>
+                                <div class="live-metadata">
+                                    <div>
+                                        <strong>Status</strong>
+                                        <p id="editorStatusDetail">
+                                            Connecting…
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Save State</strong>
+                                        <p id="editorSaveStateDetail">Saved</p>
+                                    </div>
+                                    <div>
+                                        <strong>Latest Save</strong>
+                                        <p id="editorSavedMetaPanel">
+                                            Waiting for editor…
+                                        </p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section
+                                class="live-panel-card"
+                                data-panel="collaborators"
+                                hidden
+                            >
+                                <h3>Collaborators</h3>
+                                <div class="presence-list" id="editorPresenceList">
+                                    <p class="presence-empty">
+                                        Connecting to the live session…
+                                    </p>
+                                </div>
+                            </section>
+
+                            <section
+                                class="live-panel-card"
+                                data-panel="file"
+                                hidden
+                            >
+                                <h3>File</h3>
+                                <div class="live-metadata">
+                                    <div>
+                                        <strong>Repository</strong>
+                                        <p>
+                                            {{.EditorRepoOwner}}/{{.EditorRepoName}}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Path</strong>
+                                        <p id="editorFilePathLabel">
+                                            {{.EditorFilePath}}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Size</strong>
+                                        <p
+                                            id="editorFileSize"
+                                            data-size="{{.EditorFileSize}}"
+                                        >
+                                            {{.EditorFileSize}} bytes
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Signed In</strong>
+                                        <p>{{.Name}}</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section
+                                class="live-panel-card"
+                                data-panel="tools"
+                                hidden
+                            >
+                                <h3>Editor Tools</h3>
+                                <div class="live-metadata">
+                                    <div>
+                                        <strong>Linting</strong>
+                                        <p id="editorLintSummary">
+                                            Waiting for language worker…
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Behaviours</strong>
+                                        <p>
+                                            Auto-pairing and newline wrapping are
+                                            enabled for braces, brackets, and
+                                            parentheses.
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <strong>Save Shortcuts</strong>
+                                        <p>Ctrl+S saves. Ctrl+Shift+S saves a copy.</p>
+                                    </div>
+                                </div>
+                                <div class="lint-list" id="editorLintList">
+                                    <div class="lint-item">
+                                        <strong>Lint</strong>
+                                        <p>No diagnostics yet.</p>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </main>
+
+        <script src="https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict/ace.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict/ext-language_tools.js"></script>
+        <script id="editorConfigJson" type="application/json">
+            {
+              "editable": {{if .EditorEditable}}true{{else}}false{{end}},
+              "fileName": {{toJSON .EditorFileName}},
+              "filePath": {{toJSON .EditorFilePath}},
+              "loadURL": {{toJSON .EditorLoadURL}},
+              "syncURL": {{toJSON .EditorSyncURL}},
+              "streamURL": {{toJSON .EditorStreamURL}},
+              "modeHint": {{toJSON .EditorMode}},
+              "fileSize": {{.EditorFileSize}},
+              "hasInitialContent": {{if .EditorHasInitialContent}}true{{else}}false{{end}},
+              "initialContent": {{toJSON .EditorInitialContent}},
+              "initialVersion": {{.EditorInitialVersion}}
+            }
+        </script>
+        <script>
+            (function () {
+                var editorConfig = (function () {
+                    var cfg = document.getElementById("editorConfigJson");
+                    if (cfg) {
+                        try {
+                            return JSON.parse(cfg.textContent);
+                        } catch (e) {
+                            try {
+                                console.warn(
+                                    "LiveEdit: failed to parse editor config",
+                                    e,
+                                );
+                            } catch (ignore) {}
+                        }
+                    }
+                    return {
+                        editable: false,
+                        fileName: "",
+                        filePath: "",
+                        loadURL: "",
+                        syncURL: "",
+                        streamURL: "",
+                        modeHint: "text",
+                        fileSize: 0,
+                        hasInitialContent: false,
+                        initialContent: "",
+                        initialVersion: 0,
+                    };
+                })();
+
+                var themeKey = "inkdrop-theme";
+                var editorSurface = document.getElementById("editorSurface");
+                var collaboratorLayer = document.getElementById(
+                    "editorCollaboratorLayer",
+                );
+                var editorFallback = document.getElementById("editorFallback");
+                var editorEmptyState =
+                    document.getElementById("editorEmptyState");
+                var editorLoadingOverlay = document.getElementById(
+                    "editorLoadingOverlay",
+                );
+                var editorStatusBadge =
+                    document.getElementById("editorStatusBadge");
+                var editorSaveStateBadge = document.getElementById(
+                    "editorSaveStateBadge",
+                );
+                var editorModeBadge =
+                    document.getElementById("editorModeBadge");
+                var editorPresenceBadge = document.getElementById(
+                    "editorPresenceBadge",
+                );
+                var editorPresenceList =
+                    document.getElementById("editorPresenceList");
+                var editorFilePathLabel = document.getElementById(
+                    "editorFilePathLabel",
+                );
+                var editorFileSize = document.getElementById("editorFileSize");
+                var editorSavedMeta =
+                    document.getElementById("editorSavedMeta");
+                var editorSavedMetaPanel = document.getElementById(
+                    "editorSavedMetaPanel",
+                );
+                var editorStatusDetail = document.getElementById(
+                    "editorStatusDetail",
+                );
+                var editorSaveStateDetail = document.getElementById(
+                    "editorSaveStateDetail",
+                );
+                var editorLintBadge =
+                    document.getElementById("editorLintBadge");
+                var editorLintSummary = document.getElementById(
+                    "editorLintSummary",
+                );
+                var editorLintList =
+                    document.getElementById("editorLintList");
+                var saveAsButton = document.getElementById("editorSaveAsBtn");
+                var editorStatusRailButton = document.getElementById(
+                    "editorStatusRailBtn",
+                );
+                var editorPeopleRailButton = document.getElementById(
+                    "editorPeopleRailBtn",
+                );
+                var editorFileRailButton = document.getElementById(
+                    "editorFileRailBtn",
+                );
+                var editorToolsRailButton = document.getElementById(
+                    "editorToolsRailBtn",
+                );
+                var editorHideRailButton = document.getElementById(
+                    "editorHideRailBtn",
+                );
+                var editorDrawer = document.getElementById("editorDrawer");
+                var editorDrawerTitle = document.getElementById(
+                    "editorDrawerTitle",
+                );
+                var editorDrawerSubtitle = document.getElementById(
+                    "editorDrawerSubtitle",
+                );
+                var editorDrawerCloseButton = document.getElementById(
+                    "editorDrawerCloseBtn",
+                );
+                var editorDrawerPanels =
+                    document.querySelectorAll("[data-panel]");
+
+                var editor = null;
+                var editorListenersInstalled = false;
+                var editorViewportListenersInstalled = false;
+                var fallbackListenersInstalled = false;
+                var isApplyingRemoteUpdate = false;
+                var pendingSyncTimer = null;
+                var pendingPresenceTimer = null;
+                var pendingExplicitSave = false;
+                var syncInFlight = false;
+                var syncQueued = false;
+                var currentSyncPromise = null;
+                var currentVersion = Number(editorConfig.initialVersion) || 0;
+                var latestPresence = [];
+                var eventSource = null;
+                var snapshotPollTimer = null;
+                var presenceHeartbeatTimer = null;
+                var clientId =
+                    "client-" +
+                    Date.now().toString(36) +
+                    "-" +
+                    Math.random().toString(36).slice(2, 10);
+                var hydrationWatchdog = null;
+                var localDirty = false;
+                var disconnecting = false;
+                var lastSavedAt = 0;
+                var activeDrawerPanel = "";
+
+                function writeDebug(message) {
+                    try {
+                        console.debug(message);
+                    } catch (ignore) {}
+                }
+
+                function setNodeVisibility(node, visible, displayValue) {
+                    if (!node) return;
+                    node.hidden = !visible;
+                    node.style.display = visible ? displayValue || "" : "none";
+                }
+
+                function clearHydrationWatchdog() {
+                    if (hydrationWatchdog) {
+                        clearTimeout(hydrationWatchdog);
+                        hydrationWatchdog = null;
+                    }
+                }
+
+                function escapeHTML(value) {
+                    return String(value == null ? "" : value)
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;")
+                        .replace(/\"/g, "&quot;")
+                        .replace(/'/g, "&#39;");
+                }
+
+                function safeMarkerColor(value) {
+                    return /^#[0-9a-f]{6}$/i.test(String(value || ""))
+                        ? value
+                        : "#0f766e";
+                }
+
+                function hasPendingLocalChanges() {
+                    return Boolean(
+                        localDirty ||
+                        pendingSyncTimer ||
+                        syncInFlight ||
+                        syncQueued ||
+                        pendingExplicitSave,
+                    );
+                }
+
+                function setTheme(theme) {
+                    var value = theme === "dark" ? "dark" : "light";
+                    document.documentElement.setAttribute("data-theme", value);
+                    document
+                        .querySelectorAll("[data-theme-set]")
+                        .forEach(function (button) {
+                            button.setAttribute(
+                                "aria-pressed",
+                                String(
+                                    button.getAttribute("data-theme-set") ===
+                                        value,
+                                ),
+                            );
+                        });
+                    applyEditorTheme(value);
+                }
+
+                function getSavedTheme() {
+                    var stored = localStorage.getItem(themeKey);
+                    if (stored === "dark" || stored === "light") {
+                        return stored;
+                    }
+                    if (
+                        window.matchMedia &&
+                        window.matchMedia("(prefers-color-scheme: dark)")
+                            .matches
+                    ) {
+                        return "dark";
+                    }
+                    return "light";
+                }
+
+                function initTheme() {
+                    setTheme(getSavedTheme());
+                    document
+                        .querySelectorAll("[data-theme-set]")
+                        .forEach(function (button) {
+                            button.type = "button";
+                            button.addEventListener("click", function () {
+                                var theme =
+                                    button.getAttribute("data-theme-set");
+                                setTheme(theme);
+                                localStorage.setItem(themeKey, theme);
+                            });
+                        });
+                }
+
+                function syncStatusRail(state) {
+                    if (!editorStatusRailButton) return;
+                    editorStatusRailButton.classList.remove(
+                        "status-live",
+                        "status-busy",
+                        "status-error",
+                    );
+                    editorStatusRailButton.classList.add(
+                        state === "error"
+                            ? "status-error"
+                            : state === "busy"
+                              ? "status-busy"
+                              : "status-live",
+                    );
+                }
+
+                function setDrawerPanel(panelName) {
+                    activeDrawerPanel = panelName || "";
+                    var panelMeta = {
+                        status: [
+                            "Editor Status",
+                            "Session details and editor health.",
+                        ],
+                        collaborators: [
+                            "Collaborators",
+                            "Everyone currently connected to this file.",
+                        ],
+                        file: ["File Info", "Repository and path details."],
+                        tools: [
+                            "Editor Tools",
+                            "Linting, pairing, and keyboard helpers.",
+                        ],
+                    };
+                    editorDrawerPanels.forEach(function (panel) {
+                        panel.hidden =
+                            panel.getAttribute("data-panel") !==
+                            activeDrawerPanel;
+                    });
+                    [
+                        editorStatusRailButton,
+                        editorPeopleRailButton,
+                        editorFileRailButton,
+                        editorToolsRailButton,
+                    ].forEach(function (button) {
+                        if (!button) return;
+                        var matches =
+                            (button === editorStatusRailButton &&
+                                activeDrawerPanel === "status") ||
+                            (button === editorPeopleRailButton &&
+                                activeDrawerPanel === "collaborators") ||
+                            (button === editorFileRailButton &&
+                                activeDrawerPanel === "file") ||
+                            (button === editorToolsRailButton &&
+                                activeDrawerPanel === "tools");
+                        button.setAttribute("aria-pressed", String(matches));
+                    });
+                    if (!editorDrawer) return;
+                    if (!activeDrawerPanel) {
+                        editorDrawer.hidden = true;
+                        return;
+                    }
+                    editorDrawer.hidden = false;
+                    if (editorDrawerTitle && editorDrawerSubtitle) {
+                        var nextMeta = panelMeta[activeDrawerPanel] ||
+                            panelMeta.status;
+                        editorDrawerTitle.textContent = nextMeta[0];
+                        editorDrawerSubtitle.textContent = nextMeta[1];
+                    }
+                }
+
+                function formatBytes(bytes) {
+                    if (typeof bytes !== "number" || isNaN(bytes) || bytes < 0)
+                        return "";
+                    var units = ["B", "KB", "MB", "GB"];
+                    var idx = 0;
+                    var value = bytes;
+                    while (value >= 1024 && idx < units.length - 1) {
+                        value = value / 1024;
+                        idx += 1;
+                    }
+                    var precision = idx === 0 ? 0 : 1;
+                    return value.toFixed(precision) + " " + units[idx];
+                }
+
+                function humanizeMode(mode) {
+                    var known = {
+                        c_cpp: "C/C++",
+                        css: "CSS",
+                        dockerfile: "Dockerfile",
+                        dotenv: "Dotenv",
+                        gitignore: "Git Ignore",
+                        golang: "Go",
+                        html: "HTML",
+                        ini: "INI",
+                        java: "Java",
+                        javascript: "JavaScript",
+                        json: "JSON",
+                        jsx: "JSX",
+                        lua: "Lua",
+                        makefile: "Makefile",
+                        markdown: "Markdown",
+                        php: "PHP",
+                        python: "Python",
+                        ruby: "Ruby",
+                        rust: "Rust",
+                        sh: "Shell",
+                        sql: "SQL",
+                        text: "Plain Text",
+                        toml: "TOML",
+                        tsx: "TSX",
+                        typescript: "TypeScript",
+                        xml: "XML",
+                        yaml: "YAML",
+                    };
+                    return known[mode] || "Plain Text";
+                }
+
+                function setEditorMode(mode) {
+                    var resolved = mode || editorConfig.modeHint || "text";
+                    editorModeBadge.textContent =
+                        "Mode: " + humanizeMode(resolved);
+                    editorConfig.modeHint = resolved;
+                    if (editor) {
+                        editor.session.setMode("ace/mode/" + resolved);
+                    }
+                }
+
+                function setStatus(message, state) {
+                    if (!editorStatusBadge) return;
+                    editorStatusBadge.textContent = message;
+                    editorStatusBadge.setAttribute(
+                        "data-state",
+                        state || "live",
+                    );
+                    if (editorStatusDetail) {
+                        editorStatusDetail.textContent = message;
+                    }
+                    syncStatusRail(state || "live");
+                }
+
+                function setSaveState(state, savedAt) {
+                    if (!editorSaveStateBadge) return;
+
+                    var resolved =
+                        state === "dirty" || state === "saving"
+                            ? state
+                            : "saved";
+                    editorSaveStateBadge.setAttribute("data-state", resolved);
+                    if (editorSaveStateDetail) {
+                        editorSaveStateDetail.textContent =
+                            resolved === "dirty"
+                                ? "Unsaved"
+                                : resolved === "saving"
+                                  ? "Saving"
+                                  : "Saved";
+                    }
+
+                    if (resolved === "dirty") {
+                        editorSaveStateBadge.textContent = "Unsaved";
+                        if (editorSavedMeta) {
+                            editorSavedMeta.textContent =
+                                "Local changes pending";
+                        }
+                        if (editorSavedMetaPanel) {
+                            editorSavedMetaPanel.textContent =
+                                "Local changes pending";
+                        }
+                        return;
+                    }
+
+                    if (resolved === "saving") {
+                        editorSaveStateBadge.textContent = "Saving";
+                        if (editorSavedMeta) {
+                            editorSavedMeta.textContent =
+                                "Writing the latest file contents…";
+                        }
+                        if (editorSavedMetaPanel) {
+                            editorSavedMetaPanel.textContent =
+                                "Writing the latest file contents…";
+                        }
+                        return;
+                    }
+
+                    if (typeof savedAt === "number" && savedAt > 0) {
+                        lastSavedAt = savedAt;
+                    }
+
+                    editorSaveStateBadge.textContent = "Saved";
+                    var savedLabel = lastSavedAt > 0
+                        ? "Saved " + new Date(lastSavedAt).toLocaleString()
+                        : "Saved";
+                    if (editorSavedMeta) {
+                        editorSavedMeta.textContent = savedLabel;
+                    }
+                    if (editorSavedMetaPanel) {
+                        editorSavedMetaPanel.textContent = savedLabel;
+                    }
+                    if (lastSavedAt > 0) {
+                        editorSaveStateBadge.title =
+                            "Saved " +
+                            new Date(lastSavedAt).toLocaleTimeString();
+                    } else {
+                        editorSaveStateBadge.removeAttribute("title");
+                    }
+                }
+
+                function updateLintSummaryFromAnnotations() {
+                    var annotations = [];
+                    if (editor && editor.session && editor.session.getAnnotations) {
+                        annotations = editor.session.getAnnotations() || [];
+                    }
+
+                    if (!editorLintBadge && !editorLintSummary && !editorLintList) {
+                        return;
+                    }
+
+                    if (!annotations.length) {
+                        if (editorLintBadge) {
+                            editorLintBadge.textContent = "Lint clean";
+                        }
+                        if (editorLintSummary) {
+                            editorLintSummary.textContent =
+                                "No diagnostics in the current buffer.";
+                        }
+                        if (editorLintList) {
+                            editorLintList.innerHTML =
+                                '<div class="lint-item"><strong>Lint</strong><p>No diagnostics yet.</p></div>';
+                        }
+                        return;
+                    }
+
+                    if (editorLintBadge) {
+                        editorLintBadge.textContent =
+                            annotations.length + " issue" +
+                            (annotations.length === 1 ? "" : "s");
+                    }
+                    if (editorLintSummary) {
+                        editorLintSummary.textContent =
+                            annotations.length +
+                            " diagnostic" +
+                            (annotations.length === 1 ? "" : "s") +
+                            " in the current buffer.";
+                    }
+                    if (editorLintList) {
+                        editorLintList.innerHTML = annotations
+                            .slice(0, 8)
+                            .map(function (annotation) {
+                                var row = Number(annotation.row || 0) + 1;
+                                var column =
+                                    Number(annotation.column || 0) + 1;
+                                var kind = String(
+                                    annotation.type || "info",
+                                ).toUpperCase();
+                                return (
+                                    '<div class="lint-item"><strong>' +
+                                    kind +
+                                    " at line " +
+                                    row +
+                                    ", col " +
+                                    column +
+                                    "</strong><p>" +
+                                    escapeHTML(
+                                        annotation.text || "Unknown issue",
+                                    ) +
+                                    "</p></div>"
+                                );
+                            })
+                            .join("");
+                    }
+                }
+
+                function ensureLoadingHidden() {
+                    clearHydrationWatchdog();
+                    setNodeVisibility(editorLoadingOverlay, false, "flex");
+                }
+
+                function showEmptyState(message) {
+                    if (editorEmptyState) {
+                        setNodeVisibility(editorEmptyState, true, "flex");
+                        var paragraph = editorEmptyState.querySelector("p");
+                        if (paragraph && message) {
+                            paragraph.textContent = message;
+                        }
+                    }
+                    setNodeVisibility(editorSurface, false, "block");
+                    setNodeVisibility(collaboratorLayer, false, "block");
+                    setNodeVisibility(editorFallback, false, "block");
+                    ensureLoadingHidden();
+                    setStatus(message || "Editor unavailable", "error");
+                }
+
+                function ensureAceEditor() {
+                    if (!window.ace || !editorSurface) {
+                        return null;
+                    }
+
+                    setNodeVisibility(editorSurface, true, "block");
+                    if (!editor) {
+                        ace.config.set(
+                            "basePath",
+                            "https://cdn.jsdelivr.net/npm/ace-builds/src-min-noconflict",
+                        );
+                        editor = ace.edit(editorSurface);
+                        editor.setOptions({
+                            enableBasicAutocompletion: true,
+                            enableLiveAutocompletion: true,
+                            enableSnippets: true,
+                            behavioursEnabled: true,
+                            wrapBehavioursEnabled: true,
+                            fontSize: "14px",
+                            highlightActiveLine: true,
+                            printMargin: false,
+                            showLineNumbers: true,
+                            tabSize: 4,
+                            useSoftTabs: true,
+                            wrap: false,
+                        });
+                        editor.session.setUseWrapMode(false);
+                        editor.session.setUseWorker(true);
+                        editor.setBehavioursEnabled(true);
+                        editor.setWrapBehavioursEnabled(true);
+                        setEditorMode(editorConfig.modeHint);
+                        installEditorListeners();
+                        installEditorViewportListeners();
+                        updateLintSummaryFromAnnotations();
+                    }
+                    return editor;
+                }
+
+                function applyEditorTheme(theme) {
+                    if (!editor) return;
+                    editor.setTheme(
+                        theme === "dark"
+                            ? "ace/theme/monokai"
+                            : "ace/theme/github",
+                    );
+                }
+
+                function getEditorContent() {
+                    if (editor) {
+                        return editor.getValue();
+                    }
+                    return editorFallback ? editorFallback.value : "";
+                }
+
+                function getAceCursorSnapshot() {
+                    if (!editor) return null;
+                    var position = editor.getCursorPosition();
+                    return {
+                        row: position.row,
+                        column: position.column,
+                    };
+                }
+
+                function restoreAceCursor(position) {
+                    if (!editor || !position) return;
+                    try {
+                        editor.moveCursorToPosition(position);
+                    } catch (ignore) {}
+                }
+
+                function clearRemoteCursorMarkers() {
+                    if (collaboratorLayer) {
+                        collaboratorLayer.innerHTML = "";
+                    }
+                }
+
+                function installEditorViewportListeners() {
+                    if (!editor || editorViewportListenersInstalled) return;
+                    editorViewportListenersInstalled = true;
+
+                    if (editor.session && editor.session.on) {
+                        editor.session.on(
+                            "changeScrollTop",
+                            renderRemoteCursorMarkers,
+                        );
+                        editor.session.on(
+                            "changeScrollLeft",
+                            renderRemoteCursorMarkers,
+                        );
+                    }
+
+                    if (editor.renderer && editor.renderer.on) {
+                        editor.renderer.on(
+                            "afterRender",
+                            renderRemoteCursorMarkers,
+                        );
+                    }
+
+                    window.addEventListener("resize", renderRemoteCursorMarkers);
+                }
+
+                function renderRemoteCursorMarkers() {
+                    clearRemoteCursorMarkers();
+                    if (
+                        !editor ||
+                        !editor.renderer ||
+                        !editorSurface ||
+                        !collaboratorLayer
+                    ) {
+                        return;
+                    }
+
+                    var editorRect = editorSurface.getBoundingClientRect();
+                    var lineHeight = Number(editor.renderer.lineHeight) || 16;
+
+                    latestPresence.forEach(function (person) {
+                        if (
+                            !person ||
+                            person.clientId === clientId ||
+                            !person.selection
+                        ) {
+                            return;
+                        }
+
+                        var color = safeMarkerColor(person.color);
+                        var row = Number(
+                            person.selection.endRow != null
+                                ? person.selection.endRow
+                                : person.selection.startRow || 0,
+                        );
+                        var column = Number(
+                            person.selection.endColumn != null
+                                ? person.selection.endColumn
+                                : person.selection.startColumn || 0,
+                        );
+                        var screenPosition = editor.renderer.textToScreenCoordinates(
+                            row,
+                            column,
+                        );
+                        var left = screenPosition.pageX - editorRect.left;
+                        var top = screenPosition.pageY - editorRect.top;
+
+                        if (
+                            !isFinite(left) ||
+                            !isFinite(top) ||
+                            left < -24 ||
+                            top < -lineHeight ||
+                            left > editorRect.width + 24 ||
+                            top > editorRect.height + lineHeight
+                        ) {
+                            return;
+                        }
+
+                        var cursor = document.createElement("div");
+                        cursor.className = "live-remote-cursor";
+                        cursor.style.left = left + "px";
+                        cursor.style.top = top + "px";
+                        cursor.style.height = lineHeight + "px";
+                        cursor.style.borderLeftColor = color;
+
+                        var label = document.createElement("div");
+                        label.className = "live-remote-label";
+                        label.style.left = left + "px";
+                        label.style.top = Math.max(0, top - 6) + "px";
+                        label.style.background = color;
+                        label.textContent = person.user || "Collaborator";
+
+                        collaboratorLayer.appendChild(cursor);
+                        collaboratorLayer.appendChild(label);
+                    });
+                }
+
+                function applyContent(content, focusEditor) {
+                    if (window.ace) {
+                        var aceEditor = ensureAceEditor();
+                        if (!aceEditor) {
+                            showFallbackEditor(content);
+                            return;
+                        }
+
+                    var cursor = getAceCursorSnapshot();
+                    setNodeVisibility(editorFallback, false, "block");
+                    setNodeVisibility(editorEmptyState, false, "flex");
+                    setNodeVisibility(collaboratorLayer, true, "block");
+
+                        if (aceEditor.getValue() !== content) {
+                            isApplyingRemoteUpdate = true;
+                            aceEditor.setValue(content, -1);
+                            isApplyingRemoteUpdate = false;
+                        }
+
+                        restoreAceCursor(cursor);
+                        applyEditorTheme(
+                            document.documentElement.getAttribute(
+                                "data-theme",
+                            ) || "light",
+                        );
+                        aceEditor.resize(true);
+                        if (
+                            aceEditor.renderer &&
+                            aceEditor.renderer.updateFull
+                        ) {
+                            aceEditor.renderer.updateFull();
+                        }
+                        renderRemoteCursorMarkers();
+                        if (focusEditor) {
+                            aceEditor.focus();
+                        }
+                    } else {
+                        showFallbackEditor(content);
+                        if (focusEditor && editorFallback) {
+                            editorFallback.focus();
+                        }
+                    }
+
+                    ensureLoadingHidden();
+                }
+
+                function showFallbackEditor(content) {
+                    clearRemoteCursorMarkers();
+                    setNodeVisibility(editorSurface, false, "block");
+                    setNodeVisibility(collaboratorLayer, false, "block");
+                    setNodeVisibility(editorFallback, true, "block");
+                    setNodeVisibility(editorEmptyState, false, "flex");
+                    if (editorFallback) {
+                        isApplyingRemoteUpdate = true;
+                        editorFallback.value = content;
+                        isApplyingRemoteUpdate = false;
+                    }
+                    installFallbackListeners();
+                    ensureLoadingHidden();
+                }
+
+                function updateFileMetadata(path, bytes) {
+                    if (path && editorFilePathLabel) {
+                        editorFilePathLabel.textContent = path;
+                    }
+                    if (typeof bytes === "number" && editorFileSize) {
+                        editorFileSize.setAttribute("data-size", String(bytes));
+                        editorFileSize.textContent = formatBytes(bytes);
+                    }
+                }
+
+                function indexToRowColumn(text, index) {
+                    var safeIndex = Math.max(0, Math.min(index, text.length));
+                    var lines = text.slice(0, safeIndex).split("\n");
+                    return {
+                        row: lines.length - 1,
+                        column: lines[lines.length - 1].length,
+                    };
+                }
+
+                function getCurrentSelection() {
+                    if (editor) {
+                        var range = editor.getSelectionRange();
+                        return {
+                            startRow: range.start.row,
+                            startColumn: range.start.column,
+                            endRow: range.end.row,
+                            endColumn: range.end.column,
+                        };
+                    }
+                    if (!editorFallback) return null;
+                    var value = editorFallback.value || "";
+                    var start = indexToRowColumn(
+                        value,
+                        editorFallback.selectionStart || 0,
+                    );
+                    var end = indexToRowColumn(
+                        value,
+                        editorFallback.selectionEnd || 0,
+                    );
+                    return {
+                        startRow: start.row,
+                        startColumn: start.column,
+                        endRow: end.row,
+                        endColumn: end.column,
+                    };
+                }
+
+                function describeSelection(selection) {
+                    if (!selection) return "Watching the file";
+                    var row =
+                        Number(selection.endRow || selection.startRow || 0) + 1;
+                    var column =
+                        Number(
+                            selection.endColumn || selection.startColumn || 0,
+                        ) + 1;
+                    return "Line " + row + ", column " + column;
+                }
+
+                function renderPresence(presence) {
+                    latestPresence = Array.isArray(presence)
+                        ? presence.slice()
+                        : [];
+                    renderRemoteCursorMarkers();
+                    if (!editorPresenceList) return;
+
+                    editorPresenceList.innerHTML = "";
+                    if (latestPresence.length === 0) {
+                        var empty = document.createElement("p");
+                        empty.className = "presence-empty";
+                        empty.textContent = "Only you are here right now.";
+                        editorPresenceList.appendChild(empty);
+                        if (editorPresenceBadge) {
+                            editorPresenceBadge.textContent = "1 active";
+                        }
+                        if (editorPeopleRailButton) {
+                            editorPeopleRailButton.textContent = "1";
+                        }
+                        return;
+                    }
+
+                    latestPresence.forEach(function (person) {
+                        var item = document.createElement("div");
+                        item.className = "presence-item";
+
+                        var dot = document.createElement("span");
+                        dot.className = "presence-dot";
+                        dot.style.background = person.color || "#0f766e";
+                        dot.style.boxShadow =
+                            "0 0 0 4px " + ((person.color || "#0f766e") + "22");
+
+                        var copy = document.createElement("div");
+                        var name = document.createElement("p");
+                        name.className = "presence-name";
+                        name.textContent =
+                            person.user +
+                            (person.clientId === clientId ? " (You)" : "");
+
+                        var meta = document.createElement("p");
+                        meta.className = "presence-meta";
+                        meta.textContent = describeSelection(person.selection);
+
+                        copy.appendChild(name);
+                        copy.appendChild(meta);
+                        item.appendChild(dot);
+                        item.appendChild(copy);
+                        editorPresenceList.appendChild(item);
+                    });
+
+                    if (editorPresenceBadge) {
+                        editorPresenceBadge.textContent =
+                            latestPresence.length + " active";
+                    }
+                    if (editorPeopleRailButton) {
+                        editorPeopleRailButton.textContent = String(
+                            latestPresence.length,
+                        );
+                    }
+                }
+
+                function requestJSON(url, options) {
+                    return fetch(url, options).then(function (response) {
+                        return response.text().then(function (text) {
+                            var payload = {};
+                            if (text) {
+                                try {
+                                    payload = JSON.parse(text);
+                                } catch (err) {
+                                    payload = { success: false, error: text };
+                                }
+                            }
+                            if (
+                                !response.ok ||
+                                (payload && payload.success === false)
+                            ) {
+                                var error = new Error(
+                                    (payload && payload.error) ||
+                                        response.status +
+                                            " " +
+                                            response.statusText,
+                                );
+                                error.response = response;
+                                error.payload = payload;
+                                throw error;
+                            }
+                            return payload;
+                        });
+                    });
+                }
+
+                function fetchLatestSnapshot(options) {
+                    if (!editorConfig.editable) {
+                        return Promise.resolve();
+                    }
+                    var focusEditor = Boolean(options && options.focusEditor);
+                    if (!focusEditor && hasPendingLocalChanges()) {
+                        return Promise.resolve();
+                    }
+                    return requestJSON(editorConfig.loadURL, {
+                        cache: "no-store",
+                        credentials: "same-origin",
+                        headers: {
+                            Accept: "application/json",
+                        },
+                    })
+                        .then(function (payload) {
+                            var nextVersion = Number(payload.version || 0);
+                            var nextContent = payload.content || "";
+
+                            if (!focusEditor && hasPendingLocalChanges()) {
+                                return payload;
+                            }
+
+                            if (
+                                nextVersion >= currentVersion ||
+                                nextContent !== getEditorContent()
+                            ) {
+                                applyRemoteSnapshot(
+                                    {
+                                        type: "snapshot",
+                                        version: nextVersion,
+                                        content: nextContent,
+                                        mode: payload.mode,
+                                        path: payload.path,
+                                        external: true,
+                                    },
+                                    focusEditor,
+                                );
+                            } else {
+                                currentVersion = Math.max(
+                                    currentVersion,
+                                    nextVersion,
+                                );
+                            }
+
+                            updateFileMetadata(
+                                payload.path || editorConfig.filePath,
+                                Number(
+                                    payload.size || editorConfig.fileSize || 0,
+                                ),
+                            );
+                            setSaveState("saved", Number(payload.savedAt || 0));
+                            setStatus("Live", "live");
+                        })
+                        .catch(function (error) {
+                            console.warn(
+                                "LiveEdit: snapshot fetch failed",
+                                error,
+                            );
+                            showEmptyState(
+                                error.message || "Failed to load file.",
+                            );
+                        });
+                }
+
+                function installEditorListeners() {
+                    if (!editor || editorListenersInstalled) return;
+                    editorListenersInstalled = true;
+                    editor.session.on("change", function () {
+                        if (isApplyingRemoteUpdate) return;
+                        localDirty = true;
+                        setSaveState("dirty");
+                        updateFileMetadata(
+                            editorConfig.filePath,
+                            new Blob([editor.getValue()]).size,
+                        );
+                        queueSync(false);
+                        updateLintSummaryFromAnnotations();
+                    });
+                    editor.session.on(
+                        "changeAnnotation",
+                        updateLintSummaryFromAnnotations,
+                    );
+                    editor.selection.on("changeCursor", function () {
+                        queuePresenceUpdate();
+                    });
+                    editor.selection.on("changeSelection", function () {
+                        queuePresenceUpdate();
+                    });
+                }
+
+                function installFallbackListeners() {
+                    if (!editorFallback || fallbackListenersInstalled) return;
+                    fallbackListenersInstalled = true;
+                    editorFallback.addEventListener("input", function () {
+                        if (isApplyingRemoteUpdate) return;
+                        localDirty = true;
+                        setSaveState("dirty");
+                        updateFileMetadata(
+                            editorConfig.filePath,
+                            new Blob([editorFallback.value]).size,
+                        );
+                        queueSync(false);
+                        if (editorLintBadge) {
+                            editorLintBadge.textContent = "Lint unavailable";
+                        }
+                        if (editorLintSummary) {
+                            editorLintSummary.textContent =
+                                "Diagnostics are unavailable in fallback mode.";
+                        }
+                    });
+                    ["keyup", "click", "select"].forEach(function (eventName) {
+                        editorFallback.addEventListener(eventName, function () {
+                            queuePresenceUpdate();
+                        });
+                    });
+                }
+
+                function sendPresenceUpdate() {
+                    if (!editorConfig.editable || disconnecting) {
+                        return Promise.resolve();
+                    }
+
+                    return requestJSON(editorConfig.syncURL, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Accept: "application/json",
+                        },
+                        body: JSON.stringify({
+                            op: "presence",
+                            clientId: clientId,
+                            version: currentVersion,
+                            selection: getCurrentSelection(),
+                        }),
+                    }).then(function (payload) {
+                        renderPresence(payload.presence);
+                        return payload;
+                    });
+                }
+
+                function queuePresenceUpdate() {
+                    if (!editorConfig.editable || disconnecting) return;
+                    if (pendingPresenceTimer) {
+                        clearTimeout(pendingPresenceTimer);
+                    }
+                    pendingPresenceTimer = setTimeout(function () {
+                        pendingPresenceTimer = null;
+                        sendPresenceUpdate().catch(function (error) {
+                            writeDebug(
+                                "LiveEdit: presence update failed " +
+                                    error.message,
+                            );
+                        });
+                    }, 120);
+                }
+
+                function startPresenceHeartbeat() {
+                    if (presenceHeartbeatTimer) {
+                        clearInterval(presenceHeartbeatTimer);
+                    }
+                    presenceHeartbeatTimer = setInterval(function () {
+                        sendPresenceUpdate().catch(function (error) {
+                            writeDebug(
+                                "LiveEdit: heartbeat failed " + error.message,
+                            );
+                        });
+                    }, 10000);
+                }
+
+                function startSnapshotPolling() {
+                    if (snapshotPollTimer) {
+                        clearInterval(snapshotPollTimer);
+                    }
+                    snapshotPollTimer = setInterval(function () {
+                        fetchLatestSnapshot({ focusEditor: false });
+                    }, 700);
+                }
+
+                function flushSync() {
+                    if (!editorConfig.editable) {
+                        return Promise.resolve();
+                    }
+                    if (disconnecting) {
+                        return Promise.resolve();
+                    }
+                    if (syncInFlight) {
+                        syncQueued = true;
+                        return currentSyncPromise || Promise.resolve();
+                    }
+
+                    syncInFlight = true;
+                    var operation = pendingExplicitSave ? "save" : "sync";
+                    pendingExplicitSave = false;
+                    setSaveState("saving");
+                    setStatus(
+                        operation === "save" ? "Saving…" : "Syncing…",
+                        "busy",
+                    );
+
+                    currentSyncPromise = requestJSON(editorConfig.syncURL, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Accept: "application/json",
+                        },
+                        body: JSON.stringify({
+                            op: operation,
+                            clientId: clientId,
+                            version: currentVersion,
+                            content: getEditorContent(),
+                            selection: getCurrentSelection(),
+                        }),
+                    })
+                        .then(function (payload) {
+                            localDirty = false;
+                            currentVersion = Number(
+                                payload.version || currentVersion,
+                            );
+                            setSaveState(
+                                "saved",
+                                Number(payload.savedAt || 0),
+                            );
+                            renderPresence(payload.presence);
+                            setStatus("Live", "live");
+                            return payload;
+                        })
+                        .catch(function (error) {
+                            console.warn("LiveEdit: sync failed", error);
+                            setSaveState("dirty");
+                            setStatus(error.message || "Sync failed", "error");
+                            throw error;
+                        })
+                        .finally(function () {
+                            syncInFlight = false;
+                            currentSyncPromise = null;
+                            if (syncQueued) {
+                                syncQueued = false;
+                                flushSync();
+                            }
+                        });
+
+                    return currentSyncPromise;
+                }
+
+                function queueSync(explicitSave) {
+                    if (!editorConfig.editable) return Promise.resolve();
+                    localDirty = true;
+                    pendingExplicitSave =
+                        pendingExplicitSave || Boolean(explicitSave);
+                    if (pendingSyncTimer) {
+                        clearTimeout(pendingSyncTimer);
+                        pendingSyncTimer = null;
+                    }
+                    if (explicitSave) {
+                        return flushSync();
+                    }
+                pendingSyncTimer = setTimeout(function () {
+                    pendingSyncTimer = null;
+                    flushSync();
+                }, 100);
+                return Promise.resolve();
+            }
+
+                function applyRemoteSnapshot(payload, focusEditor) {
+                    if (!payload) return;
+                    var nextVersion = Number(payload.version || 0);
+                    if (Array.isArray(payload.presence)) {
+                        renderPresence(payload.presence);
+                    }
+                    if (payload.mode) {
+                        setEditorMode(payload.mode);
+                    }
+                    if (payload.path) {
+                        editorConfig.filePath = payload.path;
+                    }
+                    if (payload.content == null) {
+                        currentVersion = Math.max(currentVersion, nextVersion);
+                        return;
+                    }
+
+                    var currentContent = getEditorContent();
+                    if (payload.clientId === clientId) {
+                        localDirty = false;
+                        currentVersion = Math.max(currentVersion, nextVersion);
+                        setSaveState("saved", Number(payload.savedAt || 0));
+                        updateFileMetadata(
+                            payload.path || editorConfig.filePath,
+                            new Blob([currentContent]).size,
+                        );
+                        setStatus("Live", "live");
+                        return;
+                    }
+
+                    if (hasPendingLocalChanges()) {
+                        setStatus("Remote changes incoming…", "busy");
+                        return;
+                    }
+
+                    if (currentContent !== payload.content) {
+                        isApplyingRemoteUpdate = true;
+                        applyContent(payload.content, Boolean(focusEditor));
+                        isApplyingRemoteUpdate = false;
+                        setSaveState("saved", Number(payload.savedAt || 0));
+                        updateFileMetadata(
+                            payload.path || editorConfig.filePath,
+                            new Blob([payload.content]).size,
+                        );
+                        setStatus(
+                            payload.external
+                                ? "External change synced"
+                                : "Remote change synced",
+                            "live",
+                        );
+                    }
+                    currentVersion = Math.max(currentVersion, nextVersion);
+                }
+
+                function handleLiveEvent(payload) {
+                    if (!payload || !payload.type) return;
+                    if (payload.type === "snapshot") {
+                        applyRemoteSnapshot(payload);
+                    } else if (payload.type === "presence") {
+                        renderPresence(payload.presence);
+                    }
+                }
+
+                function connectLiveStream() {
+                    if (!editorConfig.editable) return;
+                    startSnapshotPolling();
+                    startPresenceHeartbeat();
+                    if (typeof window.EventSource === "undefined") {
+                        setStatus("Polling for updates", "busy");
+                        queuePresenceUpdate();
+                        return;
+                    }
+
+                    eventSource = new EventSource(
+                        editorConfig.streamURL +
+                            "&client=" +
+                            encodeURIComponent(clientId),
+                    );
+                    eventSource.onopen = function () {
+                        setStatus("Live", "live");
+                        queuePresenceUpdate();
+                    };
+                    eventSource.onmessage = function (event) {
+                        try {
+                            handleLiveEvent(JSON.parse(event.data));
+                        } catch (error) {
+                            console.warn(
+                                "LiveEdit: failed to parse stream event",
+                                error,
+                            );
+                        }
+                    };
+                    eventSource.onerror = function () {
+                        setStatus("Reconnecting…", "busy");
+                    };
+                }
+
+                function disconnectSession() {
+                    if (disconnecting) {
+                        return;
+                    }
+                    disconnecting = true;
+
+                    if (pendingPresenceTimer) {
+                        clearTimeout(pendingPresenceTimer);
+                        pendingPresenceTimer = null;
+                    }
+                    if (pendingSyncTimer) {
+                        clearTimeout(pendingSyncTimer);
+                        pendingSyncTimer = null;
+                    }
+                    if (presenceHeartbeatTimer) {
+                        clearInterval(presenceHeartbeatTimer);
+                        presenceHeartbeatTimer = null;
+                    }
+                    if (snapshotPollTimer) {
+                        clearInterval(snapshotPollTimer);
+                        snapshotPollTimer = null;
+                    }
+                    if (eventSource) {
+                        eventSource.close();
+                        eventSource = null;
+                    }
+
+                    if (!editorConfig.editable) {
+                        return;
+                    }
+
+                    var leavePayload = JSON.stringify({
+                        op: "leave",
+                        clientId: clientId,
+                    });
+
+                    if (navigator.sendBeacon) {
+                        try {
+                            navigator.sendBeacon(
+                                editorConfig.syncURL,
+                                new Blob([leavePayload], {
+                                    type: "application/json",
+                                }),
+                            );
+                            return;
+                        } catch (ignore) {}
+                    }
+
+                    try {
+                        fetch(editorConfig.syncURL, {
+                            method: "POST",
+                            credentials: "same-origin",
+                            keepalive: true,
+                            headers: {
+                                "Content-Type": "application/json",
+                                Accept: "application/json",
+                            },
+                            body: leavePayload,
+                        });
+                    } catch (ignore) {}
+                }
+
+                function saveAsToPath(requestedPath, overwrite) {
+                    return requestJSON(editorConfig.syncURL, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Accept: "application/json",
+                        },
+                        body: JSON.stringify({
+                            op: "save_as",
+                            clientId: clientId,
+                            version: currentVersion,
+                            content: getEditorContent(),
+                            selection: getCurrentSelection(),
+                            savePath: requestedPath,
+                            overwrite: Boolean(overwrite),
+                        }),
+                    });
+                }
+
+                function triggerSaveAs() {
+                    if (!editorConfig.editable) return;
+                    var requestedPath = window.prompt(
+                        "Save As path",
+                        editorConfig.filePath || editorConfig.fileName,
+                    );
+                    if (requestedPath == null) {
+                        return;
+                    }
+                    requestedPath = requestedPath.trim();
+                    if (!requestedPath) {
+                        setStatus("Save As cancelled", "error");
+                        return;
+                    }
+
+                    setStatus("Saving copy…", "busy");
+                    saveAsToPath(requestedPath, false)
+                        .then(function (payload) {
+                            window.location.assign(
+                                payload.editURL || editorConfig.syncURL,
+                            );
+                        })
+                        .catch(function (error) {
+                            if (
+                                error.response &&
+                                error.response.status === 409
+                            ) {
+                                if (
+                                    window.confirm(
+                                        "A file already exists there. Overwrite it?",
+                                    )
+                                ) {
+                                    return saveAsToPath(
+                                        requestedPath,
+                                        true,
+                                    ).then(function (payload) {
+                                        window.location.assign(
+                                            payload.editURL ||
+                                                editorConfig.syncURL,
+                                        );
+                                    });
+                                }
+                                setStatus("Save As cancelled", "error");
+                                return;
+                            }
+                            setStatus(
+                                error.message || "Save As failed",
+                                "error",
+                            );
+                        });
+                }
+
+                function handleKeyboardShortcuts(event) {
+                    var modifier = event.ctrlKey || event.metaKey;
+                    if (!modifier || event.key.toLowerCase() !== "s") {
+                        return;
+                    }
+                    event.preventDefault();
+                    if (event.shiftKey) {
+                        triggerSaveAs();
+                    } else {
+                        queueSync(true);
+                    }
+                }
+
+                function initLiveEdit() {
+                    writeDebug(
+                        "LiveEdit: init editable=" +
+                            Boolean(editorConfig.editable),
+                    );
+                    initTheme();
+                    setDrawerPanel("status");
+                    setEditorMode(editorConfig.modeHint);
+                    updateFileMetadata(
+                        editorConfig.filePath,
+                        Number(editorConfig.fileSize || 0),
+                    );
+                    document.addEventListener(
+                        "keydown",
+                        handleKeyboardShortcuts,
+                    );
+
+                    if (saveAsButton) {
+                        saveAsButton.addEventListener("click", triggerSaveAs);
+                    }
+                    if (editorStatusRailButton) {
+                        editorStatusRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel(
+                                    activeDrawerPanel === "status"
+                                        ? ""
+                                        : "status",
+                                );
+                            },
+                        );
+                    }
+                    if (editorPeopleRailButton) {
+                        editorPeopleRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel(
+                                    activeDrawerPanel === "collaborators"
+                                        ? ""
+                                        : "collaborators",
+                                );
+                            },
+                        );
+                    }
+                    if (editorFileRailButton) {
+                        editorFileRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel(
+                                    activeDrawerPanel === "file"
+                                        ? ""
+                                        : "file",
+                                );
+                            },
+                        );
+                    }
+                    if (editorToolsRailButton) {
+                        editorToolsRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel(
+                                    activeDrawerPanel === "tools"
+                                        ? ""
+                                        : "tools",
+                                );
+                            },
+                        );
+                    }
+                    if (editorDrawerCloseButton) {
+                        editorDrawerCloseButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel("");
+                            },
+                        );
+                    }
+                    if (editorHideRailButton) {
+                        editorHideRailButton.addEventListener(
+                            "click",
+                            function () {
+                                setDrawerPanel("");
+                            },
+                        );
+                    }
+
+                    if (!editorConfig.editable) {
+                        renderPresence([]);
+                        setSaveState("saved");
+                        setStatus("Unavailable", "error");
+                        return;
+                    }
+
+                    hydrationWatchdog = setTimeout(function () {
+                        if (
+                            editorLoadingOverlay &&
+                            !editorLoadingOverlay.hidden
+                        ) {
+                            showEmptyState("Editor initialization timed out.");
+                        }
+                    }, 8000);
+
+                    if (editorConfig.hasInitialContent) {
+                        applyContent(editorConfig.initialContent || "", true);
+                        currentVersion = Number(
+                            editorConfig.initialVersion || 0,
+                        );
+                        setSaveState("saved");
+                    } else {
+                        fetchLatestSnapshot({ focusEditor: true });
+                    }
+
+                    installFallbackListeners();
+                    connectLiveStream();
+                }
+
+                window.addEventListener("pagehide", disconnectSession);
+                window.addEventListener("beforeunload", disconnectSession);
+
+                if (document.readyState === "loading") {
+                    document.addEventListener(
+                        "DOMContentLoaded",
+                        initLiveEdit,
+                        { once: true },
+                    );
+                } else {
+                    initLiveEdit();
+                }
+            })();
+        </script>
+    </body>
+</html>

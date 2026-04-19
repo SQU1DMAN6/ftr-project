@@ -1,0 +1,6 @@
+PACKAGE_NAME=FtR
+VERSION=3.0.0
+TARGET_ARCHITECTURE=all
+TARGET_OS=linux
+DESCRIPTION=Official FtR manager repository for the FtR cloud repository manager
+AUTHOR=Quan Thai

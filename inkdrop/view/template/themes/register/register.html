@@ -1,64 +1,50 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link href="/assets/root.css" rel="stylesheet" />
     <title>InkDrop Register</title>
 </head>
 <body>
-    <main>
-        <div class="register-box">
-            <h1 class="intro">Register for an FtR account</h1>
-            <br><hr class="linebreaker"><br>
-            <form action="/register" method="post" name="register">
-                <input class="details" name="name" type="text" placeholder="USERNAME" required><br><br>
-                <input class="details" name="email" type="email" placeholder="EMAIL" required><br><br>
-                <input class="details" name="password" type="password" placeholder="PASSWORD" required><br><br>
-                <button type="submit" class="redirect">Register</button><br><br>
-            </form>
-            <h2>Already have an account? <a href="/login"><button class="redirect">Login</button></a></h2>
-        </div>
+    <main class="page">
+        <section class="shell narrow">
+            <div class="panel center auth-card stack-lg">
+                <h1 class="intro">Create your FtR account</h1>
+                <p class="subtle">Choose a username, email, and password to start using InkDrop.</p>
+
+                {{if .Error}}
+                <div class="alert">
+                    {{range $key, $msg := .Error}}
+                    <p>{{$msg}}</p>
+                    {{end}}
+                </div>
+                {{end}}
+
+                <form action="/register" method="post" name="register" class="auth-form">
+                    <label for="name" class="field-label">Username</label>
+                    <input id="name" class="details" name="name" type="text" placeholder="your_name" required minlength="2" maxlength="40" autocomplete="username" />
+                    <small class="helper">Spaces are converted to underscores.</small>
+
+                    <label for="email" class="field-label">Email</label>
+                    <input id="email" class="details" name="email" type="email" placeholder="you@example.com" required autocomplete="email" />
+
+                    <label for="password" class="field-label">Password</label>
+                    <input id="password" class="details" name="password" type="password" placeholder="Create a strong password" required minlength="8" autocomplete="new-password" />
+
+                    <button type="submit" class="redirect">Create Account</button>
+                </form>
+
+                <hr class="linebreaker" />
+                <p class="subtle">Already registered? <a class="nav-link" href="/login">Sign in</a></p>
+            </div>
+        </section>
     </main>
+    <script>
+        (function () {
+            var savedTheme = localStorage.getItem("inkdrop-theme");
+            document.documentElement.setAttribute("data-theme", savedTheme === "dark" ? "dark" : "light");
+        })();
+    </script>
 </body>
-<style>
-    * {
-        scrollbar-width: none;
-    }
-
-    main {
-        width: 100%;
-        height: 100vh;
-        color: #fff;
-        background-image: linear-gradient(
-            to bottom,
-            var(--primary),
-            var(--light-blue)
-        );
-        display: flex;
-        flex-direction: column;
-        overflow: auto;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-    }
-
-    .register-box {
-        display: flex;
-        flex-direction: column;
-        background-image: linear-gradient(
-            to bottom,
-            var(--secondary),
-            var(--light-secondary)
-        );
-        box-shadow: 0px 0px 15px 5px var(--light-light-blue);
-        align-items: center;
-        justify-content: center;
-        padding: 40px;
-        border: 1px solid white;
-        border-radius: 15px;
-        max-width: 90%;
-        margin: 40px;
-    }
-</style>
 </html>

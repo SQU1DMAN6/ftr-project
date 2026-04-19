@@ -27,8 +27,10 @@ if [ -f "/usr/local/bin/ftr" ]; then
 	sudo mv /usr/local/bin/ftr /usr/local/bin/ftr.old
 fi
 
-echo "Copying application files..."
+echo "Copying application file..."
 sudo cp ftr /usr/local/share/ftr
+echo "Copying remove.sh..."
+sudo cp remove.sh /usr/local/share/ftr
 echo "Installing binary to /usr/local/bin/ftr..."
 sudo cp ftr /usr/local/bin/ftr
 

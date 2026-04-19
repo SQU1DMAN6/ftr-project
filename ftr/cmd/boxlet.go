@@ -16,7 +16,7 @@ var boxletCmd = &cobra.Command{
 
 var boxletInitCmd = &cobra.Command{
 	Use:   "init [directory]",
-	Short: "Initialize an FtR project and create BUILD/Meta.config",
+	Short: "Initialize an FtR project and create BUILD/fsdlbuild.ftr",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dir := "."
@@ -54,7 +54,7 @@ var boxletInitCmd = &cobra.Command{
 			return fmt.Errorf("failed to write metadata: %w", err)
 		}
 
-		fmt.Printf("Created BUILD/Meta.config for '%s'\n", absDir)
+		fmt.Printf("Created BUILD/fsdlbuild.ftr for '%s'\n", absDir)
 		return nil
 	},
 }

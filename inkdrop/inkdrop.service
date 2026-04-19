@@ -1,0 +1,10 @@
+[Unit]
+Description=FtR Project InkDrop Server Service
+[Service]
+Type=simple
+Restart=always
+RestartSec=5s
+WorkingDirectory=/var/www/inkdrop_quan_usr/data/www/inkdrop.quanthai.net/web-design/inkdrop
+ExecStart=/var/www/inkdrop_quan_usr/data/www/inkdrop.quanthai.net/web-design/inkdrop/bin/inkdrop
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1468 @@
+package repository
+
+import (
+	"archive/zip"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"inkdrop/config"
+	"inkdrop/repository"
+	viewBackend "inkdrop/view/connector"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+)
+
+func IndexMain(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+
+	// Support alternate views via ?view=public and ?view=shared
+	viewParam := r.URL.Query().Get("view")
+	if viewParam == "public" {
+		// Public browsing: allow anonymous access
+		matches, err := repository.ListPublicRepositories()
+		p := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Browse public repositories",
+			Name:            userName,
+			IsViewingPublic: true,
+			RepoMatches:     matches,
+			Error:           make(map[string]string),
+		}
+		if err != nil {
+			p.Error["general"] = fmt.Sprintf("Failed to get public repositories: %s", err)
+		}
+		// Friendly name for unauthenticated viewers
+		if p.Name == "" {
+			p.Name = "Guest"
+		}
+		viewBackend.IndexMain(w, p)
+		return
+	}
+	if viewParam == "shared" {
+		// Shared with me: require login
+		if isLoggedIn != true || userName == "" {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		matches, err := repository.ListSharedRepositories(userName)
+		p := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Repositories shared with you",
+			Name:            userName,
+			IsViewingPublic: true,
+			RepoMatches:     matches,
+			Error:           make(map[string]string),
+		}
+		if err != nil {
+			p.Error["general"] = fmt.Sprintf("Failed to get shared repositories: %s", err)
+		}
+		viewBackend.IndexMain(w, p)
+		return
+	}
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	repoList, err := repository.ListUserRepositories(userName)
+
+	p := viewBackend.FrontEndParams{
+		Title:           "InkDrop Browser",
+		Message:         "Browse the InkDrop machine",
+		Name:            userName,
+		IsViewingPublic: false,
+		RepoList:        repoList,
+		Error:           make(map[string]string),
+	}
+
+	if err != nil {
+		p.Error["general"] = fmt.Sprintf("Failed to get repository listing: %s", err)
+	}
+
+	viewBackend.IndexMain(w, p)
+}
+
+func IndexMainPost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	userName := SS.GetString(r.Context(), "name")
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	repoList, _ := repository.ListUserRepositories(userName)
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse form entry: %s", err), http.StatusBadRequest)
+		return
+	}
+
+	repoName := strings.TrimSpace(r.FormValue("reponame"))
+
+	if repoName == "" {
+		paramData := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Browse the InkDrop machine",
+			Name:            userName,
+			IsViewingPublic: false,
+			RepoList:        repoList,
+			Error:           make(map[string]string),
+		}
+		paramData.Error["general"] = "Repository name is required."
+		viewBackend.IndexMain(w, paramData)
+		return
+	}
+
+	repoNameCooked, err := repository.ProcessRepoName(repoName)
+	if err != nil {
+		fmt.Println("Error processing repository name:", err)
+		paramData := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Browse the InkDrop machine",
+			Name:            userName,
+			IsViewingPublic: false,
+			RepoList:        repoList,
+			Error:           make(map[string]string),
+		}
+
+		paramData.Error["general"] = fmt.Sprintf("Error creating repository: %s\n", err)
+
+		viewBackend.IndexMain(w, paramData)
+		return
+	}
+
+	err = repository.CreateNewUserRepository(userName, repoNameCooked)
+	if err != nil {
+		fmt.Println("Error creating new user repository:", err)
+		paramData := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Browse the InkDrop machine",
+			Name:            userName,
+			IsViewingPublic: false,
+			RepoList:        repoList,
+			Error:           make(map[string]string),
+		}
+
+		paramData.Error["general"] = fmt.Sprintf("Error creating repository: %s\n", err)
+
+		viewBackend.IndexMain(w, paramData)
+		return
+	}
+
+	fmt.Printf("New Repository Created: %s/%s\n", userName, repoNameCooked)
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func DeleteRepository(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	userName := SS.GetString(r.Context(), "name")
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	if isLoggedIn != true {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Failed to parse repo delete form", http.StatusServiceUnavailable)
+		return
+	}
+	repoName := r.FormValue("reponame")
+	err = repository.DeleteUserRepository(userName, repoName)
+	if err != nil {
+		repoList, _ := repository.ListUserRepositories(userName)
+		paramData := viewBackend.FrontEndParams{
+			Title:           "InkDrop Browser",
+			Message:         "Browse the InkDrop machine",
+			Name:            userName,
+			IsViewingPublic: false,
+			RepoList:        repoList,
+			Error:           make(map[string]string),
+		}
+
+		paramData.Error["general"] = fmt.Sprintf("Failed to delete repository %s/%s: %s", userName, repoName, err)
+		fmt.Printf("Failed to delete repository %s/%s: %s", userName, repoName, err)
+		viewBackend.IndexMain(w, paramData)
+		return
+	}
+
+	fmt.Printf("Successfully removed %s/%s\n", userName, repoName)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func IndexMainBrowseRepository(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+	var userOwnsRepo bool
+
+	name := SS.GetString(r.Context(), "name")
+
+	repoName := chi.URLParam(r, "reponame")
+	userName := chi.URLParam(r, "user")
+	path := chi.URLParam(r, "*")
+	fmt.Println(repoName, userName, path)
+	path = normalizeBrowserPath(path)
+
+	if name == userName {
+		userOwnsRepo = true
+	} else {
+		userOwnsRepo = false
+	}
+
+	// Determine if repository is publicly viewable via metadata; allow access
+	// only to public repositories, the path owner, or users explicitly listed
+	// in the repo metadata owners list.
+	accessAllowed := false
+	isPublic := false
+	isOwner := name == userName
+	if meta, err := repository.LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+		if meta.Public {
+			isPublic = true
+			accessAllowed = true
+		}
+		for _, o := range meta.Owners {
+			if o == name {
+				accessAllowed = true
+				break
+			}
+		}
+	}
+	if isOwner {
+		accessAllowed = true
+	}
+
+	if !accessAllowed {
+		fmt.Printf("User %s tried to access repository %s/%s, but was denied.\n", name, userName, repoName)
+		param := viewBackend.FrontEndParams{
+			Title:    fmt.Sprintf("%s/%s - InkDrop", userName, repoName),
+			Name:     name,
+			Error:    make(map[string]string),
+			Message:  "Repository Unavailable",
+			Message2: userName,
+			Message3: repoName,
+			Path:     path,
+		}
+		if param.Name == "" {
+			param.Name = "Guest"
+		}
+		param.Error["general"] = "You do not have permission to view this repository."
+		w.WriteHeader(http.StatusForbidden)
+		viewBackend.IndexMainBrowseRepository(w, param)
+		return
+	}
+
+	paramData := viewBackend.FrontEndParams{
+		Title:    fmt.Sprintf("%s/%s - InkDrop", userName, repoName),
+		Name:     name,
+		Error:    make(map[string]string),
+		Message2: userName,
+		Message3: repoName,
+		Path:     path,
+	}
+
+	if paramData.Name == "" {
+		paramData.Name = "Guest"
+	}
+
+	paramData.IsViewingPublic = isPublic
+
+	if userOwnsRepo == true {
+		paramData.Message = fmt.Sprintf("Browsing your repository '%s'", repoName)
+		paramData.UserOwnsRepository = true
+	} else {
+		paramData.Message = "You are viewing this repository in read-only mode."
+		paramData.UserOwnsRepository = false
+	}
+
+	directoryListing, err := repository.GetDirectoryListing(userName, repoName, path)
+	if err != nil {
+		paramData.Error["general"] = fmt.Sprintf("Failed to get directory listing of %s/%s%s: %s", userName, repoName, path, err)
+	}
+	if directoryListing == nil {
+		if path == "/" {
+			paramData.Error["general"] = "The repository is empty. If you are the owner, consider uploading files."
+		}
+	}
+
+	if path != "/" && err == nil {
+		if directoryListing == nil {
+			directoryListing = []string{}
+		}
+		directoryListing = append([]string{".."}, directoryListing...)
+	}
+	paramData.RepoList = directoryListing
+
+	// Load repository metadata if present
+	if meta, err := repository.LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+		paramData.RepoDescription = meta.Description
+		paramData.RepoOwners = strings.Join(meta.Owners, ",")
+		paramData.RepoPublic = meta.Public
+	}
+
+	fmt.Printf("User %s tried to access repository %s/%s%s", name, userName, repoName, path)
+	viewBackend.IndexMainBrowseRepository(w, paramData)
+}
+
+// RepositorySettings handles updates to repository metadata (description, owners, permissions)
+func RepositorySettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	repoName := strings.TrimSpace(r.FormValue("repository"))
+	if repoName == "" {
+		http.Error(w, "Repository required", http.StatusBadRequest)
+		return
+	}
+
+	// Determine the repository owner from the form (may be different from
+	// the session user when editing a shared repository).
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
+	if repoOwner == "" {
+		repoOwner = userName
+	}
+
+	// load existing meta for the repo owner and enforce ownership
+	meta, _ := repository.LoadRepoMeta(repoOwner, repoName)
+	authorized := false
+	if meta != nil {
+		for _, o := range meta.Owners {
+			if o == userName {
+				authorized = true
+				break
+			}
+		}
+	} else {
+		// If no meta exists, only the path owner may update settings
+		if repoOwner == userName {
+			authorized = true
+		}
+	}
+
+	if !authorized {
+		http.Error(w, "Forbidden - not an owner", http.StatusForbidden)
+		return
+	}
+
+	description := strings.TrimSpace(r.FormValue("description"))
+	ownersRaw := strings.TrimSpace(r.FormValue("owners"))
+	publicFlag := r.FormValue("public") == "1" || r.FormValue("public") == "on"
+
+	// Validate owners; if none valid, keep existing owners or fall back to repoOwner
+	owners, err := repository.ValidateOwners(ownersRaw)
+	if err != nil {
+		if meta != nil && len(meta.Owners) > 0 {
+			owners = meta.Owners
+		} else {
+			owners = []string{repoOwner}
+		}
+	}
+	ownerExists := false
+	for _, o := range owners {
+		if o == repoOwner {
+			ownerExists = true
+			break
+		}
+	}
+	if !ownerExists {
+		owners = append(owners, repoOwner)
+	}
+
+	newMeta := &repository.RepoMeta{
+		Owners:      owners,
+		Description: description,
+		Public:      publicFlag,
+	}
+	if err := repository.SaveRepoMeta(repoOwner, repoName, newMeta); err != nil {
+		http.Error(w, "Failed to save metadata", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, "/"), http.StatusSeeOther)
+}
+
+func RepositoryCreateNewDirectory(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Failed to parse user form. Try again.", http.StatusBadRequest)
+		return
+	}
+
+	folderName := r.FormValue("folderName")
+	repoName := r.FormValue("repository")
+	// 'user' form field is the repository owner (may differ from session user)
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
+	workingDir := r.FormValue("working-directory")
+	workingDir = normalizeBrowserPath(workingDir)
+	folderName = strings.TrimSpace(folderName)
+	folderName = strings.ReplaceAll(folderName, " ", "_")
+
+	if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", folderName); !pass {
+		http.Error(w, "Invalid folder name. Only letters, numbers, underscores and hyphens allowed.", http.StatusBadRequest)
+		return
+	}
+
+	// Determine repo owner; fallback to session user
+	if repoOwner == "" {
+		repoOwner = userName
+	}
+
+	// Ensure repository exists
+	root := fmt.Sprintf("%s/%s/%s", repository.RepoDir, repoOwner, repoName)
+	ok, derr := repository.DirExists(root)
+	if derr != nil {
+		http.Error(w, "Failed to verify repository existence", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
+	// Permission check: allow if session user is the repo owner, or if listed in owners
+	allowed := false
+	if repoOwner == userName {
+		allowed = true
+	} else {
+		if meta, _ := repository.LoadRepoMeta(repoOwner, repoName); meta != nil {
+			for _, o := range meta.Owners {
+				if o == userName {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	if !allowed {
+		http.Error(w, "You do not have permission to modify this repository", http.StatusForbidden)
+		return
+	}
+
+	err = repository.CreateNewDirectory(repoOwner, repoName, workingDir, folderName)
+	if err != nil {
+		http.Error(w, "Failed to create new folder. Go back and try again later.", http.StatusServiceUnavailable)
+		return
+	}
+
+	fmt.Printf("User %s created a new folder: '%s' at '%s' in %s/%s\n", userName, folderName, workingDir, repoOwner, repoName)
+
+	wd := strings.TrimPrefix(workingDir, "/")
+	wd = strings.TrimSuffix(wd, "/")
+	if wd == "" {
+		http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, "/"), http.StatusSeeOther)
+		return
+	} else {
+		http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, wd), http.StatusSeeOther)
+		return
+	}
+}
+
+func RepositoryCreateNewFile(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse user form. Try again.", http.StatusBadRequest)
+		return
+	}
+
+	fileName := strings.TrimSpace(r.FormValue("fileName"))
+	fileType := strings.TrimSpace(r.FormValue("fileType"))
+	fileExtension := strings.TrimSpace(r.FormValue("fileExtension"))
+	repoName := r.FormValue("repository")
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
+	workingDir := normalizeBrowserPath(r.FormValue("working-directory"))
+
+	if repoOwner == "" {
+		repoOwner = userName
+	}
+
+	root := fmt.Sprintf("%s/%s/%s", repository.RepoDir, repoOwner, repoName)
+	ok, derr := repository.DirExists(root)
+	if derr != nil {
+		http.Error(w, "Failed to verify repository existence", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
+	allowed := false
+	if repoOwner == userName {
+		allowed = true
+	} else {
+		if meta, _ := repository.LoadRepoMeta(repoOwner, repoName); meta != nil {
+			for _, owner := range meta.Owners {
+				if owner == userName {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	if !allowed {
+		http.Error(w, "You do not have permission to modify this repository", http.StatusForbidden)
+		return
+	}
+
+	createdFileName, err := repository.CreateEmptyEditableFile(repoOwner, repoName, workingDir, fileName, fileType, fileExtension)
+	if err != nil {
+		statusCode := http.StatusServiceUnavailable
+		switch {
+		case errors.Is(err, repository.ErrItemExists):
+			statusCode = http.StatusConflict
+		case strings.Contains(strings.ToLower(err.Error()), "required"),
+			strings.Contains(strings.ToLower(err.Error()), "invalid"),
+			strings.Contains(strings.ToLower(err.Error()), "unsupported"):
+			statusCode = http.StatusBadRequest
+		}
+		http.Error(w, fmt.Sprintf("Failed to create new file: %s", err), statusCode)
+		return
+	}
+
+	fmt.Printf("User %s created a new %s file: '%s' at '%s' in %s/%s\n", userName, fileType, createdFileName, workingDir, repoOwner, repoName)
+
+	wd := strings.TrimPrefix(workingDir, "/")
+	wd = strings.TrimSuffix(wd, "/")
+	if wd == "" {
+		http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, "/"), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, buildBrowseRoutePath(repoOwner, repoName, wd), http.StatusSeeOther)
+}
+
+func RepositoryRenameItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Failed to parse form data.", http.StatusBadRequest)
+		return
+	}
+
+	repoName := r.FormValue("repository")
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
+	workingDir := r.FormValue("working-directory")
+	oldName := r.FormValue("oldName")
+	newName := r.FormValue("newName")
+	workingDir = normalizeBrowserPath(workingDir)
+
+	if oldName == "" || oldName == ".." {
+		http.Error(w, "Invalid source name.", http.StatusBadRequest)
+		return
+	}
+	if !isValidMovePath(newName) {
+		http.Error(w, "Invalid destination path.", http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(repoOwner) == "" {
+		repoOwner = userName
+	}
+
+	// Ensure repo exists
+	repoPath := fmt.Sprintf("%s/%s/%s", repository.RepoDir, repoOwner, repoName)
+	if ok, derr := repository.DirExists(repoPath); derr != nil {
+		http.Error(w, "Failed to verify repository existence", http.StatusInternalServerError)
+		return
+	} else if !ok {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
+	// Permission: allow if session user is owner or listed in repo metadata
+	allowed := false
+	if repoOwner == userName {
+		allowed = true
+	} else {
+		if meta, _ := repository.LoadRepoMeta(repoOwner, repoName); meta != nil {
+			for _, o := range meta.Owners {
+				if o == userName {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	if !allowed {
+		http.Error(w, "You do not have permission to modify this repository", http.StatusForbidden)
+		return
+	}
+
+	err = repository.RenameItem(repoOwner, repoName, workingDir, oldName, newName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Rename failed: %s", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	wd := strings.TrimPrefix(workingDir, "/")
+	wd = strings.TrimSuffix(wd, "/")
+	var redirectPath string
+	if wd == "" {
+		redirectPath = buildBrowseRoutePath(repoOwner, repoName, "/")
+	} else {
+		redirectPath = buildBrowseRoutePath(repoOwner, repoName, wd)
+	}
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+}
+
+func RepositoryDeleteItem(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	userName := SS.GetString(r.Context(), "name")
+	if isLoggedIn != true || userName == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form data.", http.StatusBadRequest)
+		return
+	}
+
+	repoName := r.FormValue("repository")
+	repoOwner := strings.TrimSpace(r.FormValue("user"))
+	workingDir := normalizeBrowserPath(r.FormValue("working-directory"))
+	itemNames := r.Form["itemName"]
+	if len(itemNames) == 0 {
+		trimmed := strings.TrimSpace(r.FormValue("itemName"))
+		if trimmed != "" {
+			itemNames = []string{trimmed}
+		}
+	}
+	if len(itemNames) == 0 {
+		http.Error(w, "Invalid item for deletion.", http.StatusBadRequest)
+		return
+	}
+
+	// Determine the repository owner (path owner or provided owner)
+	owner := userName
+	if repoOwner != "" {
+		owner = repoOwner
+	}
+
+	// Ensure repository exists
+	repoPath := fmt.Sprintf("%s/%s/%s", repository.RepoDir, owner, repoName)
+	if ok, derr := repository.DirExists(repoPath); derr != nil {
+		http.Error(w, "Failed to verify repository existence", http.StatusInternalServerError)
+		return
+	} else if !ok {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
+	// Permission check: owners or listed owners can delete items
+	allowed := false
+	if owner == userName {
+		allowed = true
+	} else {
+		if meta, _ := repository.LoadRepoMeta(owner, repoName); meta != nil {
+			for _, o := range meta.Owners {
+				if o == userName {
+					allowed = true
+					break
+				}
+			}
+		}
+	}
+	if !allowed {
+		http.Error(w, "You do not have permission to modify this repository", http.StatusForbidden)
+		return
+	}
+
+	for _, itemName := range itemNames {
+		itemName = strings.TrimSpace(itemName)
+		if itemName == "" || itemName == ".." {
+			http.Error(w, "Invalid item for deletion.", http.StatusBadRequest)
+			return
+		}
+		if err := repository.DeleteItem(owner, repoName, workingDir, itemName); err != nil {
+			http.Error(w, "Delete failed. Try again later.", http.StatusServiceUnavailable)
+			return
+		}
+	}
+
+	wd := strings.TrimPrefix(workingDir, "/")
+	wd = strings.TrimSuffix(wd, "/")
+	var redirectPath string
+	if wd == "" {
+		redirectPath = buildBrowseRoutePath(owner, repoName, "/")
+	} else {
+		redirectPath = buildBrowseRoutePath(owner, repoName, wd)
+	}
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+}
+
+// func RepositoryUploadFiles(w http.ResponseWriter, r *http.Request) {
+// 	if r.Method != http.MethodPost {
+// 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+// 		return
+// 	}
+
+// 	SS := config.GetSessionManager()
+// 	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+// 	userName := SS.GetString(r.Context(), "name")
+// 	if isLoggedIn != true || userName == "" {
+// 		http.Redirect(w, r, "/", http.StatusSeeOther)
+// 		return
+// 	}
+
+// 	err := r.ParseMultipartForm(5000 << 20)
+// 	if err != nil {
+// 		http.Error(w, fmt.Sprintf("Failed to parse multipart form: %s", err), http.StatusBadRequest)
+// 		return
+// 	}
+// 	defer r.MultipartForm.RemoveAll()
+
+// 	repoName := r.FormValue("repository")
+// 	workingDir := r.FormValue("working-directory")
+
+// 	files := r.MultipartForm.File["fileToUpload"]
+// 	//WIP : because we upload multiple files, files is a slice of FileHeader
+
+// 	// Creat /tmp folder and save files to it
+
+// 	// for _, fileHeader := range files {
+// 	// 	ext := filepath.Ext(fileHeader.Filename)
+// 	// 	dst, err := os.CreateTemp("/tmp", "files-*"+ext)
+// 	// 	if err != nil {
+// 	// 		http.Error(w, fmt.Sprintf("Failed to create temp file: %s", err), http.StatusInternalServerError)
+// 	// 		return
+// 	// 	}
+// 	// 	defer dst.Close()
+// 	// 	src, err := fileHeader.Open()
+// 	// 	if err != nil {
+// 	// 		http.Error(w, fmt.Sprintf("Failed to open file: %s", err), http.StatusInternalServerError)
+// 	// 		return
+// 	// 	}
+// 	// 	defer src.Close()
+// 	// 	_, err = io.Copy(dst, src)
+// 	// 	if err != nil {
+// 	// 		http.Error(w, fmt.Sprintf("Failed to copy file: %s", err), http.StatusInternalServerError)
+// 	// 		return
+// 	// 	}
+// 	// 	fmt.Printf("Saved %s to %s\n", fileHeader.Filename, dst.Name())
+// 	// }
+
+// 	for _, fileHeader := range files {
+// 		fname := fileHeader.Filename
+// 		var destination string = fmt.Sprintf("%s/%s/%s%s", repository.GlobalInkDropRepoDir, userName, repoName, workingDir)
+// 		fmt.Println("Destination to copy files is", destination)
+// 		dst, err := os.Create(destination + "/" + fname)
+// 		if err != nil {
+// 			http.Error(w, fmt.Sprintf("Failed to create temporary file: %s", err), http.StatusServiceUnavailable)
+// 			return
+// 		}
+// 		defer dst.Close()
+// 		src, err := fileHeader.Open()
+// 		if err != nil {
+// 			http.Error(w, fmt.Sprintf("Failed to open file %s: %s", fname, err), http.StatusServiceUnavailable)
+// 			return
+// 		}
+// 		defer src.Close()
+// 		_, err = io.Copy(dst, src)
+// 		if err != nil {
+// 			http.Error(w, fmt.Sprintf("Failed to copy file %s: %s", fname, err), http.StatusServiceUnavailable)
+// 			return
+// 		}
+
+// 		fmt.Printf("Saved %s to %s\n", fname, dst.Name())
+// 	}
+
+// 	fmt.Printf("User '%s' upload to [ %s/%s%s ]\n", userName, userName, repoName, workingDir)
+// 	fmt.Printf("files=[%v]\n", files)
+
+// 	http.Redirect(w, r, buildBrowseRoutePath(userName, repoName, workingDir), http.StatusSeeOther)
+// }
+
+func normalizeBrowserPath(raw string) string {
+	if raw == "" {
+		return "/"
+	}
+	clean := path.Clean("/" + raw)
+	if clean == "." || clean == "" {
+		return "/"
+	}
+	return clean
+}
+
+func buildBrowseRoutePath(userName string, repoName string, rawPath string) string {
+	base := fmt.Sprintf("/browse/%s/%s", url.PathEscape(userName), url.PathEscape(repoName))
+	safePath := normalizeBrowserPath(rawPath)
+	if safePath == "/" {
+		return base
+	}
+
+	segments := strings.Split(strings.Trim(safePath, "/"), "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+
+	return base + "/" + strings.Join(segments, "/")
+}
+
+func isValidMovePath(raw string) bool {
+	candidate := strings.TrimSpace(raw)
+	if candidate == "" || strings.HasPrefix(candidate, "/") {
+		return false
+	}
+	// if strings.Contains(candidate, "..") {
+	// 	return false
+	// }
+
+	parts := strings.Split(candidate, "/")
+	// for _, part := range parts {
+	// 	if part == "" {
+	// 		return false
+	// 	}
+	// 	// if pass, _ := regexp.MatchString("^[A-Za-z0-9_-]+$", part); !pass {
+	// 	// 	return false
+	// 	// }
+	// }
+	if slices.Contains(parts, "") {
+		return false
+	}
+	return true
+}
+
+func RepositoryDownloadFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	SS := config.GetSessionManager()
+	userName := SS.GetString(r.Context(), "name")
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse download form: %s", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	repoName := r.FormValue("repository")
+	workingDir := r.FormValue("working-directory")
+	itemNames := r.Form["itemName"]
+	if len(itemNames) == 0 {
+		itemName := strings.TrimSpace(r.FormValue("itemName"))
+		if itemName != "" {
+			itemNames = []string{itemName}
+		}
+	}
+	if len(itemNames) == 0 {
+		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+		return
+	}
+	owner := r.FormValue("user")
+	if owner == "" {
+		owner = userName
+	}
+
+	// Check repo metadata for public access
+	isPublic := false
+	if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
+		if meta.Public {
+			isPublic = true
+		}
+	}
+
+	if !isPublic {
+		if isLoggedIn != true || userName == "" {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		// only owners (or listed owners) may download when not public
+		if userName != owner {
+			if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
+				allowed := false
+				for _, o := range meta.Owners {
+					if o == userName {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+			} else {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+	}
+
+	fmt.Printf("User %s tried to download %v at %s at %s\n", userName, itemNames, workingDir, repoName)
+
+	if len(itemNames) == 1 {
+		fileToDownload, err := repository.GetItemPath(owner, repoName, workingDir, itemNames[0])
+		if err != nil {
+			http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+			return
+		}
+
+		file, err := os.Open(fileToDownload)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to open file: %s", err), http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+
+		stat, err := file.Stat()
+		if err != nil {
+			http.Error(w, "Requested item is not downloadable.", http.StatusBadRequest)
+			return
+		}
+		if stat.Mode().IsRegular() {
+			buf := make([]byte, 512)
+			n, _ := file.Read(buf)
+			contentType := http.DetectContentType(buf[:n])
+			if _, err := file.Seek(0, io.SeekStart); err != nil {
+				http.Error(w, "Unable to read file.", http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(itemNames[0]))
+			w.Header().Set("Content-Type", contentType)
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+			return
+		}
+	}
+
+	archiveName := fmt.Sprintf("%s-selection.zip", repoName)
+	if len(itemNames) == 1 {
+		archiveName = strings.TrimSuffix(itemNames[0], "/") + ".zip"
+	}
+
+	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(archiveName))
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	for _, itemName := range itemNames {
+		itemName = strings.TrimSpace(itemName)
+		if itemName == "" {
+			continue
+		}
+		itemPath, err := repository.GetItemPath(owner, repoName, workingDir, itemName)
+		if err != nil {
+			http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+			return
+		}
+		if err := addPathToZip(zipWriter, itemPath, strings.TrimSuffix(itemName, "/")); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to archive selection: %s", err), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func addPathToZip(zipWriter *zip.Writer, sourcePath string, archiveBase string) error {
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return err
+	}
+	if archiveBase == "" {
+		archiveBase = filepath.Base(sourcePath)
+	}
+
+	if info.Mode().IsRegular() {
+		return addFileToZip(zipWriter, sourcePath, archiveBase, info)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("unsupported download item: %s", archiveBase)
+	}
+
+	return filepath.Walk(sourcePath, func(currentPath string, currentInfo os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relPath, err := filepath.Rel(sourcePath, currentPath)
+		if err != nil {
+			return err
+		}
+		zipPath := filepath.ToSlash(filepath.Join(archiveBase, relPath))
+		if relPath == "." {
+			header, err := zip.FileInfoHeader(currentInfo)
+			if err != nil {
+				return err
+			}
+			header.Name = strings.TrimSuffix(zipPath, "/") + "/"
+			_, err = zipWriter.CreateHeader(header)
+			return err
+		}
+		if currentInfo.IsDir() {
+			header, err := zip.FileInfoHeader(currentInfo)
+			if err != nil {
+				return err
+			}
+			header.Name = strings.TrimSuffix(zipPath, "/") + "/"
+			_, err = zipWriter.CreateHeader(header)
+			return err
+		}
+		return addFileToZip(zipWriter, currentPath, filepath.ToSlash(zipPath), currentInfo)
+	})
+}
+
+func addFileToZip(zipWriter *zip.Writer, sourcePath string, archivePath string, info os.FileInfo) error {
+	file, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	header, err := zip.FileInfoHeader(info)
+	if err != nil {
+		return err
+	}
+	header.Name = archivePath
+	header.Method = zip.Deflate
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(writer, file)
+	return err
+}
+
+func RepositoryPreviewFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	userName := SS.GetString(r.Context(), "name")
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+
+	query := r.URL.Query()
+	repoName := query.Get("repository")
+	workingDir := query.Get("working-directory")
+	itemName := query.Get("itemName")
+	owner := query.Get("user")
+
+	if owner == "" {
+		// fall back to session user if owner not provided
+		owner = userName
+	}
+
+	// Check repo metadata for public access
+	isPublic := false
+	if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
+		if meta.Public {
+			isPublic = true
+		}
+	}
+
+	if !isPublic {
+		if isLoggedIn != true || userName == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// If logged in but not the repo owner, ensure the user is listed in owners
+		if userName != owner {
+			if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
+				allowed := false
+				for _, o := range meta.Owners {
+					if o == userName {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+			} else {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+	}
+
+	if itemName == "" {
+		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+		return
+	}
+
+	fileToPreview, err := repository.GetItemPath(owner, repoName, workingDir, itemName)
+	if err != nil {
+		http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+		return
+	}
+
+	file, err := os.Open(fileToPreview)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to open file: %s", err), http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil || !stat.Mode().IsRegular() {
+		http.Error(w, "Requested item is not a previewable file.", http.StatusBadRequest)
+		return
+	}
+
+	buf := make([]byte, 512)
+	n, _ := file.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "Unable to read file.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func SessionConfirm(w http.ResponseWriter, r *http.Request) {
+	SS := config.GetSessionManager()
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	name := SS.GetString(r.Context(), "name")
+
+	// If called by an API client (FtR sets X-FTR-CLIENT) or requests JSON,
+	// return structured JSON including the username so CLI clients can
+	// reliably discover who the session belongs to.
+	if r.Header.Get("X-FTR-CLIENT") != "" || strings.Contains(r.Header.Get("Accept"), "application/json") || r.URL.Query().Get("api") == "1" {
+		if isLoggedIn {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "username": name})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": false})
+		return
+	}
+
+	if isLoggedIn {
+		w.Write([]byte("true"))
+		return
+	}
+	w.Write([]byte("false"))
+}
+
+func RepositoryIndex(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	searchQuery := strings.TrimSpace(query.Get("search"))
+	apiMode := query.Get("api") == "1"
+	if apiMode && searchQuery != "" {
+		SS := config.GetSessionManager()
+		currentUser := SS.GetString(r.Context(), "name")
+		matches, err := repository.SearchRepositories(searchQuery, currentUser)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		// Filter out internal/system users (e.g. _meta) from search results
+		filtered := []map[string]string{}
+		for _, m := range matches {
+			if u, ok := m["user"]; ok {
+				if strings.HasPrefix(u, "_") {
+					continue
+				}
+			}
+			filtered = append(filtered, m)
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "matches": filtered})
+		return
+	}
+	IndexMain(w, r)
+}
+
+func RepositoryAPI(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	repoName := query.Get("name")
+	userName := query.Get("user")
+	if repoName == "" || userName == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "user and repo are required"})
+		return
+	}
+
+	if query.Get("list") == "1" {
+		files, err := repository.ListRepositoryFilesRecursive(userName, repoName)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "files": files})
+		return
+	}
+
+	if query.Get("filemeta") == "1" {
+		fileName := query.Get("file")
+		if fileName == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "file parameter is required"})
+			return
+		}
+		filePath, err := repository.GetItemPath(userName, repoName, "/", fileName)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid file path"})
+			return
+		}
+		hash, err := repository.CalculateFileHash(filePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to compute file metadata"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "hash": hash, "flagged": "0", "encrypted": "0", "signature": ""})
+		return
+	}
+
+	if query.Get("meta") == "1" {
+		m, err := repository.LoadRepoMeta(userName, repoName)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		// Ensure repository directory exists; return not-found if missing so clients
+		// can decide to create the repository when authorized.
+		repoPath := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
+		if ok, _ := repository.DirExists(repoPath); !ok {
+			writeJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "repository is not found"})
+			return
+		}
+		if m == nil {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "meta": map[string]interface{}{}})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "meta": m})
+		return
+	}
+
+	if downloadName := query.Get("download"); downloadName != "" {
+		// allow both POST and GET for compatibility
+		filePath, err := repository.GetItemPath(userName, repoName, "/", downloadName)
+		if err != nil {
+			http.Error(w, "Invalid file requested.", http.StatusBadRequest)
+			return
+		}
+		file, err := os.Open(filePath)
+		if err != nil {
+			http.Error(w, "Failed to open file.", http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+
+		stat, err := file.Stat()
+		if err != nil || !stat.Mode().IsRegular() {
+			http.Error(w, "Requested item is not a downloadable file.", http.StatusBadRequest)
+			return
+		}
+
+		buf := make([]byte, 512)
+		n, _ := file.Read(buf)
+		contentType := http.DetectContentType(buf[:n])
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			http.Error(w, "Unable to read file.", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(downloadName))
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		if err := r.ParseMultipartForm(500 << 20); err == nil {
+			file, header, err := r.FormFile("upload")
+			if err == nil {
+				defer file.Close()
+
+				// Require authentication for uploads
+				SS := config.GetSessionManager()
+				sessionUser := SS.GetString(r.Context(), "name")
+				isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+				if !isLoggedIn || sessionUser == "" {
+					writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "authentication required"})
+					return
+				}
+
+				destDir := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
+
+				ok, derr := repository.DirExists(destDir)
+				if derr != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to verify repository"})
+					return
+				}
+
+				if !ok {
+					// repository missing: only path owner may create it via upload
+					if sessionUser != userName {
+						writeJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "repository does not exist"})
+						return
+					}
+					if err := os.MkdirAll(destDir, 0755); err != nil {
+						writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to create repository"})
+						return
+					}
+				} else {
+					// repository exists: enforce owner or listed-owner write permission
+					if meta, err := repository.LoadRepoMeta(userName, repoName); err == nil && meta != nil {
+						if !meta.Public {
+							if sessionUser != userName {
+								allowed := false
+								for _, o := range meta.Owners {
+									if o == sessionUser {
+										allowed = true
+										break
+									}
+								}
+								if !allowed {
+									writeJSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "permission denied"})
+									return
+								}
+							}
+						}
+					} else {
+						// no metadata: default to path owner only
+						if sessionUser != userName {
+							writeJSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "permission denied"})
+							return
+						}
+					}
+				}
+
+				destPath := fmt.Sprintf("%s/%s", destDir, path.Base(header.Filename))
+				if !strings.HasPrefix(path.Clean(destPath), path.Clean(destDir)) {
+					writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid file name"})
+					return
+				}
+
+				out, err := os.Create(destPath)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to save file"})
+					return
+				}
+				defer out.Close()
+				if _, err := io.Copy(out, file); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "failed to save file"})
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "message": "upload complete"})
+				return
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "unsupported api operation"})
+}
+
+func RepositoryDownloadRepositoryAsSQAR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	SS := config.GetSessionManager()
+	isLoggedIn := SS.GetBool(r.Context(), "isLoggedIn")
+	name := SS.GetString(r.Context(), "name")
+
+	if isLoggedIn != true || name == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	repoName := chi.URLParam(r, "reponame")
+
+	userName := chi.URLParam(r, "user")
+
+	repoToDownload := fmt.Sprintf("%s/%s/%s", repository.RepoDir, userName, repoName)
+	fmt.Printf("User %s tried to download repository at %s\n", userName, repoToDownload)
+
+	archive, err := repository.PackSQAR(repoToDownload, userName, repoName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to pack archive into SQAR file: %s", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(repoName+".sqar"))
+	http.ServeFile(w, r, archive)
+	err = os.Remove(archive)
+	if err != nil {
+		fmt.Printf("Failed to cleanup file %s: %s\n", archive, err)
+	}
+}

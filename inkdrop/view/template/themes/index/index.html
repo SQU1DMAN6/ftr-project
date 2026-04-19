@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/assets/root.css" />
+    <title>FtR InkDrop</title>
+</head>
+
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="topbar-brand">InkDrop</a>
+            <div class="topbar-right">
+                <div class="theme-switch" role="group" aria-label="Theme mode">
+                    <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+                    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+                </div>
+                <div class="profile-menu">
+                    <button type="button" class="profile-button" id="profileMenuButton" aria-haspopup="menu"
+                        aria-expanded="false" aria-controls="profileMenu">
+                        {{.Name}} ▾
+                    </button>
+                    <div id="profileMenu" class="profile-dropdown" role="menu" hidden>
+                        <p class="menu-label">Signed in as</p>
+                        <p class="menu-user">{{.Name}}</p>
+                        <a href="/logout" class="button-link danger small" role="menuitem">Log Out</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+    <main class="page">
+        {{if not .IsViewingPublic}}
+        <section class="shell stack-lg">
+            <div class="panel dark stack">
+                <h1 class="intro">InkDrop Workspace</h1>
+                <p class="subtle light">Signed in as <strong>{{.Name}}</strong>. Create a repository, then open it to
+                    browse files.</p>
+                <p class="subtle light">Fast path: create repository, open it, upload files from Inker/FtR.</p>
+                <div class="row">
+                    <a href="?view=public" class="button-link">Browse Public Repositories</a>
+                    <a href="?view=shared" class="button-link">Repositories Shared With Me</a>
+                </div>
+            </div>
+
+            <div class="panel stack">
+                <h2 class="section">Create Repository</h2>
+                <p class="subtle">Use letters, numbers, underscores, and hyphens. Spaces are automatically converted to
+                    underscores.</p>
+                <form name="newrepo" method="POST" action="/" class="stack">
+                    <label for="reponame" class="field-label">Repository name</label>
+                    <input id="reponame" name="reponame" type="text" class="details" placeholder="example_repo"
+                        minlength="1" maxlength="64" pattern="[A-Za-z0-9_- ]+" required />
+                    <div class="row">
+                        <button type="submit" class="redirect">Create Repository</button>
+                    </div>
+                </form>
+                {{if .Error}}
+                <div class="alert">
+                    {{range $key, $msg := .Error}}
+                    <p>{{$msg}}</p>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+
+            <div class="panel stack">
+                <h2 class="section">Your Repositories</h2>
+                {{if .RepoList}}
+                {{$parent := .}}
+                <ul class="clean-list">
+                    {{range $i, $reponame := .RepoList}}
+
+                    <a href="/browse/{{$parent.Name}}/{{$reponame}}" class="repo-link">
+                        <li class="repo-card">
+                            <p class="repo-name">{{$reponame}}</p>
+                        </li>
+                    </a>
+                    {{end}}
+                </ul>
+                {{else}}
+                <div class="empty-state">
+                    <p>No repositories yet.</p>
+                    <small class="helper">Create your first repository above to start sharing files.</small>
+                </div>
+                {{end}}
+            </div>
+        </section>
+        {{else}}
+        <section class="shell">
+            <div class="panel dark stack">
+                <h1 class="intro">Public Browser</h1>
+                <p class="subtle light">Browse repositories that have been marked public by their owners.</p>
+                <div class="row">
+                    <a href="/" class="button-link">Back to Workspace</a>
+                </div>
+            </div>
+
+            <div class="panel stack">
+                <h2 class="section">Repositories</h2>
+                {{if .RepoMatches}}
+                {{$parent := .}}
+                <ul class="clean-list">
+                    {{range $i, $m := .RepoMatches}}
+                    <a href="/browse/{{$m.user}}/{{$m.repo}}" class="repo-link">
+                        <li class="repo-card">
+                            <p class="repo-name">{{$m.repo}}</p>
+                            <p class="subtle">{{$m.user}} — {{$m.description}}</p>
+                        </li>
+                    </a>
+                    {{end}}
+                </ul>
+                {{else}}
+                <div class="empty-state">
+                    <p>No public repositories found.</p>
+                    <small class="helper">Try again later or return to your workspace.</small>
+                </div>
+                {{end}}
+            </div>
+        </section>
+        {{end}}
+    </main>
+    <script>
+        (function () {
+            var themeKey = "inkdrop-theme";
+
+            function setTheme(theme) {
+                var value = theme === "dark" ? "dark" : "light";
+                document.documentElement.setAttribute("data-theme", value);
+                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
+                    button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === value));
+                });
+            }
+
+            function getSavedTheme() {
+                var stored = localStorage.getItem(themeKey);
+                if (stored === "dark" || stored === "light") {
+                    return stored;
+                }
+                if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+                    return "dark";
+                }
+                return "light";
+            }
+
+            function initTheme() {
+                setTheme(getSavedTheme());
+                document.querySelectorAll("[data-theme-set]").forEach(function (button) {
+                    button.type = "button";
+                    button.addEventListener("click", function () {
+                        var theme = button.getAttribute("data-theme-set");
+                        setTheme(theme);
+                        localStorage.setItem(themeKey, theme);
+                    });
+                });
+            }
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", initTheme);
+            } else {
+                initTheme();
+            }
+
+            var profileButton = document.getElementById("profileMenuButton");
+            var profileMenu = document.getElementById("profileMenu");
+
+            function closeMenu() {
+                profileMenu.hidden = true;
+                profileButton.setAttribute("aria-expanded", "false");
+            }
+
+            profileButton.addEventListener("click", function () {
+                var isHidden = profileMenu.hidden;
+                profileMenu.hidden = !isHidden;
+                profileButton.setAttribute("aria-expanded", String(isHidden));
+            });
+
+            document.addEventListener("click", function (event) {
+                if (!profileMenu.hidden && !event.target.closest(".profile-menu")) {
+                    closeMenu();
+                }
+            });
+
+            document.addEventListener("keydown", function (event) {
+                if (event.key === "Escape") {
+                    closeMenu();
+                }
+            });
+
+            document.querySelectorAll("[data-dialog-target]").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    var id = button.getAttribute("data-dialog-target");
+                    var dialog = document.getElementById(id);
+                    if (dialog && typeof dialog.showModal === "function") {
+                        dialog.showModal();
+                    }
+                });
+            });
+
+            document.querySelectorAll("dialog.settings-modal").forEach(function (dialog) {
+                dialog.addEventListener("click", function (event) {
+                    var rect = dialog.getBoundingClientRect();
+                    var inDialog =
+                        event.clientX >= rect.left &&
+                        event.clientX <= rect.right &&
+                        event.clientY >= rect.top &&
+                        event.clientY <= rect.bottom;
+                    if (!inDialog) {
+                        dialog.close();
+                    }
+                });
+            });
+        })();
+    </script>
+</body>
+
+</html>

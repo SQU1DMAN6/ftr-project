@@ -229,11 +229,14 @@ Example: ftr get user/myapp`,
 						candidates = append(candidates, fmt.Sprintf("%s-%s-%s-all.sqar", repoName, version, localArch))
 						candidates = append(candidates, fmt.Sprintf("%s-%s-all-all.sqar", repoName, version))
 						// fallback (SQAR)
-						candidates = append(candidates, fmt.Sprintf("%s-%s.sqar", repoName, version))
+						candidates = append(candidates, fmt.Sprintf("%s.sqar", repoName))
 					}
 					// FSDL fallback
 					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-%s.fsdl", repoName, version, localArch, localOS))
-					candidates = append(candidates, fmt.Sprintf("%s-%s.fsdl", repoName, version))
+					candidates = append(candidates, fmt.Sprintf("%s-%s-all-%s.fsdl", repoName, version, localOS))
+					candidates = append(candidates, fmt.Sprintf("%s-%s-%s-all.fsdl", repoName, version, localArch))
+					candidates = append(candidates, fmt.Sprintf("%s-%s-all-all.fsdl", repoName, version))
+					candidates = append(candidates, fmt.Sprintf("%s.fsdl", repoName))
 				} else {
 					files, err := client.ListRepoFiles(user, repoName)
 					if err == nil {
@@ -415,7 +418,7 @@ Example: ftr get user/myapp`,
 				}
 			}
 
-			// After extraction: determine target arch/os from filename and BUILD/Meta.config
+			// After extraction: determine target arch/os from filename and BUILD/fsdlbuild.ftr (or Meta.config)
 			filename := filepath.Base(downloadedPath)
 			ext := filepath.Ext(filename)
 			base := strings.TrimSuffix(filename, ext)
@@ -430,7 +433,7 @@ Example: ftr get user/myapp`,
 				}
 			}
 
-			// Read BUILD/Meta.config if present
+			// Read BUILD/fsdlbuild.ftr (or Meta.config) if present
 			meta, merr := boxlet.ReadMeta(tmpDir)
 			metaArch := ""
 			metaOS := ""
@@ -486,7 +489,7 @@ Example: ftr get user/myapp`,
 					return nil
 				}
 				base := filepath.Base(p)
-				if base == "install.sh" || base == "Makefile" || strings.HasPrefix(base, "main.") || base == "BUILD" || base == "Meta.config" {
+				if base == "install.sh" || base == "Makefile" || strings.HasPrefix(base, "main.") || base == "BUILD" || base == "fsdlbuild.ftr" || base == "Meta.config" {
 					workDir = filepath.Dir(p)
 					return filepath.SkipDir
 				}
@@ -529,7 +532,7 @@ Example: ftr get user/myapp`,
 				}
 			}
 
-			// Determine installed version: prefer BUILD/Meta.config VERSION, then requested version
+			// Determine installed version: prefer BUILD/fsdlbuild.ftr (or Meta.config) VERSION, then requested version
 			installedVersion := version
 			if meta != nil {
 				if v, ok := meta["VERSION"]; ok && strings.TrimSpace(v) != "" {
@@ -537,10 +540,22 @@ Example: ftr get user/myapp`,
 				}
 			}
 			// Register package in registry (without install paths - remove will use remove.sh or defaults)
+			desc := ""
+			if meta != nil {
+				if d, ok := meta["DESCRIPTION"]; ok && strings.TrimSpace(d) != "" {
+					desc = strings.TrimSpace(d)
+				} else if d, ok := meta["description"]; ok && strings.TrimSpace(d) != "" {
+					desc = strings.TrimSpace(d)
+				} else if d, ok := meta["Description"]; ok && strings.TrimSpace(d) != "" {
+					desc = strings.TrimSpace(d)
+				}
+			}
+
 			regInfo := registry.PackageInfo{
-				Name:    repoName,
-				Version: installedVersion,
-				Source:  repoPath,
+				Name:        repoName,
+				Version:     installedVersion,
+				Source:      repoPath,
+				Description: desc,
 				// Note: InstallPath is NOT recorded - removal uses remove.sh or standard paths
 				BinaryPath: installedBinaryPath,
 			}
