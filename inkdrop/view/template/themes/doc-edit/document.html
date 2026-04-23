@@ -38,6 +38,7 @@
         body {
             background: var(--doc-page-bg);
             color: var(--doc-strong);
+            color-scheme: light;
             height: 100vh;
             overflow: hidden;
         }
@@ -187,12 +188,106 @@
 
         #docToolbarSurface {
             margin-bottom: 10px;
-            padding: 6px 10px;
+            padding: 10px 12px;
             border-radius: 16px;
             border: 1px solid color-mix(in srgb, var(--doc-border) 85%, transparent);
             background: #ffffff;
             min-height: 54px;
             overflow: hidden;
+        }
+
+        .doc-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .doc-toolbar-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            padding-right: 10px;
+            margin-right: 2px;
+            border-right: 1px solid color-mix(in srgb, var(--doc-border) 80%, transparent);
+        }
+
+        .doc-toolbar-group:last-child {
+            padding-right: 0;
+            margin-right: 0;
+            border-right: 0;
+        }
+
+        .doc-toolbar-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 112px;
+        }
+
+        .doc-toolbar-field-size {
+            min-width: 74px;
+        }
+
+        .doc-toolbar-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--doc-muted);
+        }
+
+        .doc-toolbar-select {
+            height: 34px;
+            padding: 0 10px;
+            border-radius: 10px;
+            border: 1px solid var(--doc-border);
+            background: #ffffff;
+            color: var(--doc-strong);
+            font: inherit;
+        }
+
+        .doc-toolbar-button {
+            min-width: 34px;
+            height: 34px;
+            padding: 0 10px;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            background: var(--doc-action-bg);
+            color: var(--doc-strong);
+            font: inherit;
+            font-size: 0.84rem;
+            font-weight: 600;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+        }
+
+        .doc-toolbar-button:hover:not(:disabled) {
+            background: var(--toolbar-button-hover);
+            border-color: color-mix(in srgb, var(--doc-border) 92%, transparent);
+            transform: translateY(-1px);
+        }
+
+        .doc-toolbar-button:disabled,
+        .doc-toolbar-select:disabled {
+            cursor: not-allowed;
+            opacity: 0.48;
+        }
+
+        .doc-toolbar-button[data-variant="text"] {
+            min-width: 42px;
+        }
+
+        .doc-toolbar-button[data-variant="wide"] {
+            min-width: 70px;
+        }
+
+        .doc-toolbar-hint {
+            margin: 8px 2px 0;
+            font-size: 0.76rem;
+            color: var(--doc-muted);
         }
 
         .doc-badges {
@@ -538,6 +633,17 @@
                 justify-content: flex-start;
             }
 
+            .doc-toolbar-group {
+                padding-right: 0;
+                margin-right: 0;
+                border-right: 0;
+            }
+
+            .doc-toolbar-field {
+                min-width: 0;
+                flex: 1 1 140px;
+            }
+
             .doc-layout {
                 grid-template-columns: 1fr;
             }
@@ -782,7 +888,6 @@
     </script>
     <script type="module">
         const config = JSON.parse(document.getElementById("docEditorConfigJson").textContent || "{}");
-        const themeKey = "inkdrop-theme";
         const toolbarSurface = document.getElementById("docToolbarSurface");
         const statusBadge = document.getElementById("docStatusBadge");
         const statusRailButton = document.getElementById("docStatusRailBtn");
@@ -826,6 +931,11 @@
             { label: "Times New Roman", key: "\"Times New Roman\"" },
             { label: "Verdana", key: "Verdana" },
         ];
+        const DOC_FONT_SIZE_OPTIONS = ["10pt", "11pt", "12pt", "14pt", "16pt", "18pt", "24pt", "32pt"];
+        const DOC_SYNC_DEBOUNCE_MS = 450;
+        const DOC_REMOTE_POLL_INTERVAL_MS = 4000;
+        const DOC_MOUNT_UPDATE_SUPPRESSION_MS = 1200;
+        const ENABLE_SUPERDOC = false;
 
         let SuperDocCtor = null;
         let SuperEditorCtor = null;
@@ -848,8 +958,14 @@
         let latestPresence = [];
         let currentDocumentSource = config.fileURL || "";
         let pendingRemoteFileURL = "";
+        let pendingRemoteSavedAt = 0;
+        let pendingRemoteVersion = 0;
+        let pendingRemoteExternal = false;
         let activeDrawerPanel = "";
         let activeMountToken = 0;
+        let remoteReloadInFlight = false;
+        let eventStreamConnected = false;
+        let suppressEditorUpdatesUntil = 0;
         const clientId = "doc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
         const DOC_DEBUG = true;
 
@@ -999,18 +1115,16 @@
             }));
         }
 
-        function normalizeTheme(theme) {
-            return theme === "dark" ? "dark" : "light";
+        function normalizeTheme() {
+            return "light";
         }
 
-        function applyTheme(theme) {
-            const value = normalizeTheme(theme);
-            document.documentElement.setAttribute("data-theme", value);
+        function applyTheme() {
+            document.documentElement.setAttribute("data-theme", "light");
         }
 
         function initTheme() {
-            const stored = localStorage.getItem(themeKey);
-            applyTheme(stored === "dark" || stored === "light" ? stored : "light");
+            applyTheme();
         }
 
         function getDocumentBaseName() {
@@ -1030,6 +1144,214 @@
                 throw new Error("Document editor is not ready yet");
             }
             return editor;
+        }
+
+        function hasEditorCommand(commandName) {
+            const editor = getActiveEditor();
+            return Boolean(editor && editor.commands && typeof editor.commands[commandName] === "function");
+        }
+
+        function shouldSuppressEditorUpdates() {
+            return Date.now() < suppressEditorUpdatesUntil;
+        }
+
+        function setPendingRemoteSnapshot(fileURL, savedAt, version, external) {
+            const nextVersion = Number(version || 0);
+            if (!fileURL || nextVersion <= 0) {
+                return;
+            }
+            if (nextVersion < pendingRemoteVersion) {
+                return;
+            }
+            pendingRemoteFileURL = fileURL;
+            pendingRemoteSavedAt = Number(savedAt || 0);
+            pendingRemoteVersion = nextVersion;
+            pendingRemoteExternal = Boolean(external);
+        }
+
+        function clearPendingRemoteSnapshot() {
+            pendingRemoteFileURL = "";
+            pendingRemoteSavedAt = 0;
+            pendingRemoteVersion = 0;
+            pendingRemoteExternal = false;
+        }
+
+        function applyToolbarStyle(styleKey) {
+            const normalized = String(styleKey || "paragraph");
+            if (normalized === "paragraph") {
+                if (hasEditorCommand("setStyleById")) {
+                    return callEditorCommand("setStyleById", "Normal");
+                }
+                if (hasEditorCommand("setParagraph")) {
+                    return callEditorCommand("setParagraph");
+                }
+                if (hasEditorCommand("clearNodesFormat")) {
+                    return callEditorCommand("clearNodesFormat");
+                }
+                throw new Error("Paragraph styles are not available in this editor build");
+            }
+            if (normalized === "heading1") {
+                if (hasEditorCommand("setStyleById")) {
+                    return callEditorCommand("setStyleById", "Heading1");
+                }
+                if (hasEditorCommand("toggleHeading")) {
+                    return callEditorCommand("toggleHeading", { level: 1 });
+                }
+            }
+            if (normalized === "heading2") {
+                if (hasEditorCommand("setStyleById")) {
+                    return callEditorCommand("setStyleById", "Heading2");
+                }
+                if (hasEditorCommand("toggleHeading")) {
+                    return callEditorCommand("toggleHeading", { level: 2 });
+                }
+            }
+            throw new Error("Selected document style is not available in this editor build");
+        }
+
+        function refreshToolbarAvailability() {
+            if (!toolbarSurface) {
+                return;
+            }
+            const styleSelect = toolbarSurface.querySelector("#docToolbarStyle");
+            const fontSelect = toolbarSurface.querySelector("#docToolbarFont");
+            const sizeSelect = toolbarSurface.querySelector("#docToolbarFontSize");
+            const imageButton = toolbarSurface.querySelector("#docToolbarInsertImage");
+            const ready = Boolean(editorReady && getActiveEditor());
+            const canSetStyle = hasEditorCommand("setStyleById") || hasEditorCommand("setParagraph") || hasEditorCommand("clearNodesFormat");
+
+            toolbarSurface.querySelectorAll("[data-doc-command]").forEach((button) => {
+                button.disabled = !ready || !hasEditorCommand(button.getAttribute("data-doc-command"));
+            });
+            if (styleSelect) {
+                styleSelect.disabled = !ready || !canSetStyle;
+            }
+            if (fontSelect) {
+                fontSelect.disabled = !ready || !hasEditorCommand("setFontFamily");
+            }
+            if (sizeSelect) {
+                sizeSelect.disabled = !ready || !hasEditorCommand("setFontSize");
+            }
+            if (imageButton) {
+                imageButton.disabled = !ready;
+            }
+        }
+
+        function renderToolbarSurface() {
+            if (!toolbarSurface) {
+                return;
+            }
+            const fontOptions = DOC_FONT_OPTIONS.map((option) => (
+                "<option value=\"" + option.key.replaceAll("\"", "&quot;") + "\">" + option.label + "</option>"
+            )).join("");
+            const sizeOptions = DOC_FONT_SIZE_OPTIONS.map((option) => (
+                "<option value=\"" + option + "\">" + option + "</option>"
+            )).join("");
+            toolbarSurface.hidden = false;
+            toolbarSurface.innerHTML = `
+                <div class="doc-toolbar" aria-label="Formatting toolbar">
+                    <div class="doc-toolbar-group">
+                        <label class="doc-toolbar-field">
+                            <span class="doc-toolbar-label">Style</span>
+                            <select class="doc-toolbar-select" id="docToolbarStyle">
+                                <option value="paragraph">Normal</option>
+                                <option value="heading1">Heading 1</option>
+                                <option value="heading2">Heading 2</option>
+                            </select>
+                        </label>
+                        <label class="doc-toolbar-field">
+                            <span class="doc-toolbar-label">Font</span>
+                            <select class="doc-toolbar-select" id="docToolbarFont">
+                                ${fontOptions}
+                            </select>
+                        </label>
+                        <label class="doc-toolbar-field doc-toolbar-field-size">
+                            <span class="doc-toolbar-label">Size</span>
+                            <select class="doc-toolbar-select" id="docToolbarFontSize">
+                                ${sizeOptions}
+                            </select>
+                        </label>
+                    </div>
+                    <div class="doc-toolbar-group">
+                        <button type="button" class="doc-toolbar-button" data-doc-command="undo" title="Undo">Undo</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="redo" title="Redo">Redo</button>
+                    </div>
+                    <div class="doc-toolbar-group">
+                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleBold" data-variant="text" title="Bold">B</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleItalic" data-variant="text" title="Italic">I</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleUnderline" data-variant="text" title="Underline">U</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="clearFormat" data-variant="wide" title="Clear formatting">Clear</button>
+                    </div>
+                    <div class="doc-toolbar-group">
+                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleBulletList" title="Bulleted list">Bullets</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleOrderedList" title="Numbered list">Numbers</button>
+                    </div>
+                    <div class="doc-toolbar-group">
+                        <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="left" title="Align left">Left</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="center" title="Align center">Center</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="right" title="Align right">Right</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="justify" title="Justify text">Justify</button>
+                    </div>
+                    <div class="doc-toolbar-group">
+                        <button type="button" class="doc-toolbar-button" id="docToolbarInsertImage" data-doc-action="insert-image" title="Insert image">Image</button>
+                        <button type="button" class="doc-toolbar-button" data-doc-command="insertTable" title="Insert table">Table</button>
+                    </div>
+                </div>
+            `;
+
+            toolbarSurface.onclick = (event) => {
+                const target = event.target instanceof Element
+                    ? event.target.closest("button[data-doc-command], button[data-doc-action]")
+                    : null;
+                if (!target || target.disabled) {
+                    return;
+                }
+                Promise.resolve().then(() => {
+                    if (target.getAttribute("data-doc-action") === "insert-image") {
+                        imageInput?.click();
+                        return;
+                    }
+                    const commandName = target.getAttribute("data-doc-command");
+                    if (!commandName) {
+                        return;
+                    }
+                    if (commandName === "insertTable") {
+                        return callEditorCommand(commandName, {
+                            rows: 3,
+                            cols: 3,
+                            withHeaderRow: true,
+                        });
+                    }
+                    const commandArg = target.getAttribute("data-doc-command-arg");
+                    return commandArg == null
+                        ? callEditorCommand(commandName)
+                        : callEditorCommand(commandName, commandArg);
+                }).catch((error) => {
+                    setStatus(error.message || "Toolbar action failed", "error");
+                });
+            };
+
+            toolbarSurface.onchange = (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLSelectElement)) {
+                    return;
+                }
+                Promise.resolve().then(() => {
+                    if (target.id === "docToolbarStyle") {
+                        return applyToolbarStyle(target.value);
+                    }
+                    if (target.id === "docToolbarFont") {
+                        return callEditorCommand("setFontFamily", target.value);
+                    }
+                    if (target.id === "docToolbarFontSize") {
+                        return callEditorCommand("setFontSize", target.value);
+                    }
+                }).catch((error) => {
+                    setStatus(error.message || "Toolbar action failed", "error");
+                });
+            };
+
+            refreshToolbarAvailability();
         }
 
         function closeMenus() {
@@ -1321,8 +1643,12 @@
                 editorSurface.hidden = false;
                 emptyState.hidden = true;
                 if (toolbarSurface) {
-                    toolbarSurface.innerHTML = "";
-                    toolbarSurface.hidden = !showToolbar;
+                    if (showToolbar) {
+                        renderToolbarSurface();
+                    } else {
+                        toolbarSurface.innerHTML = "";
+                        toolbarSurface.hidden = true;
+                    }
                 }
                 const mountNode = createFreshMountNode(mountToken);
                 mountNode.addEventListener("keyup", queuePresenceUpdate);
@@ -1438,11 +1764,7 @@
             async function mountWithSuperEditor(mountNode, fallbackReason) {
                 const SuperEditor = await ensureSuperEditorLoaded();
                 if (isStaleMount()) return;
-
-                if (toolbarSurface) {
-                    toolbarSurface.hidden = true;
-                    toolbarSurface.innerHTML = "";
-                }
+                suppressEditorUpdatesUntil = Date.now() + DOC_MOUNT_UPDATE_SUPPRESSION_MS;
 
                 await new Promise((resolve, reject) => {
                     let settled = false;
@@ -1485,19 +1807,25 @@
                         },
                         onUpdate: (payload = {}) => {
                             const transaction = payload.transaction;
-                            if (isStaleMount() || !editorReady) {
+                            if (isStaleMount() || !editorReady || shouldSuppressEditorUpdates()) {
                                 return;
                             }
-                            if (!transaction || transaction.docChanged !== false) {
-                                documentEditor = instance;
-                                markDirty();
-                                queueSync(false);
+                            const docChanged = Boolean(
+                                (transaction && transaction.docChanged === true) ||
+                                payload.docChanged === true
+                            );
+                            if (!docChanged) {
+                                return;
                             }
+                            documentEditor = instance;
+                            markDirty();
+                            queueSync(false);
                         },
                         onSelectionUpdate: () => {
                             if (isStaleMount()) {
                                 return;
                             }
+                            refreshToolbarAvailability();
                             queuePresenceUpdate();
                         },
                         onContentError: (payload = {}) => {
@@ -1509,13 +1837,14 @@
                                 return;
                             }
                             proofingStatus.textContent = fallbackReason
-                                ? "Compatibility editor is ready while the full ribbon integration is stabilized."
-                                : "Document layout is ready.";
+                                ? "Compatibility editor is ready with the InkDrop formatting toolbar."
+                                : "Document layout and formatting toolbar are ready.";
                         },
                         onDestroy: () => {
                             if (documentEditor === instance) {
                                 documentEditor = null;
                                 editorReady = false;
+                                refreshToolbarAvailability();
                             }
                         },
                     };
@@ -1536,9 +1865,11 @@
                             }
                             documentEditor = instance;
                             editorReady = true;
+                            suppressEditorUpdatesUntil = Date.now() + DOC_MOUNT_UPDATE_SUPPRESSION_MS;
                             setStatus("Ready", "live");
+                            refreshToolbarAvailability();
                             proofingStatus.textContent = fallbackReason
-                                ? "Compatibility editor is ready while the full ribbon integration is stabilized."
+                                ? "Compatibility editor is ready with the InkDrop formatting toolbar."
                                 : "Document editor is ready.";
                             if (fallbackReason) {
                                 docLog("warn", "SuperEditor fallback engaged", {
@@ -1562,32 +1893,42 @@
             proofingStatus.textContent = "Loading document engine…";
             await new Promise((resolve) => requestAnimationFrame(resolve));
 
-            try {
-                const superDocMountNode = prepareSurface(true);
-                docLog("debug", "mountDocument mount node prepared", {
-                    mountToken,
-                    mountNodeID: superDocMountNode.id,
-                    engine: "superdoc",
-                });
-                await mountWithSuperDoc(superDocMountNode);
-            } catch (superDocError) {
-                if (isStaleMount()) {
-                    return;
+            if (ENABLE_SUPERDOC) {
+                try {
+                    const superDocMountNode = prepareSurface(true);
+                    docLog("debug", "mountDocument mount node prepared", {
+                        mountToken,
+                        mountNodeID: superDocMountNode.id,
+                        engine: "superdoc",
+                    });
+                    await mountWithSuperDoc(superDocMountNode);
+                } catch (superDocError) {
+                    if (isStaleMount()) {
+                        return;
+                    }
+                    docLog("warn", "SuperDoc mount failed; falling back to SuperEditor", {
+                        mountToken,
+                        error: superDocError instanceof Error ? superDocError.message : String(superDocError),
+                    });
+                    superdocInstance = null;
+                    documentEditor = null;
+                    editorReady = false;
+                    const fallbackMountNode = prepareSurface(true);
+                    docLog("debug", "mountDocument mount node prepared", {
+                        mountToken,
+                        mountNodeID: fallbackMountNode.id,
+                        engine: "supereditor",
+                    });
+                    await mountWithSuperEditor(fallbackMountNode, superDocError);
                 }
-                docLog("warn", "SuperDoc mount failed; falling back to SuperEditor", {
-                    mountToken,
-                    error: superDocError instanceof Error ? superDocError.message : String(superDocError),
-                });
-                superdocInstance = null;
-                documentEditor = null;
-                editorReady = false;
-                const fallbackMountNode = prepareSurface(false);
+            } else {
+                const mountNode = prepareSurface(true);
                 docLog("debug", "mountDocument mount node prepared", {
                     mountToken,
-                    mountNodeID: fallbackMountNode.id,
+                    mountNodeID: mountNode.id,
                     engine: "supereditor",
                 });
-                await mountWithSuperEditor(fallbackMountNode, superDocError);
+                await mountWithSuperEditor(mountNode);
             }
 
             docLog("info", "mountDocument resolved", docStateSnapshot({
@@ -1684,6 +2025,21 @@
             });
         }
 
+        async function processPendingRemoteSnapshot() {
+            if (!pendingRemoteFileURL || dirty || syncInFlight || remoteReloadInFlight) {
+                return;
+            }
+            const nextFileURL = pendingRemoteFileURL;
+            const nextSavedAt = pendingRemoteSavedAt;
+            const nextVersion = pendingRemoteVersion;
+            const nextExternal = pendingRemoteExternal;
+            clearPendingRemoteSnapshot();
+            if (!nextFileURL || nextVersion <= currentVersion) {
+                return;
+            }
+            await reloadRemoteDocument(nextFileURL, nextSavedAt, nextVersion, nextExternal);
+        }
+
         async function flushSync() {
             if (!config.editable || disconnecting) {
                 return Promise.resolve();
@@ -1725,6 +2081,9 @@
                     });
                     dirty = false;
                     currentVersion = Number(payload.version || currentVersion);
+                    if (payload.fileUrl) {
+                        currentDocumentSource = payload.fileUrl;
+                    }
                     if (payload.path) {
                         pathLabel.textContent = payload.path;
                     }
@@ -1753,7 +2112,11 @@
                     if (syncQueued) {
                         syncQueued = false;
                         flushSync();
+                        return;
                     }
+                    processPendingRemoteSnapshot().catch((error) => {
+                        console.warn("InkDrop deferred remote reload failed", error);
+                    });
                 });
 
             return currentSyncPromise;
@@ -1776,7 +2139,7 @@
             pendingSyncTimer = setTimeout(() => {
                 pendingSyncTimer = null;
                 flushSync();
-            }, 120);
+            }, DOC_SYNC_DEBOUNCE_MS);
             return Promise.resolve();
         }
 
@@ -1792,26 +2155,40 @@
         }
 
         async function reloadRemoteDocument(fileURL, savedAt, version, external) {
+            const incomingVersion = Number(version || 0);
             if (!fileURL) return;
-            if (dirty || syncInFlight) {
-                pendingRemoteFileURL = fileURL;
-                setStatus("Remote changes waiting for save", "busy");
+            if (incomingVersion <= currentVersion) {
+                currentDocumentSource = fileURL;
+                return;
+            }
+            if (dirty || syncInFlight || remoteReloadInFlight) {
+                setPendingRemoteSnapshot(fileURL, savedAt, incomingVersion, external);
+                setStatus(dirty || syncInFlight ? "Remote changes waiting for save" : "Remote changes queued", "busy");
                 docLog("warn", "Remote document reload deferred", {
                     fileURL,
-                    version,
+                    version: incomingVersion,
                     external,
                 });
                 return;
             }
-            docLog("info", "Reloading remote document", {
-                fileURL,
-                version,
-                external,
-            });
-            await mountDocument(fileURL);
-            currentVersion = Math.max(currentVersion, Number(version || 0));
-            setSaveState("saved", Number(savedAt || 0));
-            setStatus(external ? "External change synced" : "Remote change synced", "live");
+            remoteReloadInFlight = true;
+            try {
+                docLog("info", "Reloading remote document", {
+                    fileURL,
+                    version: incomingVersion,
+                    external,
+                });
+                await mountDocument(fileURL);
+                currentDocumentSource = fileURL;
+                currentVersion = Math.max(currentVersion, incomingVersion);
+                setSaveState("saved", Number(savedAt || 0));
+                setStatus(external ? "External change synced" : "Remote change synced", "live");
+            } finally {
+                remoteReloadInFlight = false;
+                processPendingRemoteSnapshot().catch((error) => {
+                    console.warn("InkDrop queued remote reload failed", error);
+                });
+            }
         }
 
         function connectStream() {
@@ -1822,6 +2199,7 @@
             });
             eventSource = new EventSource(config.streamURL + "&client=" + encodeURIComponent(clientId));
             eventSource.onopen = () => {
+                eventStreamConnected = true;
                 docLog("info", "Document event stream open", {
                     clientId,
                 });
@@ -1863,17 +2241,21 @@
                 }
             };
             eventSource.onerror = () => {
+                eventStreamConnected = false;
                 docLog("warn", "Document event stream error");
                 setStatus("Reconnecting…", "busy");
             };
         }
 
         function startSnapshotPolling() {
+            if (snapshotPollTimer) {
+                clearInterval(snapshotPollTimer);
+            }
             docLog("info", "Starting snapshot polling", {
-                intervalMS: 900,
+                intervalMS: DOC_REMOTE_POLL_INTERVAL_MS,
             });
             snapshotPollTimer = setInterval(() => {
-                if (dirty || syncInFlight) return;
+                if (eventStreamConnected || dirty || syncInFlight || remoteReloadInFlight) return;
                 requestJSON(config.loadURL, {
                     cache: "no-store",
                     credentials: "same-origin",
@@ -1898,7 +2280,7 @@
                         currentVersion = Math.max(currentVersion, Number(payload.version || 0));
                     }
                 }).catch(() => {});
-            }, 900);
+            }, DOC_REMOTE_POLL_INTERVAL_MS);
         }
 
         function downloadBlob(blob, fileName) {
@@ -1932,18 +2314,19 @@
         }
 
         function triggerFind() {
-            if (!superdocInstance || typeof superdocInstance.search !== "function" || typeof superdocInstance.goToSearchResult !== "function") {
+            const editor = getActiveEditor();
+            if (!editor || !editor.commands || typeof editor.commands.search !== "function" || typeof editor.commands.goToSearchResult !== "function") {
                 setStatus("Find is not available in this editor build", "error");
                 return;
             }
             const query = window.prompt("Find text");
             if (!query) return;
-            const results = superdocInstance.search(query) || [];
+            const results = editor.commands.search(query) || [];
             if (!results.length) {
                 setStatus("No matches found", "busy");
                 return;
             }
-            superdocInstance.goToSearchResult(results[0]);
+            editor.commands.goToSearchResult(results[0]);
             setStatus(results.length + " match" + (results.length === 1 ? "" : "es") + " found", "live");
         }
 
@@ -1977,9 +2360,19 @@
             disconnecting = true;
             if (pendingSyncTimer) clearTimeout(pendingSyncTimer);
             if (pendingPresenceTimer) clearTimeout(pendingPresenceTimer);
-            if (snapshotPollTimer) clearInterval(snapshotPollTimer);
-            if (presenceTimer) clearInterval(presenceTimer);
-            if (eventSource) eventSource.close();
+            if (snapshotPollTimer) {
+                clearInterval(snapshotPollTimer);
+                snapshotPollTimer = null;
+            }
+            if (presenceTimer) {
+                clearInterval(presenceTimer);
+                presenceTimer = null;
+            }
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            eventStreamConnected = false;
             fetch(config.syncURL, {
                 method: "POST",
                 credentials: "same-origin",
