@@ -4,7 +4,7 @@ A comprehensive ecosystem for managing, distributing, and collaboratively editin
 
 **Version:** 3.0  
 **Author:** Quan Thai  
-**License:** MIT + Commons Clause  
+**License:** MIT License with Commons Clause condition  
 **Copyright:** © 2026 Quan Thai
 
 ---
@@ -1004,7 +1004,7 @@ ftr get myuser/myrepo
 
 ## License
 
-### MIT License + Commons Clause
+### MIT License with Commons Clause Condition
 
 The FtR Project is dual-licensed under:
 
@@ -1016,6 +1016,7 @@ Allowed:
 - Use FtR for personal projects
 - Modify and improve the code
 - Use FtR in commercial products (for internal tools)
+
 Not Allowed:
 - Sell the FtR software itself
 - Offer FtR as a commercial service
@@ -1156,4 +1157,4 @@ Together, they create a modern, efficient, and secure package distribution and c
 - Issues: https://github.com/SQU1DMAN6/web-design/issues
 - Author: Quan Thai
 - Version: 3.0
-- License: MIT + Commons Clause
+- License: MIT License with Commons Clause condition
