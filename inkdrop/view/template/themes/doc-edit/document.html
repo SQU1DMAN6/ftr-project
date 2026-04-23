@@ -4,39 +4,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/assets/root.css">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://esm.sh" crossorigin>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@harbour-enterprises/superdoc/dist/style.css">
     <title>InkDrop - {{ .Title }}</title>
     <style>
         :root {
             --doc-page-bg: linear-gradient(180deg, #e9eef5 0%, #dbe4ef 100%);
-            --doc-panel-bg: rgba(255, 255, 255, 0.9);
+            --doc-page-bg-dark: linear-gradient(180deg, #171c23 0%, #10151b 100%);
+            --doc-panel-bg: #ffffff;
             --doc-stage-bg: #ffffff;
-            --doc-stage-shell: linear-gradient(180deg, #edf3fb 0%, #e2ebf6 100%);
+            --doc-stage-shell: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
             --doc-border: rgba(15, 23, 42, 0.1);
             --doc-muted: #526172;
             --doc-strong: #102033;
             --doc-surface-shadow: 0 26px 70px rgba(15, 23, 42, 0.12);
-            --doc-rail-bg: rgba(255, 255, 255, 0.82);
-            --doc-drawer-bg: rgba(255, 255, 255, 0.92);
-            --doc-action-bg: rgba(15, 23, 42, 0.04);
+            --doc-rail-bg: rgba(255, 255, 255, 0.94);
+            --doc-drawer-bg: rgba(255, 255, 255, 0.97);
+            --doc-action-bg: rgba(15, 23, 42, 0.035);
+            --doc-menu-hover: #e9f0fa;
+            --toolbar-height: 40px;
+            --toolbar-bg: #ffffff;
+            --toolbar-border: rgba(15, 23, 42, 0.08);
+            --toolbar-button-size: 30px;
+            --toolbar-button-hover: #edf4ff;
+            --toolbar-button-active: #dbeafe;
         }
 
         html[data-theme="dark"] {
-            --doc-page-bg: linear-gradient(180deg, #171c23 0%, #10151b 100%);
-            --doc-panel-bg: rgba(28, 34, 43, 0.88);
-            --doc-stage-bg: #2a313b;
-            --doc-stage-shell: linear-gradient(180deg, #1f2630 0%, #171d25 100%);
-            --doc-border: rgba(148, 163, 184, 0.18);
-            --doc-muted: #aab9c8;
-            --doc-strong: #edf3fb;
-            --doc-surface-shadow: 0 32px 80px rgba(0, 0, 0, 0.38);
-            --doc-rail-bg: rgba(23, 29, 37, 0.88);
-            --doc-drawer-bg: rgba(22, 27, 35, 0.94);
-            --doc-action-bg: rgba(255, 255, 255, 0.08);
+            --doc-page-bg: var(--doc-page-bg-dark);
         }
 
         body {
             background: var(--doc-page-bg);
+            color: var(--doc-strong);
             height: 100vh;
             overflow: hidden;
         }
@@ -44,7 +45,7 @@
         .page {
             max-width: none;
             height: 100vh;
-            padding: 12px;
+            padding: 10px;
             overflow: hidden;
         }
 
@@ -54,26 +55,25 @@
             height: 100%;
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 10px;
         }
 
         .doc-commandbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 14px;
-            padding: 10px 14px;
-            border-radius: 18px;
+            gap: 10px;
+            padding: 7px 12px;
+            border-radius: 14px;
             border: 1px solid var(--doc-border);
             background: var(--doc-panel-bg);
-            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-            backdrop-filter: blur(20px);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
         }
 
         .doc-titleblock {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             min-width: 0;
         }
 
@@ -91,7 +91,7 @@
         }
 
         .doc-filemeta h1 {
-            font-size: 1rem;
+            font-size: 0.96rem;
             line-height: 1.2;
             color: var(--doc-strong);
             white-space: nowrap;
@@ -100,7 +100,7 @@
         }
 
         .doc-filemeta p {
-            font-size: 0.82rem;
+            font-size: 0.78rem;
             color: var(--doc-muted);
             white-space: nowrap;
             overflow: hidden;
@@ -108,11 +108,91 @@
         }
 
         .doc-command-actions {
-            display: grid;
-            grid-auto-flow: column;
-            grid-auto-columns: max-content;
-            gap: 8px;
-            align-items: start;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .doc-menubar {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0 6px;
+            min-height: 34px;
+            border-radius: 14px;
+            border: 1px solid var(--doc-border);
+            background: rgba(255, 255, 255, 0.92);
+        }
+
+        .doc-menu {
+            position: relative;
+        }
+
+        .doc-menu-trigger,
+        .doc-menu-item {
+            border: 0;
+            background: transparent;
+            color: var(--doc-strong);
+            font: inherit;
+            font-size: 0.84rem;
+            line-height: 1.2;
+            cursor: pointer;
+        }
+
+        .doc-menu-trigger {
+            padding: 6px 10px;
+            border-radius: 10px;
+        }
+
+        .doc-menu-trigger:hover,
+        .doc-menu-trigger[aria-expanded="true"],
+        .doc-menu-item:hover {
+            background: var(--doc-menu-hover);
+        }
+
+        .doc-menu-panel {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            min-width: 190px;
+            padding: 6px;
+            border-radius: 14px;
+            border: 1px solid var(--doc-border);
+            background: #ffffff;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+            z-index: 20;
+        }
+
+        .doc-menu-panel[hidden] {
+            display: none;
+        }
+
+        .doc-menu-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            text-align: left;
+        }
+
+        .doc-menu-item code {
+            color: var(--doc-muted);
+            font-size: 0.76rem;
+        }
+
+        #docToolbarSurface {
+            margin-bottom: 10px;
+            padding: 6px 10px;
+            border-radius: 16px;
+            border: 1px solid color-mix(in srgb, var(--doc-border) 85%, transparent);
+            background: #ffffff;
+            min-height: 54px;
+            overflow: hidden;
         }
 
         .doc-badges {
@@ -193,7 +273,7 @@
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            padding: 16px;
+            padding: 12px;
         }
 
         .doc-stage-chrome {
@@ -201,9 +281,9 @@
             align-items: center;
             justify-content: space-between;
             gap: 10px;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             color: var(--doc-muted);
-            font-size: 0.82rem;
+            font-size: 0.78rem;
         }
 
         #docEditorSurface {
@@ -434,7 +514,8 @@
             background: var(--doc-panel-bg);
             color: var(--doc-strong);
             border-radius: 999px;
-            padding: 8px 12px;
+            padding: 6px 10px;
+            font-size: 0.82rem;
             cursor: pointer;
         }
 
@@ -454,8 +535,7 @@
             }
 
             .doc-command-actions {
-                grid-auto-flow: row;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
+                justify-content: flex-start;
             }
 
             .doc-layout {
@@ -479,6 +559,39 @@
                 max-height: 52vh;
             }
         }
+
+        @media print {
+            body,
+            .page,
+            .shell.doc-shell,
+            .doc-layout,
+            .doc-workbench {
+                height: auto;
+                overflow: visible;
+                background: #ffffff !important;
+                box-shadow: none !important;
+            }
+
+            .doc-commandbar,
+            .doc-menubar,
+            #docToolbarSurface,
+            .doc-stage-chrome,
+            .doc-rail,
+            .doc-drawer {
+                display: none !important;
+            }
+
+            .page {
+                padding: 0;
+            }
+
+            .doc-workbench,
+            #docEditorSurface {
+                border: 0 !important;
+                border-radius: 0 !important;
+                padding: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -493,10 +606,6 @@
                     </div>
                 </div>
                 <div class="doc-command-actions">
-                    <div class="theme-switch" role="group" aria-label="Theme mode">
-                        <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
-                        <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
-                    </div>
                     <button type="button" class="doc-action-button" id="docOpenBtn" {{if not .EditorEditable}}disabled{{end}}>Open</button>
                     <button type="button" class="doc-action-button" id="docSaveAsBtn" {{if not .EditorEditable}}disabled{{end}}>Save As</button>
                     <button type="button" class="doc-action-button" id="docExportBtn" {{if not .EditorEditable}}disabled{{end}}>⤓ DOCX</button>
@@ -504,16 +613,61 @@
                 </div>
             </div>
 
+            <nav class="doc-menubar" aria-label="Document menu">
+                <div class="doc-menu">
+                    <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="file" aria-expanded="false">File</button>
+                    <div class="doc-menu-panel" data-doc-menu-panel="file" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuSaveBtn">Save <code>Ctrl+S</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuSaveAsBtn">Save As <code>Ctrl+Shift+S</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuExportDocxBtn">Export DOCX</button>
+                        <button type="button" class="doc-menu-item" id="docMenuExportPdfBtn">Export PDF</button>
+                        <button type="button" class="doc-menu-item" id="docMenuPrintBtn">Print</button>
+                    </div>
+                </div>
+                <div class="doc-menu">
+                    <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="edit" aria-expanded="false">Edit</button>
+                    <div class="doc-menu-panel" data-doc-menu-panel="edit" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuUndoBtn">Undo <code>Ctrl+Z</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuRedoBtn">Redo <code>Ctrl+Y</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuFindBtn">Find</button>
+                        <button type="button" class="doc-menu-item" id="docMenuClearFormatBtn">Clear Formatting</button>
+                    </div>
+                </div>
+                <div class="doc-menu">
+                    <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="insert" aria-expanded="false">Insert</button>
+                    <div class="doc-menu-panel" data-doc-menu-panel="insert" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuInsertImageBtn">Image</button>
+                        <button type="button" class="doc-menu-item" id="docMenuInsertTableBtn">Table</button>
+                    </div>
+                </div>
+                <div class="doc-menu">
+                    <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="view" aria-expanded="false">View</button>
+                    <div class="doc-menu-panel" data-doc-menu-panel="view" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuStatusBtn">Session Status</button>
+                        <button type="button" class="doc-menu-item" id="docMenuPeopleBtn">Collaborators</button>
+                        <button type="button" class="doc-menu-item" id="docMenuInfoBtn">Document Info</button>
+                    </div>
+                </div>
+                <div class="doc-menu">
+                    <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="format" aria-expanded="false">Format</button>
+                    <div class="doc-menu-panel" data-doc-menu-panel="format" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuBoldBtn">Bold <code>Ctrl+B</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuItalicBtn">Italic <code>Ctrl+I</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuUnderlineBtn">Underline <code>Ctrl+U</code></button>
+                    </div>
+                </div>
+            </nav>
+
             <div class="doc-layout">
                 <div class="doc-workbench">
                     <div class="doc-stage-chrome">
                         <div class="doc-stage-status">
-                            <span class="doc-badge status" id="docStatusBadge" data-state="{{if .EditorEditable}}live{{else}}error{{end}}">{{if .EditorEditable}}Loading…{{else}}Unavailable{{end}}</span>
+                            <span class="doc-badge status" id="docStatusBadge" data-state="{{if .EditorEditable}}live{{else}}error{{end}}">{{if .EditorEditable}}Loading{{else}}Unavailable{{end}}</span>
                             <span class="doc-badge save-state" id="docSaveStateBadge" data-state="saved">Saved</span>
                             <span class="doc-badge" id="docPresenceBadge">1 active</span>
                         </div>
                         <div class="doc-stage-actions">
-                            <span class="subtle" id="docSavedMeta">Waiting for editor…</span>
+                            <span class="subtle" id="docSavedMeta">Loading document…</span>
                         </div>
                     </div>
 
@@ -530,10 +684,11 @@
                     <div class="doc-empty" id="docEmptyState" {{if .EditorEditable}}hidden{{end}}>
                         <div class="stack">
                             <h3 class="section">Document Editor Not Available</h3>
-                            <p>{{if .Error}}Resolve the issue above, then return here from the repository browser.{{else}}This file cannot be opened as a DOCX document right now.{{end}}</p>
+                            <p>{{if .Error}}InkDrop could not start the DOCX editor for this file.{{else}}This file cannot be opened as a DOCX document right now.{{end}}</p>
                         </div>
                     </div>
                     <input type="file" id="docLocalFileInput" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+                    <input type="file" id="docImageInput" accept="image/*" hidden>
                 </div>
 
                 <aside class="doc-rail" aria-label="Document tools">
@@ -600,8 +755,8 @@
                         <section class="doc-panel-card" data-panel="proofing" hidden>
                             <h3>Proofing</h3>
                             <div class="doc-proofing">
-                                <p id="docProofingStatus">Spell and grammar services will attach here as the document surface initializes.</p>
-                                <p class="subtle">Grammarly is treated as an optional client-side integration hook. Browser extension support works best while a dedicated SDK path is finalized.</p>
+                                <p id="docProofingStatus">The document engine is loading.</p>
+                                <p class="subtle">Formatting, review, tables, images, and export controls come from the editor ribbon above the page.</p>
                             </div>
                         </section>
                     </div>
@@ -647,6 +802,7 @@
         const exportButton = document.getElementById("docExportBtn");
         const exportPdfButton = document.getElementById("docExportPdfBtn");
         const localFileInput = document.getElementById("docLocalFileInput");
+        const imageInput = document.getElementById("docImageInput");
         const drawer = document.getElementById("docDrawer");
         const drawerTitle = document.getElementById("docDrawerTitle");
         const drawerSubtitle = document.getElementById("docDrawerSubtitle");
@@ -656,16 +812,34 @@
         const proofRailButton = document.getElementById("docProofRailBtn");
         const hideRailButton = document.getElementById("docHideRailBtn");
         const drawerPanels = document.querySelectorAll("[data-panel]");
+        const menuTriggers = document.querySelectorAll("[data-doc-menu-trigger]");
+        const menuPanels = document.querySelectorAll("[data-doc-menu-panel]");
         const SUPERDOC_INGEST_PREFIX = "https://ingest.superdoc.dev/";
+        const SUPERDOC_MODULE_URL = "https://esm.sh/@harbour-enterprises/superdoc?bundle";
         const SUPEREDITOR_MODULE_URL = "https://esm.sh/@harbour-enterprises/superdoc/super-editor?bundle";
+        const DOC_FONT_OPTIONS = [
+            { label: "Arial", key: "Arial" },
+            { label: "Calibri", key: "Calibri" },
+            { label: "Cambria", key: "Cambria" },
+            { label: "Georgia", key: "Georgia" },
+            { label: "Segoe UI", key: "\"Segoe UI\"" },
+            { label: "Times New Roman", key: "\"Times New Roman\"" },
+            { label: "Verdana", key: "Verdana" },
+        ];
 
+        let SuperDocCtor = null;
         let SuperEditorCtor = null;
+        let superdocInstance = null;
         let documentEditor = null;
         let eventSource = null;
         let snapshotPollTimer = null;
         let presenceTimer = null;
-        let syncTimer = null;
+        let pendingSyncTimer = null;
+        let pendingPresenceTimer = null;
         let syncInFlight = false;
+        let syncQueued = false;
+        let currentSyncPromise = null;
+        let pendingExplicitSave = false;
         let dirty = false;
         let disconnecting = false;
         let editorReady = false;
@@ -798,9 +972,9 @@
             }
             if (resolved === "saving") {
                 saveStateBadge.textContent = "Saving";
-                savedMeta.textContent = "Writing latest DOCX snapshot…";
+                savedMeta.textContent = "Auto-saving changes…";
                 if (savedMetaPanel) {
-                    savedMetaPanel.textContent = "Writing latest DOCX snapshot…";
+                    savedMetaPanel.textContent = "Auto-saving changes…";
                 }
                 docLog("debug", "save state updated", docStateSnapshot({
                     saveState: resolved,
@@ -832,21 +1006,67 @@
         function applyTheme(theme) {
             const value = normalizeTheme(theme);
             document.documentElement.setAttribute("data-theme", value);
-            document.querySelectorAll("[data-theme-set]").forEach((button) => {
-                button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-set") === value));
-            });
         }
 
         function initTheme() {
             const stored = localStorage.getItem(themeKey);
             applyTheme(stored === "dark" || stored === "light" ? stored : "light");
-            document.querySelectorAll("[data-theme-set]").forEach((button) => {
-                button.addEventListener("click", () => {
-                    const theme = normalizeTheme(button.getAttribute("data-theme-set"));
-                    applyTheme(theme);
-                    localStorage.setItem(themeKey, theme);
-                });
+        }
+
+        function getDocumentBaseName() {
+            return (config.fileName || "document").replace(/\.docx$/i, "");
+        }
+
+        function getActiveEditor() {
+            if (superdocInstance && superdocInstance.activeEditor) {
+                return superdocInstance.activeEditor;
+            }
+            return documentEditor;
+        }
+
+        function requireActiveEditor() {
+            const editor = getActiveEditor();
+            if (!editor) {
+                throw new Error("Document editor is not ready yet");
+            }
+            return editor;
+        }
+
+        function closeMenus() {
+            menuTriggers.forEach((trigger) => {
+                trigger.setAttribute("aria-expanded", "false");
             });
+            menuPanels.forEach((panel) => {
+                panel.hidden = true;
+            });
+        }
+
+        function toggleMenu(menuName) {
+            const targetPanel = document.querySelector("[data-doc-menu-panel=\"" + menuName + "\"]");
+            const targetTrigger = document.querySelector("[data-doc-menu-trigger=\"" + menuName + "\"]");
+            if (!targetPanel || !targetTrigger) return;
+            const willOpen = targetPanel.hidden;
+            closeMenus();
+            targetPanel.hidden = !willOpen;
+            targetTrigger.setAttribute("aria-expanded", String(willOpen));
+        }
+
+        function fileToDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ""));
+                reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function callEditorCommand(commandName, ...args) {
+            const editor = requireActiveEditor();
+            const command = editor.commands && editor.commands[commandName];
+            if (typeof command !== "function") {
+                throw new Error(commandName + " is not available in this editor build");
+            }
+            return command(...args);
         }
 
         function installSuperDocTelemetryBlockers() {
@@ -887,6 +1107,34 @@
                     navigator.sendBeacon = wrappedSendBeacon;
                 }
             } catch (_) {}
+        }
+
+        async function ensureSuperDocLoaded() {
+            if (SuperDocCtor) {
+                docLog("debug", "SuperDoc constructor reused");
+                return SuperDocCtor;
+            }
+            docLog("info", "Loading SuperDoc module", {
+                moduleURL: SUPERDOC_MODULE_URL,
+            });
+            installSuperDocTelemetryBlockers();
+            const module = await import(SUPERDOC_MODULE_URL);
+            const ctor = module && (
+                module.SuperDoc ||
+                (module.default && module.default.SuperDoc) ||
+                module.default
+            );
+            if (typeof ctor === "function") {
+                SuperDocCtor = ctor;
+                docLog("info", "SuperDoc module loaded", {
+                    exportedKeys: Object.keys(module || {}),
+                });
+                return SuperDocCtor;
+            }
+            docLog("error", "SuperDoc module did not expose a constructor", {
+                exportedKeys: Object.keys(module || {}),
+            });
+            throw new Error("SuperDoc failed to load");
         }
 
         async function ensureSuperEditorLoaded() {
@@ -933,7 +1181,7 @@
                 return;
             }
             try {
-                docLog("debug", "Destroying document editor instance");
+                docLog("debug", "Destroying document surface instance");
                 instance.destroy();
             } catch (error) {
                 console.warn("InkDrop document editor destroy failed", error);
@@ -1019,7 +1267,10 @@
 
         async function mountDocument(documentSource) {
             const mountToken = ++activeMountToken;
-            const SuperEditor = await ensureSuperEditorLoaded();
+            const source = resolveDocumentSource(documentSource);
+            if (!source) {
+                throw new Error("Unsupported document source");
+            }
             if (mountToken !== activeMountToken) {
                 docLog("warn", "mountDocument aborted because a newer mount token is active", {
                     mountToken,
@@ -1027,6 +1278,7 @@
                 });
                 return;
             }
+
             currentDocumentSource = documentSource;
             editorReady = false;
             docLog("info", "mountDocument start", docStateSnapshot({
@@ -1050,189 +1302,333 @@
                 throw new Error("Editor surface element (#docEditorSurface) not found in DOM");
             }
 
-            const previousInstance = documentEditor;
+            const previousSuperDoc = superdocInstance;
+            const previousEditor = documentEditor;
+            superdocInstance = null;
             documentEditor = null;
-            destroyDocumentEditorInstance(previousInstance);
-            editorSurface.hidden = false;
-            emptyState.hidden = true;
-            if (toolbarSurface) {
-                toolbarSurface.hidden = true;
-                toolbarSurface.innerHTML = "";
+            if (previousSuperDoc) {
+                destroyDocumentEditorInstance(previousSuperDoc);
             }
-            const mountNode = createFreshMountNode(mountToken);
-            setStatus("Loading…", "busy");
-            proofingStatus.textContent = "Starting document engine…";
-            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-            docLog("debug", "mountDocument mount node prepared", {
-                mountToken,
-                mountNodeID: mountNode.id,
-            });
+            if (previousEditor && (!previousSuperDoc || previousEditor !== previousSuperDoc.activeEditor)) {
+                destroyDocumentEditorInstance(previousEditor);
+            }
 
-            await new Promise((resolve, reject) => {
-                let settled = false;
-                let timeoutID = 0;
-                let instance = null;
-                const mountOptions = {
-                    element: mountNode,
-                    mode: "docx",
-                    documentMode: config.editable ? "editing" : "viewing",
-                    editable: Boolean(config.editable),
-                    pagination: true,
-                    documentId: config.filePath || config.fileName || ("inkdrop-doc-" + clientId),
-                    user: {
-                        name: config.name || "InkDrop User",
-                        email: "inkdrop+" + clientId + "@local.invalid",
-                    },
-                    onUpdate: (payload = {}) => {
-                        const transaction = payload.transaction;
-                        if (isStaleMount() || !editorReady) {
-                            return;
-                        }
-                        if (!transaction || transaction.docChanged !== false) {
-                            docLog("debug", "SuperEditor onUpdate docChanged", {
-                                mountToken,
-                                docChanged: transaction ? transaction.docChanged : null,
-                            });
-                            markDirty();
-                        }
-                    },
-                    onSelectionUpdate: () => {
-                        if (isStaleMount()) {
-                            return;
-                        }
-                        docLog("debug", "SuperEditor selection updated", {
-                            mountToken,
-                        });
-                        queuePresenceUpdate();
-                    },
-                    onContentError: (payload = {}) => {
-                        const error = payload.error;
-                        if (isStaleMount()) {
-                            destroyDocumentEditorInstance(instance);
-                            return;
-                        }
-                        docLog("error", "SuperEditor onContentError fired", {
-                            mountToken,
-                            error: error ? String(error.message || error) : "unknown content error",
-                        });
-                        finishReject(error || new Error("The DOCX engine could not load this file"));
-                    },
-                    onFirstRender: () => {
-                        if (isStaleMount()) {
-                            return;
-                        }
-                        docLog("info", "SuperEditor first render", {
-                            mountToken,
-                        });
-                        proofingStatus.textContent = "Document layout is ready. InkDrop save/export controls are live.";
-                    },
-                    onDestroy: () => {
-                        docLog("warn", "SuperEditor onDestroy fired", {
-                            mountToken,
-                            wasActiveInstance: documentEditor === instance,
-                        });
-                        if (documentEditor === instance) {
-                            documentEditor = null;
-                            editorReady = false;
-                        }
-                    },
-                };
+            function isStaleMount() {
+                return mountToken !== activeMountToken;
+            }
 
-                function isStaleMount() {
-                    return mountToken !== activeMountToken;
+            function prepareSurface(showToolbar) {
+                editorSurface.hidden = false;
+                emptyState.hidden = true;
+                if (toolbarSurface) {
+                    toolbarSurface.innerHTML = "";
+                    toolbarSurface.hidden = !showToolbar;
                 }
+                const mountNode = createFreshMountNode(mountToken);
+                mountNode.addEventListener("keyup", queuePresenceUpdate);
+                mountNode.addEventListener("mouseup", queuePresenceUpdate);
+                return mountNode;
+            }
 
-                function finishResolve() {
-                    if (settled) return;
-                    settled = true;
-                    if (timeoutID) {
-                        window.clearTimeout(timeoutID);
-                    }
-                    docLog("info", "mountDocument resolved", docStateSnapshot({
-                        mountToken,
-                    }));
-                    resolve();
-                }
+            async function mountWithSuperDoc(mountNode) {
+                const SuperDoc = await ensureSuperDocLoaded();
+                if (isStaleMount()) return;
 
-                function finishReject(error) {
-                    if (settled) return;
-                    settled = true;
-                    if (timeoutID) {
+                await new Promise((resolve, reject) => {
+                    let settled = false;
+                    let timeoutID = 0;
+                    let instance = null;
+
+                    function finishResolve() {
+                        if (settled) return;
+                        settled = true;
                         window.clearTimeout(timeoutID);
+                        resolve();
                     }
-                    destroyDocumentEditorInstance(instance);
-                    if (documentEditor === instance) {
+
+                    function finishReject(error) {
+                        if (settled) return;
+                        settled = true;
+                        window.clearTimeout(timeoutID);
+                        destroyDocumentEditorInstance(instance);
+                        if (superdocInstance === instance) {
+                            superdocInstance = null;
+                        }
                         documentEditor = null;
+                        editorReady = false;
+                        reject(error instanceof Error ? error : new Error(String(error || "SuperDoc initialization failed")));
                     }
-                    docLog("error", "mountDocument rejected", docStateSnapshot({
-                        mountToken,
-                        error: error instanceof Error ? error.message : String(error || "Document load failed"),
-                    }));
-                    reject(error instanceof Error ? error : new Error(String(error || "Document load failed")));
-                }
 
-                timeoutID = window.setTimeout(() => {
-                    docLog("error", "mountDocument timed out", {
-                        mountToken,
-                    });
-                    finishReject(new Error("Document engine did not finish initializing"));
-                }, 30000);
+                    timeoutID = window.setTimeout(() => {
+                        finishReject(new Error("SuperDoc did not become ready"));
+                    }, 8000);
 
-                Promise.resolve()
-                    .then(async () => {
-                        const source = resolveDocumentSource(documentSource);
-                        if (!source) {
-                            throw new Error("Unsupported document source");
-                        }
-                        docLog("info", "Calling SuperEditor.open", {
+                    try {
+                        docLog("info", "Creating SuperDoc instance", {
                             mountToken,
                             hasSource: Boolean(source),
                             mountNodeID: mountNode.id,
-                            documentMode: mountOptions.documentMode,
-                            editable: mountOptions.editable,
+                            mountSelector: "#" + mountNode.id,
+                            editable: Boolean(config.editable),
                         });
-                        instance = await SuperEditor.open(source, mountOptions);
+                        instance = new SuperDoc({
+                            selector: "#" + mountNode.id,
+                            document: source,
+                            toolbar: "#docToolbarSurface",
+                            title: config.fileName || "Document",
+                            user: {
+                                name: config.name || "InkDrop User",
+                                email: "inkdrop+" + clientId + "@local.invalid",
+                            },
+                            role: config.editable ? "editor" : "viewer",
+                            documentMode: config.editable ? "editing" : "viewing",
+                            viewOptions: {
+                                layout: "print",
+                            },
+                            rulers: true,
+                            handleImageUpload: async (file) => fileToDataURL(file),
+                            onEditorCreate: ({ editor }) => {
+                                if (isStaleMount()) return;
+                                documentEditor = editor;
+                                docLog("info", "SuperDoc editor created", {
+                                    mountToken,
+                                });
+                            },
+                            onEditorUpdate: ({ editor }) => {
+                                if (isStaleMount() || !editorReady) {
+                                    return;
+                                }
+                                documentEditor = editor;
+                                markDirty();
+                                queueSync(false);
+                            },
+                            onReady: ({ superdoc }) => {
+                                if (isStaleMount()) {
+                                    destroyDocumentEditorInstance(superdoc || instance);
+                                    return;
+                                }
+                                superdocInstance = superdoc || instance;
+                                documentEditor = getActiveEditor();
+                                editorReady = true;
+                                setStatus("Ready", "live");
+                                proofingStatus.textContent = "Ribbon and document surface are ready.";
+                                queuePresenceUpdate();
+                                docLog("info", "SuperDoc ready", {
+                                    mountToken,
+                                    hasToolbar: Boolean(toolbarSurface && !toolbarSurface.hidden),
+                                });
+                                finishResolve();
+                            },
+                            onException: ({ error }) => {
+                                if (isStaleMount()) return;
+                                finishReject(error || new Error("SuperDoc could not load this document"));
+                            },
+                        });
                         if (isStaleMount()) {
                             destroyDocumentEditorInstance(instance);
                             return;
                         }
-                        documentEditor = instance;
-                        editorReady = true;
-                        setStatus("Live", "live");
-                        proofingStatus.textContent = "Document editor is ready. InkDrop save/export controls are live.";
-                        docLog("info", "SuperEditor.open resolved", {
-                            mountToken,
-                            instanceKeys: Object.keys(instance || {}),
-                        });
-                        finishResolve();
-                    })
-                    .catch((error) => {
-                        if (isStaleMount()) {
-                            destroyDocumentEditorInstance(instance);
-                            return;
+                        superdocInstance = instance;
+                    } catch (error) {
+                        finishReject(error);
+                    }
+                });
+            }
+
+            async function mountWithSuperEditor(mountNode, fallbackReason) {
+                const SuperEditor = await ensureSuperEditorLoaded();
+                if (isStaleMount()) return;
+
+                if (toolbarSurface) {
+                    toolbarSurface.hidden = true;
+                    toolbarSurface.innerHTML = "";
+                }
+
+                await new Promise((resolve, reject) => {
+                    let settled = false;
+                    let timeoutID = 0;
+                    let instance = null;
+
+                    function finishResolve() {
+                        if (settled) return;
+                        settled = true;
+                        window.clearTimeout(timeoutID);
+                        resolve();
+                    }
+
+                    function finishReject(error) {
+                        if (settled) return;
+                        settled = true;
+                        window.clearTimeout(timeoutID);
+                        destroyDocumentEditorInstance(instance);
+                        if (documentEditor === instance) {
+                            documentEditor = null;
                         }
-                        docLog("error", "SuperEditor.open threw", {
-                            mountToken,
-                            error: error instanceof Error ? error.message : String(error),
-                            stack: error && error.stack ? error.stack : null,
+                        editorReady = false;
+                        reject(error instanceof Error ? error : new Error(String(error || "SuperEditor initialization failed")));
+                    }
+
+                    timeoutID = window.setTimeout(() => {
+                        finishReject(new Error("SuperEditor did not become ready"));
+                    }, 30000);
+
+                    const mountOptions = {
+                        element: mountNode,
+                        mode: "docx",
+                        documentMode: config.editable ? "editing" : "viewing",
+                        editable: Boolean(config.editable),
+                        pagination: true,
+                        documentId: config.filePath || config.fileName || ("inkdrop-doc-" + clientId),
+                        user: {
+                            name: config.name || "InkDrop User",
+                            email: "inkdrop+" + clientId + "@local.invalid",
+                        },
+                        onUpdate: (payload = {}) => {
+                            const transaction = payload.transaction;
+                            if (isStaleMount() || !editorReady) {
+                                return;
+                            }
+                            if (!transaction || transaction.docChanged !== false) {
+                                documentEditor = instance;
+                                markDirty();
+                                queueSync(false);
+                            }
+                        },
+                        onSelectionUpdate: () => {
+                            if (isStaleMount()) {
+                                return;
+                            }
+                            queuePresenceUpdate();
+                        },
+                        onContentError: (payload = {}) => {
+                            if (isStaleMount()) return;
+                            finishReject(payload.error || new Error("The DOCX engine could not load this file"));
+                        },
+                        onFirstRender: () => {
+                            if (isStaleMount()) {
+                                return;
+                            }
+                            proofingStatus.textContent = fallbackReason
+                                ? "Compatibility editor is ready while the full ribbon integration is stabilized."
+                                : "Document layout is ready.";
+                        },
+                        onDestroy: () => {
+                            if (documentEditor === instance) {
+                                documentEditor = null;
+                                editorReady = false;
+                            }
+                        },
+                    };
+
+                    Promise.resolve()
+                        .then(async () => {
+                            docLog("info", "Calling SuperEditor.open", {
+                                mountToken,
+                                hasSource: Boolean(source),
+                                mountNodeID: mountNode.id,
+                                documentMode: mountOptions.documentMode,
+                                editable: mountOptions.editable,
+                            });
+                            instance = await SuperEditor.open(source, mountOptions);
+                            if (isStaleMount()) {
+                                destroyDocumentEditorInstance(instance);
+                                return;
+                            }
+                            documentEditor = instance;
+                            editorReady = true;
+                            setStatus("Ready", "live");
+                            proofingStatus.textContent = fallbackReason
+                                ? "Compatibility editor is ready while the full ribbon integration is stabilized."
+                                : "Document editor is ready.";
+                            if (fallbackReason) {
+                                docLog("warn", "SuperEditor fallback engaged", {
+                                    mountToken,
+                                    reason: fallbackReason.message || String(fallbackReason),
+                                });
+                            }
+                            finishResolve();
+                        })
+                        .catch((error) => {
+                            if (isStaleMount()) {
+                                destroyDocumentEditorInstance(instance);
+                                return;
+                            }
+                            finishReject(error);
                         });
-                        finishReject(error instanceof Error ? error : new Error(String(error || "Document editor initialization failed")));
-                    });
-            });
+                });
+            }
+
+            setStatus("Loading", "busy");
+            proofingStatus.textContent = "Loading document engine…";
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+
+            try {
+                const superDocMountNode = prepareSurface(true);
+                docLog("debug", "mountDocument mount node prepared", {
+                    mountToken,
+                    mountNodeID: superDocMountNode.id,
+                    engine: "superdoc",
+                });
+                await mountWithSuperDoc(superDocMountNode);
+            } catch (superDocError) {
+                if (isStaleMount()) {
+                    return;
+                }
+                docLog("warn", "SuperDoc mount failed; falling back to SuperEditor", {
+                    mountToken,
+                    error: superDocError instanceof Error ? superDocError.message : String(superDocError),
+                });
+                superdocInstance = null;
+                documentEditor = null;
+                editorReady = false;
+                const fallbackMountNode = prepareSurface(false);
+                docLog("debug", "mountDocument mount node prepared", {
+                    mountToken,
+                    mountNodeID: fallbackMountNode.id,
+                    engine: "supereditor",
+                });
+                await mountWithSuperEditor(fallbackMountNode, superDocError);
+            }
+
+            docLog("info", "mountDocument resolved", docStateSnapshot({
+                mountToken,
+            }));
         }
 
         async function exportCurrentDocument(exportType = "docx") {
-            if (!documentEditor) {
-                throw new Error("Document editor is not ready yet");
+            if (superdocInstance && typeof superdocInstance.export === "function") {
+                const exported = await superdocInstance.export({
+                    exportType: [exportType],
+                    exportedName: getDocumentBaseName(),
+                    triggerDownload: false,
+                });
+                if (exported instanceof Blob) {
+                    return exported;
+                }
+                if (exported instanceof ArrayBuffer) {
+                    return new Blob([exported], {
+                        type: exportType === "pdf"
+                            ? "application/pdf"
+                            : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    });
+                }
+                if (ArrayBuffer.isView(exported)) {
+                    return new Blob([exported], {
+                        type: exportType === "pdf"
+                            ? "application/pdf"
+                            : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    });
+                }
             }
+            const editor = requireActiveEditor();
             if (exportType !== "docx") {
-                throw new Error("PDF export is not available in this browser build yet");
+                throw new Error("PDF export is not available from the document engine");
             }
             let exported = null;
-            if (typeof documentEditor.exportDocument === "function") {
-                exported = await documentEditor.exportDocument();
-            } else if (typeof documentEditor.exportDocx === "function") {
-                exported = await documentEditor.exportDocx();
+            if (typeof editor.exportDocument === "function") {
+                exported = await editor.exportDocument();
+            } else if (typeof editor.exportDocx === "function") {
+                exported = await editor.exportDocx();
             }
             if (exported instanceof Blob) {
                 return exported;
@@ -1266,74 +1662,11 @@
             return btoa(binary);
         }
 
-        async function flushSync(explicitSave = false) {
-            if (!config.editable || disconnecting || !dirty || syncInFlight) {
-                return;
+        function sendPresenceUpdate() {
+            if (!config.editable || disconnecting) {
+                return Promise.resolve();
             }
-            syncInFlight = true;
-            setSaveState("saving");
-            setStatus(explicitSave ? "Saving…" : "Syncing…", "busy");
-            docLog("info", "flushSync start", {
-                explicitSave,
-                currentVersion,
-            });
-            try {
-                const blob = await exportCurrentDocument("docx");
-                const payload = await requestJSON(config.syncURL, {
-                    method: "POST",
-                    credentials: "same-origin",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    },
-                    body: JSON.stringify({
-                        op: explicitSave ? "save" : "sync",
-                        clientId: clientId,
-                        version: currentVersion,
-                        documentData: await blobToBase64(blob),
-                    }),
-                });
-                dirty = false;
-                currentVersion = Number(payload.version || currentVersion);
-                if (payload.path) {
-                    pathLabel.textContent = payload.path;
-                }
-                renderPresence(payload.presence);
-                setSaveState("saved", Number(payload.savedAt || 0));
-                setStatus("Live", "live");
-                docLog("info", "flushSync success", {
-                    explicitSave,
-                    nextVersion: payload.version,
-                    savedAt: payload.savedAt,
-                });
-            } catch (error) {
-                setSaveState("dirty");
-                setStatus(error.message || "Sync failed", "error");
-                docLog("error", "flushSync failed", {
-                    explicitSave,
-                    error: error instanceof Error ? error.message : String(error),
-                });
-                throw error;
-            } finally {
-                syncInFlight = false;
-            }
-        }
-
-        function queueSync(explicitSave = false) {
-            if (syncTimer) {
-                clearTimeout(syncTimer);
-                syncTimer = null;
-            }
-            if (explicitSave) {
-                flushSync(true);
-                return;
-            }
-            syncTimer = setTimeout(() => flushSync(false), 900);
-        }
-
-        function queuePresenceUpdate() {
-            if (!config.editable || disconnecting) return;
-            requestJSON(config.syncURL, {
+            return requestJSON(config.syncURL, {
                 method: "POST",
                 credentials: "same-origin",
                 headers: {
@@ -1347,7 +1680,115 @@
                 }),
             }).then((payload) => {
                 renderPresence(payload.presence);
-            }).catch(() => {});
+                return payload;
+            });
+        }
+
+        async function flushSync() {
+            if (!config.editable || disconnecting) {
+                return Promise.resolve();
+            }
+            if (!dirty && !pendingExplicitSave) {
+                return Promise.resolve();
+            }
+            if (syncInFlight) {
+                syncQueued = true;
+                return currentSyncPromise || Promise.resolve();
+            }
+
+            syncInFlight = true;
+            const explicitSave = pendingExplicitSave;
+            pendingExplicitSave = false;
+            setSaveState("saving");
+            setStatus(explicitSave ? "Saving…" : "Syncing…", "busy");
+            docLog("info", "flushSync start", {
+                explicitSave,
+                currentVersion,
+            });
+
+            currentSyncPromise = Promise.resolve()
+                .then(async () => {
+                const blob = await exportCurrentDocument("docx");
+                    const payload = await requestJSON(config.syncURL, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                        },
+                        body: JSON.stringify({
+                            op: explicitSave ? "save" : "sync",
+                            clientId: clientId,
+                            version: currentVersion,
+                            documentData: await blobToBase64(blob),
+                        }),
+                    });
+                    dirty = false;
+                    currentVersion = Number(payload.version || currentVersion);
+                    if (payload.path) {
+                        pathLabel.textContent = payload.path;
+                    }
+                    renderPresence(payload.presence);
+                    setSaveState("saved", Number(payload.savedAt || 0));
+                    setStatus("Ready", "live");
+                    docLog("info", "flushSync success", {
+                        explicitSave,
+                        nextVersion: payload.version,
+                        savedAt: payload.savedAt,
+                    });
+                    return payload;
+                })
+                .catch((error) => {
+                    setSaveState("dirty");
+                    setStatus(error.message || "Sync failed", "error");
+                    docLog("error", "flushSync failed", {
+                        explicitSave,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                    throw error;
+                })
+                .finally(() => {
+                    syncInFlight = false;
+                    currentSyncPromise = null;
+                    if (syncQueued) {
+                        syncQueued = false;
+                        flushSync();
+                    }
+                });
+
+            return currentSyncPromise;
+        }
+
+        function queueSync(explicitSave = false) {
+            if (!config.editable) {
+                return Promise.resolve();
+            }
+            dirty = true;
+            pendingExplicitSave = pendingExplicitSave || Boolean(explicitSave);
+            setSaveState(syncInFlight ? "saving" : "dirty");
+            if (pendingSyncTimer) {
+                clearTimeout(pendingSyncTimer);
+                pendingSyncTimer = null;
+            }
+            if (explicitSave) {
+                return flushSync();
+            }
+            pendingSyncTimer = setTimeout(() => {
+                pendingSyncTimer = null;
+                flushSync();
+            }, 120);
+            return Promise.resolve();
+        }
+
+        function queuePresenceUpdate() {
+            if (!config.editable || disconnecting) return;
+            if (pendingPresenceTimer) {
+                clearTimeout(pendingPresenceTimer);
+            }
+            pendingPresenceTimer = setTimeout(() => {
+                pendingPresenceTimer = null;
+                sendPresenceUpdate().catch(() => {});
+            }, 120);
         }
 
         async function reloadRemoteDocument(fileURL, savedAt, version, external) {
@@ -1384,7 +1825,7 @@
                 docLog("info", "Document event stream open", {
                     clientId,
                 });
-                setStatus("Live", "live");
+                setStatus("Ready", "live");
                 queuePresenceUpdate();
             };
             eventSource.onmessage = (event) => {
@@ -1429,7 +1870,7 @@
 
         function startSnapshotPolling() {
             docLog("info", "Starting snapshot polling", {
-                intervalMS: 2000,
+                intervalMS: 900,
             });
             snapshotPollTimer = setInterval(() => {
                 if (dirty || syncInFlight) return;
@@ -1457,7 +1898,7 @@
                         currentVersion = Math.max(currentVersion, Number(payload.version || 0));
                     }
                 }).catch(() => {});
-            }, 2000);
+            }, 900);
         }
 
         function downloadBlob(blob, fileName) {
@@ -1469,6 +1910,41 @@
             link.click();
             link.remove();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function printCurrentDocument() {
+            window.print();
+        }
+
+        async function exportPdfDocument() {
+            try {
+                const blob = await exportCurrentDocument("pdf");
+                downloadBlob(blob, getDocumentBaseName() + ".pdf");
+                setStatus("Ready", "live");
+            } catch (error) {
+                docLog("warn", "Falling back to browser print for PDF export", {
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                await queueSync(true).catch(() => {});
+                printCurrentDocument();
+                setStatus("Print dialog ready", "live");
+            }
+        }
+
+        function triggerFind() {
+            if (!superdocInstance || typeof superdocInstance.search !== "function" || typeof superdocInstance.goToSearchResult !== "function") {
+                setStatus("Find is not available in this editor build", "error");
+                return;
+            }
+            const query = window.prompt("Find text");
+            if (!query) return;
+            const results = superdocInstance.search(query) || [];
+            if (!results.length) {
+                setStatus("No matches found", "busy");
+                return;
+            }
+            superdocInstance.goToSearchResult(results[0]);
+            setStatus(results.length + " match" + (results.length === 1 ? "" : "es") + " found", "live");
         }
 
         async function triggerSaveAs() {
@@ -1499,7 +1975,8 @@
         function disconnectSession() {
             if (disconnecting) return;
             disconnecting = true;
-            if (syncTimer) clearTimeout(syncTimer);
+            if (pendingSyncTimer) clearTimeout(pendingSyncTimer);
+            if (pendingPresenceTimer) clearTimeout(pendingPresenceTimer);
             if (snapshotPollTimer) clearInterval(snapshotPollTimer);
             if (presenceTimer) clearInterval(presenceTimer);
             if (eventSource) eventSource.close();
@@ -1518,7 +1995,20 @@
             }).catch(() => {});
         }
 
+        function bindMenuAction(elementId, handler) {
+            const element = document.getElementById(elementId);
+            element?.addEventListener("click", () => {
+                closeMenus();
+                Promise.resolve(handler()).catch((error) => {
+                    setStatus(error.message || "Action failed", "error");
+                });
+            });
+        }
+
         document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+                closeMenus();
+            }
             if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") {
                 return;
             }
@@ -1528,6 +2018,21 @@
             } else {
                 queueSync(true);
             }
+        });
+
+        document.addEventListener("click", (event) => {
+            const clickedMenu = event.target instanceof Element
+                ? event.target.closest(".doc-menu")
+                : null;
+            if (!clickedMenu) {
+                closeMenus();
+            }
+        });
+
+        menuTriggers.forEach((trigger) => {
+            trigger.addEventListener("click", () => {
+                toggleMenu(trigger.getAttribute("data-doc-menu-trigger"));
+            });
         });
 
         openButton?.addEventListener("click", () => localFileInput?.click());
@@ -1542,10 +2047,32 @@
             try {
                 await mountDocument(file);
                 markDirty();
-                setStatus("Loaded local DOCX", "busy");
+                queueSync(false);
+                setStatus("Local DOCX loaded", "busy");
             } catch (error) {
                 console.error("InkDrop local document load failed", error);
                 showDocumentError(error.message || "Failed to open the selected DOCX file.");
+            } finally {
+                localFileInput.value = "";
+            }
+        });
+        imageInput?.addEventListener("change", async () => {
+            const file = imageInput.files && imageInput.files[0];
+            if (!file) return;
+            try {
+                const dataUrl = await fileToDataURL(file);
+                callEditorCommand("setImage", {
+                    src: dataUrl,
+                    alt: file.name || "Image",
+                    title: file.name || "Image",
+                });
+                markDirty();
+                queueSync(false);
+                setStatus("Image inserted", "live");
+            } catch (error) {
+                setStatus(error.message || "Image insertion failed", "error");
+            } finally {
+                imageInput.value = "";
             }
         });
         saveAsButton?.addEventListener("click", () => {
@@ -1554,19 +2081,41 @@
         exportButton?.addEventListener("click", async () => {
             try {
                 const blob = await exportCurrentDocument("docx");
-                downloadBlob(blob, (config.fileName || "document").replace(/\.docx$/i, "") + ".docx");
+                downloadBlob(blob, getDocumentBaseName() + ".docx");
             } catch (error) {
                 setStatus(error.message || "Export failed", "error");
             }
         });
         exportPdfButton?.addEventListener("click", async () => {
-            try {
-                const blob = await exportCurrentDocument("pdf");
-                downloadBlob(blob, (config.fileName || "document").replace(/\.docx$/i, "") + ".pdf");
-            } catch (error) {
-                setStatus("PDF export is not available in this browser build yet", "error");
-            }
+            exportPdfDocument().catch((error) => setStatus(error.message || "PDF export failed", "error"));
         });
+        bindMenuAction("docMenuSaveBtn", () => queueSync(true));
+        bindMenuAction("docMenuSaveAsBtn", () => triggerSaveAs());
+        bindMenuAction("docMenuExportDocxBtn", async () => {
+            const blob = await exportCurrentDocument("docx");
+            downloadBlob(blob, getDocumentBaseName() + ".docx");
+        });
+        bindMenuAction("docMenuExportPdfBtn", () => exportPdfDocument());
+        bindMenuAction("docMenuPrintBtn", async () => {
+            await queueSync(true).catch(() => {});
+            printCurrentDocument();
+        });
+        bindMenuAction("docMenuUndoBtn", () => callEditorCommand("undo"));
+        bindMenuAction("docMenuRedoBtn", () => callEditorCommand("redo"));
+        bindMenuAction("docMenuFindBtn", () => triggerFind());
+        bindMenuAction("docMenuClearFormatBtn", () => callEditorCommand("clearFormat"));
+        bindMenuAction("docMenuInsertImageBtn", () => imageInput?.click());
+        bindMenuAction("docMenuInsertTableBtn", () => callEditorCommand("insertTable", {
+            rows: 3,
+            cols: 3,
+            withHeaderRow: true,
+        }));
+        bindMenuAction("docMenuStatusBtn", () => setDrawerPanel("status"));
+        bindMenuAction("docMenuPeopleBtn", () => setDrawerPanel("collaborators"));
+        bindMenuAction("docMenuInfoBtn", () => setDrawerPanel("info"));
+        bindMenuAction("docMenuBoldBtn", () => callEditorCommand("toggleBold"));
+        bindMenuAction("docMenuItalicBtn", () => callEditorCommand("toggleItalic"));
+        bindMenuAction("docMenuUnderlineBtn", () => callEditorCommand("toggleUnderline"));
         statusRailButton?.addEventListener("click", () => {
             setDrawerPanel(activeDrawerPanel === "status" ? "" : "status");
         });
@@ -1605,8 +2154,10 @@
             mountDocument(config.fileURL)
                 .then(() => {
                     setSaveState("saved", config.savedAt);
-                    queuePresenceUpdate();
-                    presenceTimer = setInterval(queuePresenceUpdate, 10000);
+                    sendPresenceUpdate().catch(() => {});
+                    presenceTimer = setInterval(() => {
+                        sendPresenceUpdate().catch(() => {});
+                    }, 10000);
                     connectStream();
                     startSnapshotPolling();
                 })
