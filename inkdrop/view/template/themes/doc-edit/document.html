@@ -449,6 +449,50 @@
             font-size: 0.78rem;
         }
 
+        .doc-stage-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .doc-zoom-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px;
+            border-radius: 999px;
+            border: 1px solid var(--doc-border);
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .doc-zoom-button {
+            min-width: 32px;
+            height: 32px;
+            padding: 0 10px;
+            border: 1px solid transparent;
+            border-radius: 999px;
+            background: transparent;
+            color: var(--doc-strong);
+            font: inherit;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: background 0.18s ease, border-color 0.18s ease;
+        }
+
+        .doc-zoom-button:hover {
+            background: var(--doc-menu-hover);
+            border-color: color-mix(in srgb, var(--doc-border) 78%, transparent);
+        }
+
+        .doc-zoom-readout {
+            min-width: 54px;
+            text-align: center;
+            font-weight: 600;
+            color: var(--doc-strong);
+        }
+
         #docEditorSurface {
             flex: 1 1 auto;
             min-height: 0;
@@ -465,11 +509,11 @@
         }
 
         .doc-editor-mount {
-            width: min(calc(100% - 40px), 8.9in);
+            width: 8.5in;
             min-height: 0;
             margin: 0 auto;
             position: relative;
-            border-radius: 18px;
+            border-radius: 0;
             background: #ffffff;
             box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.34), 0 22px 50px rgba(15, 23, 42, 0.12);
         }
@@ -504,7 +548,7 @@
 
         .doc-remote-caret {
             position: absolute;
-            transform: translate(-1px, 0);
+            transform: translate(-2px, -1px);
         }
 
         .doc-remote-caret-line {
@@ -517,7 +561,7 @@
         .doc-remote-caret-badge {
             position: absolute;
             top: -22px;
-            left: -4px;
+            left: -6px;
             padding: 3px 8px;
             border-radius: 999px;
             color: #ffffff;
@@ -605,8 +649,104 @@
             align-items: center;
         }
 
+        .doc-popover-row.wrap {
+            flex-wrap: wrap;
+            align-items: stretch;
+        }
+
         .doc-popover-row input {
             width: 100%;
+        }
+
+        .doc-style-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .doc-style-card {
+            padding: 12px;
+            border-radius: 16px;
+            border: 1px solid color-mix(in srgb, var(--doc-border) 80%, transparent);
+            background: rgba(248, 250, 252, 0.9);
+        }
+
+        .doc-style-card h4,
+        .doc-style-card p {
+            margin: 0;
+        }
+
+        .doc-style-card h4 {
+            margin-bottom: 8px;
+            color: var(--doc-strong);
+            font-size: 0.92rem;
+        }
+
+        .doc-style-controls {
+            display: grid;
+            gap: 10px;
+        }
+
+        .doc-slider-field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .doc-slider-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 0.8rem;
+            color: var(--doc-strong);
+        }
+
+        .doc-slider-value {
+            font-weight: 600;
+            color: var(--doc-muted);
+        }
+
+        .doc-slider-field input[type="range"] {
+            width: 100%;
+            accent-color: #2563eb;
+        }
+
+        .doc-color-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .doc-popover-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .doc-preset-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .doc-preset-button {
+            padding: 8px 12px;
+            border: 1px solid var(--doc-border);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--doc-strong);
+            font: inherit;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .doc-preset-button:hover {
+            background: var(--doc-menu-hover);
+        }
+
+        .doc-table-command-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
         }
 
         .doc-table-picker-grid {
@@ -939,6 +1079,23 @@
                 border: 0 !important;
                 border-radius: 0 !important;
                 padding: 0;
+                overflow: visible !important;
+                background: #ffffff !important;
+                box-shadow: none !important;
+            }
+
+            .doc-editor-mount,
+            .doc-cursor-layer,
+            .doc-remote-caret,
+            .doc-remote-caret-line,
+            .doc-remote-caret-badge {
+                border-radius: 0 !important;
+                box-shadow: none !important;
+            }
+
+            .doc-cursor-layer,
+            .doc-remote-caret {
+                display: none !important;
             }
         }
     </style>
@@ -997,9 +1154,10 @@
                 <div class="doc-menu">
                     <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="table" aria-expanded="false">Table</button>
                     <div class="doc-menu-panel" data-doc-menu-panel="table" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuTableStyleBtn">Table Style…</button>
                         <button type="button" class="doc-menu-item" id="docMenuTableFillBtn">Cell Fill…</button>
                         <button type="button" class="doc-menu-item" id="docMenuTablePaddingBtn">Cell Padding…</button>
-                        <button type="button" class="doc-menu-item" id="docMenuTableBordersBtn">Remove Borders</button>
+                        <button type="button" class="doc-menu-item" id="docMenuTableBordersBtn">Borders…</button>
                         <button type="button" class="doc-menu-item" id="docMenuTableFixBtn">Repair Table</button>
                     </div>
                 </div>
@@ -1052,6 +1210,13 @@
                             <span class="doc-badge" id="docPresenceBadge">1 active</span>
                         </div>
                         <div class="doc-stage-actions">
+                            <div class="doc-zoom-controls" role="group" aria-label="Document zoom">
+                                <button type="button" class="doc-zoom-button" id="docZoomOutBtn" title="Zoom out">-</button>
+                                <button type="button" class="doc-zoom-button" id="docZoomResetBtn" title="Reset zoom">
+                                    <span class="doc-zoom-readout" id="docZoomReadout">100%</span>
+                                </button>
+                                <button type="button" class="doc-zoom-button" id="docZoomInBtn" title="Zoom in">+</button>
+                            </div>
                             <span class="subtle" id="docSavedMeta">Loading document…</span>
                         </div>
                     </div>
@@ -1175,6 +1340,10 @@
         const presenceList = document.getElementById("docPresenceList");
         const pathLabel = document.getElementById("docPathLabel");
         const savedMeta = document.getElementById("docSavedMeta");
+        const zoomOutButton = document.getElementById("docZoomOutBtn");
+        const zoomInButton = document.getElementById("docZoomInBtn");
+        const zoomResetButton = document.getElementById("docZoomResetBtn");
+        const zoomReadout = document.getElementById("docZoomReadout");
         const savedMetaPanel = document.getElementById("docSavedMetaPanel");
         const statusDetail = document.getElementById("docStatusDetail");
         const saveStateDetail = document.getElementById("docSaveStateDetail");
@@ -1238,8 +1407,14 @@
         });
         const DOC_SYNC_DEBOUNCE_MS = 450;
         const DOC_REMOTE_POLL_INTERVAL_MS = 4000;
+        const DOC_REMOTE_RELOAD_DEBOUNCE_MS = 650;
         const DOC_MOUNT_UPDATE_SUPPRESSION_MS = 1200;
+        const DOC_ZOOM_MIN = 0.7;
+        const DOC_ZOOM_MAX = 2.2;
+        const DOC_ZOOM_STEP = 0.1;
+        const DOC_PAGE_WIDTH = "8.5in";
         const ENABLE_SUPERDOC = false;
+        const SUPPORTS_CSS_ZOOM = Boolean(globalThis.CSS && typeof globalThis.CSS.supports === "function" && globalThis.CSS.supports("zoom", "1"));
 
         let SuperDocCtor = null;
         let SuperEditorCtor = null;
@@ -1268,6 +1443,7 @@
         let activeDrawerPanel = "";
         let activeMountToken = 0;
         let remoteReloadInFlight = false;
+        let pendingRemoteReloadTimer = null;
         let eventStreamConnected = false;
         let suppressEditorUpdatesUntil = 0;
         let lastKnownSelection = null;
@@ -1275,6 +1451,7 @@
         let toolbarExpanded = false;
         let contextMenu = null;
         let currentPageMargins = { top: 1, right: 1, bottom: 1, left: 1 };
+        let documentZoom = 1;
         let floatingDialog = null;
         const clientId = "doc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
         const DOC_DEBUG = true;
@@ -1755,6 +1932,64 @@
             pendingRemoteExternal = false;
         }
 
+        function getMountNode() {
+            return editorSurface ? editorSurface.querySelector(".doc-editor-mount") : null;
+        }
+
+        function updateZoomReadout() {
+            if (zoomReadout) {
+                zoomReadout.textContent = Math.round(documentZoom * 100) + "%";
+            }
+        }
+
+        function applyZoomToMountNode(mountNode) {
+            if (!mountNode) {
+                return;
+            }
+            mountNode.style.width = DOC_PAGE_WIDTH;
+            if (SUPPORTS_CSS_ZOOM) {
+                mountNode.style.zoom = String(documentZoom);
+                mountNode.style.transform = "";
+            } else {
+                mountNode.style.zoom = "";
+                mountNode.style.transformOrigin = "top center";
+                mountNode.style.transform = "scale(" + documentZoom + ")";
+            }
+        }
+
+        function applyDocumentZoom(nextZoom) {
+            if (typeof nextZoom === "number" && Number.isFinite(nextZoom)) {
+                documentZoom = Math.min(DOC_ZOOM_MAX, Math.max(DOC_ZOOM_MIN, Number(nextZoom.toFixed(2))));
+            }
+            applyZoomToMountNode(getMountNode());
+            updateZoomReadout();
+            queueRemoteCursorRender();
+        }
+
+        function clearPendingRemoteReloadTimer() {
+            if (pendingRemoteReloadTimer) {
+                clearTimeout(pendingRemoteReloadTimer);
+                pendingRemoteReloadTimer = null;
+            }
+        }
+
+        function schedulePendingRemoteReload(statusMessage) {
+            if (!pendingRemoteFileURL || remoteReloadInFlight || dirty || syncInFlight) {
+                return;
+            }
+            clearPendingRemoteReloadTimer();
+            pendingRemoteReloadTimer = setTimeout(() => {
+                pendingRemoteReloadTimer = null;
+                processPendingRemoteSnapshot(true).catch((error) => {
+                    console.warn("InkDrop scheduled remote reload failed", error);
+                    setStatus(error.message || "Remote reload failed", "error");
+                });
+            }, DOC_REMOTE_RELOAD_DEBOUNCE_MS);
+            if (statusMessage) {
+                setStatus(statusMessage, "busy");
+            }
+        }
+
         function ensureCursorLayer() {
             if (!editorSurface) {
                 return null;
@@ -1791,7 +2026,7 @@
                 return;
             }
 
-            const surfaceRect = editorSurface.getBoundingClientRect();
+            const layerRect = layer.getBoundingClientRect();
             latestPresence.forEach((person) => {
                 if (!person || person.clientId === clientId || !person.selection) {
                     return;
@@ -1815,13 +2050,14 @@
 
                 const caret = document.createElement("div");
                 caret.className = "doc-remote-caret";
-                caret.style.left = (coords.left - surfaceRect.left + editorSurface.scrollLeft) + "px";
-                caret.style.top = (coords.top - surfaceRect.top + editorSurface.scrollTop) + "px";
+                caret.style.left = (coords.left - layerRect.left) + "px";
+                caret.style.top = (coords.top - layerRect.top) + "px";
 
                 const color = person.color || "#0f766e";
                 const line = document.createElement("div");
                 line.className = "doc-remote-caret-line";
                 line.style.background = color;
+                line.style.height = Math.max(18, Math.round(coords.bottom - coords.top)) + "px";
 
                 const badge = document.createElement("div");
                 badge.className = "doc-remote-caret-badge";
@@ -2466,37 +2702,384 @@
             });
         }
 
+        function getActiveTableStyleState() {
+            const editor = getActiveEditor();
+            const nodeName = getActiveTableCellNodeName(editor);
+            if (!nodeName) {
+                return {
+                    fillColor: "#ffffff",
+                    borderColor: "#94a3b8",
+                    borderWidth: 1,
+                    padding: 8,
+                };
+            }
+            const cellAttrs = typeof editor.getAttributes === "function"
+                ? (editor.getAttributes(nodeName) || {})
+                : {};
+            const cellStyles = parseInlineStyle(cellAttrs.style);
+            const borderValue = String(cellStyles["border-width"] || cellStyles.border || "1px");
+            const borderMatch = borderValue.match(/(\d+(?:\.\d+)?)px/);
+            const paddingValue = String(cellStyles.padding || "8px");
+            const paddingMatch = paddingValue.match(/(\d+(?:\.\d+)?)px/);
+            return {
+                fillColor: normalizeColorInputValue(cellStyles["background-color"], "#ffffff"),
+                borderColor: normalizeColorInputValue(cellStyles["border-color"], "#94a3b8"),
+                borderWidth: borderMatch ? Number(borderMatch[1]) : 1,
+                padding: paddingMatch ? Number(paddingMatch[1]) : 8,
+            };
+        }
+
+        function applyTableStyleConfig(styleConfig) {
+            return performEditorAction((editor) => {
+                const nodeName = getActiveTableCellNodeName(editor);
+                if (!nodeName) {
+                    throw new Error("Place the cursor inside a table cell first");
+                }
+                if (!editor.commands || typeof editor.commands.updateAttributes !== "function") {
+                    throw new Error("Table styling is not available in this editor build");
+                }
+
+                const cellAttrs = typeof editor.getAttributes === "function"
+                    ? (editor.getAttributes(nodeName) || {})
+                    : {};
+                const tableAttrs = typeof editor.getAttributes === "function"
+                    ? (editor.getAttributes("table") || {})
+                    : {};
+                const cellStyles = parseInlineStyle(cellAttrs.style);
+                const tableStyles = parseInlineStyle(tableAttrs.style);
+                const fillColor = normalizeColorInputValue(styleConfig.fillColor, "#ffffff");
+                const borderColor = normalizeColorInputValue(styleConfig.borderColor, "#94a3b8");
+                const borderWidth = Math.max(0, Number(styleConfig.borderWidth || 0));
+                const padding = Math.max(0, Number(styleConfig.padding || 0));
+
+                cellStyles["background-color"] = fillColor;
+                cellStyles["border-color"] = borderColor;
+                cellStyles["border-width"] = borderWidth > 0 ? borderWidth + "px" : "0";
+                cellStyles["border-style"] = borderWidth > 0 ? "solid" : "none";
+                cellStyles.border = borderWidth > 0 ? borderWidth + "px solid " + borderColor : "none";
+                cellStyles.padding = padding + "px";
+                tableStyles["border-collapse"] = "collapse";
+                tableStyles.width = tableStyles.width || "100%";
+
+                editor.commands.updateAttributes(nodeName, {
+                    style: serializeInlineStyle(cellStyles),
+                });
+
+                try {
+                    editor.commands.updateAttributes("table", {
+                        style: serializeInlineStyle(tableStyles),
+                    });
+                } catch (_) {}
+            });
+        }
+
+        function runTableStructureCommand(commandName) {
+            if (!hasEditorCommand(commandName)) {
+                throw new Error("Table action is not available in this editor build");
+            }
+            return performEditorCommand(commandName);
+        }
+
+        function openPageMarginsDialog(defaults = currentPageMargins) {
+            closeFloatingDialog();
+            return new Promise((resolve) => {
+                const margins = {
+                    top: Number(defaults.top || 1),
+                    right: Number(defaults.right || 1),
+                    bottom: Number(defaults.bottom || 1),
+                    left: Number(defaults.left || 1),
+                };
+
+                const overlay = document.createElement("div");
+                overlay.className = "doc-popover-backdrop";
+                overlay.innerHTML = `
+                    <div class="doc-popover-card" role="dialog" aria-modal="true" aria-label="Page margins">
+                        <div class="doc-popover-stack">
+                            <div>
+                                <h3>Page Margins</h3>
+                                <p class="subtle">Drag the sliders to shape the page without typing margin values manually.</p>
+                            </div>
+                            <div class="doc-style-card">
+                                <h4>Presets</h4>
+                                <div class="doc-preset-row">
+                                    <button type="button" class="doc-preset-button" data-margin-preset="narrow">Narrow</button>
+                                    <button type="button" class="doc-preset-button" data-margin-preset="normal">Normal</button>
+                                    <button type="button" class="doc-preset-button" data-margin-preset="wide">Wide</button>
+                                </div>
+                            </div>
+                            <div class="doc-style-grid" id="docMarginSliderGrid"></div>
+                            <div class="doc-popover-actions">
+                                <button type="button" class="doc-toolbar-button" id="docMarginsApplyBtn">Apply</button>
+                                <button type="button" class="doc-toolbar-button" id="docMarginsCancelBtn">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                const presets = {
+                    narrow: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 },
+                    normal: { top: 1, right: 1, bottom: 1, left: 1 },
+                    wide: { top: 1.25, right: 1.5, bottom: 1.25, left: 1.5 },
+                };
+                const sliderGrid = overlay.querySelector("#docMarginSliderGrid");
+                const renderSlider = (key, label) => {
+                    const field = document.createElement("label");
+                    field.className = "doc-style-card doc-slider-field";
+                    field.innerHTML = `
+                        <div class="doc-slider-head">
+                            <span>${label}</span>
+                            <span class="doc-slider-value" data-margin-value="${key}">${margins[key].toFixed(2)} in</span>
+                        </div>
+                        <input type="range" min="0" max="3" step="0.05" value="${margins[key]}" data-margin-input="${key}">
+                    `;
+                    sliderGrid?.appendChild(field);
+                };
+
+                renderSlider("top", "Top");
+                renderSlider("right", "Right");
+                renderSlider("bottom", "Bottom");
+                renderSlider("left", "Left");
+
+                const updateReadout = (key) => {
+                    const readout = overlay.querySelector("[data-margin-value=\"" + key + "\"]");
+                    if (readout) {
+                        readout.textContent = margins[key].toFixed(2) + " in";
+                    }
+                };
+
+                overlay.querySelectorAll("[data-margin-input]").forEach((input) => {
+                    input.addEventListener("input", () => {
+                        const key = input.getAttribute("data-margin-input");
+                        margins[key] = Number(input.value || margins[key]);
+                        updateReadout(key);
+                    });
+                });
+
+                overlay.querySelectorAll("[data-margin-preset]").forEach((button) => {
+                    button.addEventListener("click", () => {
+                        const presetKey = button.getAttribute("data-margin-preset");
+                        const preset = presets[presetKey];
+                        if (!preset) {
+                            return;
+                        }
+                        Object.assign(margins, preset);
+                        overlay.querySelectorAll("[data-margin-input]").forEach((input) => {
+                            const key = input.getAttribute("data-margin-input");
+                            input.value = String(margins[key]);
+                            updateReadout(key);
+                        });
+                    });
+                });
+
+                overlay.querySelector("#docMarginsApplyBtn")?.addEventListener("click", () => {
+                    closeFloatingDialog();
+                    resolve({
+                        top: margins.top,
+                        right: margins.right,
+                        bottom: margins.bottom,
+                        left: margins.left,
+                    });
+                });
+                overlay.querySelector("#docMarginsCancelBtn")?.addEventListener("click", () => {
+                    closeFloatingDialog();
+                    resolve(null);
+                });
+                overlay.addEventListener("click", (event) => {
+                    if (event.target === overlay) {
+                        closeFloatingDialog();
+                        resolve(null);
+                    }
+                });
+
+                floatingDialog = overlay;
+                document.body.appendChild(overlay);
+            });
+        }
+
+        function openTableStyleDialog(defaults = getActiveTableStyleState()) {
+            closeFloatingDialog();
+            return new Promise((resolve) => {
+                const styleState = {
+                    fillColor: normalizeColorInputValue(defaults.fillColor, "#ffffff"),
+                    borderColor: normalizeColorInputValue(defaults.borderColor, "#94a3b8"),
+                    borderWidth: Math.max(0, Number(defaults.borderWidth || 1)),
+                    padding: Math.max(0, Number(defaults.padding || 8)),
+                };
+
+                const overlay = document.createElement("div");
+                overlay.className = "doc-popover-backdrop";
+                overlay.innerHTML = `
+                    <div class="doc-popover-card" role="dialog" aria-modal="true" aria-label="Table style">
+                        <div class="doc-popover-stack">
+                            <div>
+                                <h3>Table Style</h3>
+                                <p class="subtle">Use the controls below to tune cell fill, borders, spacing, and quick table actions.</p>
+                            </div>
+                            <div class="doc-style-card">
+                                <h4>Quick Presets</h4>
+                                <div class="doc-preset-row">
+                                    <button type="button" class="doc-preset-button" data-table-preset="standard">Standard</button>
+                                    <button type="button" class="doc-preset-button" data-table-preset="subtle">Subtle</button>
+                                    <button type="button" class="doc-preset-button" data-table-preset="borderless">Borderless</button>
+                                </div>
+                            </div>
+                            <div class="doc-color-grid">
+                                <label class="doc-style-card doc-style-controls">
+                                    <h4>Fill</h4>
+                                    <input type="color" id="docTableStyleFill" value="${styleState.fillColor}">
+                                </label>
+                                <label class="doc-style-card doc-style-controls">
+                                    <h4>Border</h4>
+                                    <input type="color" id="docTableStyleBorder" value="${styleState.borderColor}">
+                                </label>
+                            </div>
+                            <div class="doc-style-grid">
+                                <label class="doc-style-card doc-slider-field">
+                                    <div class="doc-slider-head">
+                                        <span>Border Width</span>
+                                        <span class="doc-slider-value" id="docTableBorderWidthValue">${styleState.borderWidth}px</span>
+                                    </div>
+                                    <input type="range" min="0" max="8" step="1" value="${styleState.borderWidth}" id="docTableBorderWidthInput">
+                                </label>
+                                <label class="doc-style-card doc-slider-field">
+                                    <div class="doc-slider-head">
+                                        <span>Cell Padding</span>
+                                        <span class="doc-slider-value" id="docTablePaddingValue">${styleState.padding}px</span>
+                                    </div>
+                                    <input type="range" min="0" max="24" step="1" value="${styleState.padding}" id="docTablePaddingInput">
+                                </label>
+                            </div>
+                            <div class="doc-style-card">
+                                <h4>Table Actions</h4>
+                                <div class="doc-table-command-grid">
+                                    <button type="button" class="doc-toolbar-button" data-table-command="addRowAfter">Add Row</button>
+                                    <button type="button" class="doc-toolbar-button" data-table-command="addColumnAfter">Add Column</button>
+                                    <button type="button" class="doc-toolbar-button" data-table-command="deleteRow">Delete Row</button>
+                                    <button type="button" class="doc-toolbar-button" data-table-command="deleteColumn">Delete Column</button>
+                                </div>
+                            </div>
+                            <div class="doc-popover-actions">
+                                <button type="button" class="doc-toolbar-button" id="docTableStyleApplyBtn">Apply</button>
+                                <button type="button" class="doc-toolbar-button" id="docTableStyleCancelBtn">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                const borderWidthInput = overlay.querySelector("#docTableBorderWidthInput");
+                const borderWidthValue = overlay.querySelector("#docTableBorderWidthValue");
+                const paddingInput = overlay.querySelector("#docTablePaddingInput");
+                const paddingValue = overlay.querySelector("#docTablePaddingValue");
+                const fillInput = overlay.querySelector("#docTableStyleFill");
+                const borderInput = overlay.querySelector("#docTableStyleBorder");
+                const tablePresets = {
+                    standard: { fillColor: "#ffffff", borderColor: "#94a3b8", borderWidth: 1, padding: 8 },
+                    subtle: { fillColor: "#f8fafc", borderColor: "#cbd5e1", borderWidth: 1, padding: 10 },
+                    borderless: { fillColor: "#ffffff", borderColor: "#ffffff", borderWidth: 0, padding: 10 },
+                };
+
+                borderWidthInput?.addEventListener("input", () => {
+                    styleState.borderWidth = Number(borderWidthInput.value || styleState.borderWidth);
+                    if (borderWidthValue) {
+                        borderWidthValue.textContent = styleState.borderWidth + "px";
+                    }
+                });
+                paddingInput?.addEventListener("input", () => {
+                    styleState.padding = Number(paddingInput.value || styleState.padding);
+                    if (paddingValue) {
+                        paddingValue.textContent = styleState.padding + "px";
+                    }
+                });
+                fillInput?.addEventListener("input", () => {
+                    styleState.fillColor = normalizeColorInputValue(fillInput.value, "#ffffff");
+                });
+                borderInput?.addEventListener("input", () => {
+                    styleState.borderColor = normalizeColorInputValue(borderInput.value, "#94a3b8");
+                });
+                overlay.querySelectorAll("[data-table-preset]").forEach((button) => {
+                    button.addEventListener("click", () => {
+                        const presetKey = button.getAttribute("data-table-preset");
+                        const preset = tablePresets[presetKey];
+                        if (!preset) {
+                            return;
+                        }
+                        Object.assign(styleState, preset);
+                        if (fillInput) fillInput.value = styleState.fillColor;
+                        if (borderInput) borderInput.value = styleState.borderColor;
+                        if (borderWidthInput) borderWidthInput.value = String(styleState.borderWidth);
+                        if (paddingInput) paddingInput.value = String(styleState.padding);
+                        if (borderWidthValue) borderWidthValue.textContent = styleState.borderWidth + "px";
+                        if (paddingValue) paddingValue.textContent = styleState.padding + "px";
+                    });
+                });
+                overlay.querySelectorAll("[data-table-command]").forEach((button) => {
+                    button.disabled = !hasEditorCommand(button.getAttribute("data-table-command"));
+                    button.addEventListener("click", () => {
+                        closeFloatingDialog();
+                        resolve({
+                            command: button.getAttribute("data-table-command"),
+                        });
+                    });
+                });
+                overlay.querySelector("#docTableStyleApplyBtn")?.addEventListener("click", () => {
+                    closeFloatingDialog();
+                    resolve({
+                        fillColor: styleState.fillColor,
+                        borderColor: styleState.borderColor,
+                        borderWidth: styleState.borderWidth,
+                        padding: styleState.padding,
+                    });
+                });
+                overlay.querySelector("#docTableStyleCancelBtn")?.addEventListener("click", () => {
+                    closeFloatingDialog();
+                    resolve(null);
+                });
+                overlay.addEventListener("click", (event) => {
+                    if (event.target === overlay) {
+                        closeFloatingDialog();
+                        resolve(null);
+                    }
+                });
+
+                floatingDialog = overlay;
+                document.body.appendChild(overlay);
+            });
+        }
+
+        function promptForTableStyle() {
+            return openTableStyleDialog().then((result) => {
+                if (!result) {
+                    return;
+                }
+                if (result.command) {
+                    return runTableStructureCommand(result.command);
+                }
+                return applyTableStyleConfig(result);
+            });
+        }
+
         function promptForTableFillColor() {
-            const response = window.prompt("Cell fill color", "#fff3c4");
-            if (response == null) {
-                return Promise.resolve();
-            }
-            const color = normalizeColorInputValue(response, "");
-            if (!color) {
-                throw new Error("Enter a valid hex color like #fff3c4");
-            }
-            return updateActiveTableCellStyles({
-                "background-color": color,
+            return openTableStyleDialog({
+                ...getActiveTableStyleState(),
+            }).then((result) => {
+                if (!result) {
+                    return;
+                }
+                if (result.command) {
+                    return runTableStructureCommand(result.command);
+                }
+                return applyTableStyleConfig(result);
             });
         }
 
         function promptForTablePadding() {
-            const response = window.prompt("Cell padding in pixels", "8");
-            if (response == null) {
-                return Promise.resolve();
-            }
-            const padding = Number(String(response).trim());
-            if (!Number.isFinite(padding) || padding < 0) {
-                throw new Error("Enter a non-negative pixel value");
-            }
-            return updateActiveTableCellStyles({
-                padding: Math.min(padding, 96) + "px",
-            });
+            return promptForTableStyle();
         }
 
         function removeTableBorders() {
-            return updateActiveTableCellStyles({
-                border: "none",
+            return applyTableStyleConfig({
+                ...getActiveTableStyleState(),
+                borderWidth: 0,
             });
         }
 
@@ -2544,25 +3127,16 @@
         }
 
         function promptForPageMargins(defaults = currentPageMargins) {
-            const response = window.prompt(
-                "Page margins in inches (top,right,bottom,left)",
-                [defaults.top, defaults.right, defaults.bottom, defaults.left].join(",")
-            );
-            if (response == null) {
-                return Promise.resolve();
-            }
-            const values = String(response)
-                .split(",")
-                .map((value) => Number(value.trim()))
-                .filter((value) => Number.isFinite(value));
-            if (values.length !== 4) {
-                throw new Error("Enter four comma-separated margin values");
-            }
-            return applyPageMargins({
-                top: Math.max(0, values[0]),
-                right: Math.max(0, values[1]),
-                bottom: Math.max(0, values[2]),
-                left: Math.max(0, values[3]),
+            return openPageMarginsDialog(defaults).then((nextMargins) => {
+                if (!nextMargins) {
+                    return;
+                }
+                return applyPageMargins({
+                    top: Math.max(0, nextMargins.top),
+                    right: Math.max(0, nextMargins.right),
+                    bottom: Math.max(0, nextMargins.bottom),
+                    left: Math.max(0, nextMargins.left),
+                });
             });
         }
 
@@ -2645,8 +3219,11 @@
                 };
             }
 
-            const textBefore = selection.$from.parent.textBetween(0, selection.$from.parentOffset, undefined, "\uFFFC");
-            const textAfter = selection.$from.parent.textBetween(selection.$from.parentOffset, selection.$from.parent.content.size, undefined, "\uFFFC");
+            const scanLimit = 256;
+            const textBeforeStart = Math.max(0, selection.from - scanLimit);
+            const textAfterEnd = Math.min(view.state.doc.content.size, selection.from + scanLimit);
+            const textBefore = view.state.doc.textBetween(textBeforeStart, selection.from, "\n", "\uFFFC");
+            const textAfter = view.state.doc.textBetween(selection.from, textAfterEnd, "\n", "\uFFFC");
             if (direction === "backward") {
                 let index = textBefore.length;
                 while (index > 0 && /\s/.test(textBefore[index - 1])) index -= 1;
@@ -2655,7 +3232,7 @@
                     return null;
                 }
                 return {
-                    from: selection.$from.start() + index,
+                    from: textBeforeStart + index,
                     to: selection.from,
                 };
             }
@@ -2668,7 +3245,7 @@
             }
             return {
                 from: selection.from,
-                to: selection.from + index,
+                to: Math.min(textAfterEnd, selection.from + index),
             };
         }
 
@@ -2778,7 +3355,15 @@
                 return;
             }
 
-            if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && (event.key === "Backspace" || event.key === "Delete")) {
+            const isDeleteShortcut = (event.key === "Backspace" || event.key === "Delete")
+                && !event.shiftKey
+                && (
+                    event.ctrlKey
+                    || event.metaKey
+                    || (navigator.platform.toLowerCase().includes("mac") && event.altKey)
+                );
+
+            if (isDeleteShortcut) {
                 const range = getWordDeleteRange(event.key === "Backspace" ? "backward" : "forward");
                 if (!range || range.from === range.to) {
                     return;
@@ -2954,9 +3539,9 @@
             const mountNode = document.createElement("div");
             mountNode.id = "docEditorMount-" + String(mountToken);
             mountNode.className = "doc-editor-mount";
-            mountNode.style.width = "min(calc(100% - 40px), 8.9in)";
             mountNode.style.margin = "0 auto";
             editorSurface.appendChild(mountNode);
+            applyZoomToMountNode(mountNode);
             return mountNode;
         }
 
@@ -3482,10 +4067,14 @@
             });
         }
 
-        async function processPendingRemoteSnapshot() {
-            if (!pendingRemoteFileURL || dirty || syncInFlight || remoteReloadInFlight) {
+        async function processPendingRemoteSnapshot(force = false) {
+            if (!pendingRemoteFileURL) {
                 return;
             }
+            if (!force && (dirty || syncInFlight || remoteReloadInFlight)) {
+                return;
+            }
+            clearPendingRemoteReloadTimer();
             const nextFileURL = pendingRemoteFileURL;
             const nextSavedAt = pendingRemoteSavedAt;
             const nextVersion = pendingRemoteVersion;
@@ -3494,7 +4083,7 @@
             if (!nextFileURL || nextVersion <= currentVersion) {
                 return;
             }
-            await reloadRemoteDocument(nextFileURL, nextSavedAt, nextVersion, nextExternal);
+            await performRemoteDocumentReload(nextFileURL, nextSavedAt, nextVersion, nextExternal);
         }
 
         async function flushSync() {
@@ -3612,7 +4201,7 @@
             }, 120);
         }
 
-        async function reloadRemoteDocument(fileURL, savedAt, version, external) {
+        async function performRemoteDocumentReload(fileURL, savedAt, version, external) {
             const incomingVersion = Number(version || 0);
             if (!fileURL) return;
             if (incomingVersion <= currentVersion) {
@@ -3647,6 +4236,23 @@
                     console.warn("InkDrop queued remote reload failed", error);
                 });
             }
+        }
+
+        async function reloadRemoteDocument(fileURL, savedAt, version, external) {
+            const incomingVersion = Number(version || 0);
+            if (!fileURL) {
+                return;
+            }
+            if (incomingVersion <= currentVersion) {
+                currentDocumentSource = fileURL;
+                return;
+            }
+            setPendingRemoteSnapshot(fileURL, savedAt, incomingVersion, external);
+            if (dirty || syncInFlight || remoteReloadInFlight) {
+                setStatus(dirty || syncInFlight ? "Remote changes waiting for save" : "Remote changes queued", "busy");
+                return;
+            }
+            schedulePendingRemoteReload(external ? "Applying collaborator changes…" : "Applying live changes…");
         }
 
         function connectStream() {
@@ -3713,7 +4319,7 @@
                 intervalMS: DOC_REMOTE_POLL_INTERVAL_MS,
             });
             snapshotPollTimer = setInterval(() => {
-                if (eventStreamConnected || dirty || syncInFlight || remoteReloadInFlight) return;
+                if (eventStreamConnected || dirty || syncInFlight || remoteReloadInFlight || pendingRemoteReloadTimer) return;
                 requestJSON(config.loadURL, {
                     cache: "no-store",
                     credentials: "same-origin",
@@ -3756,11 +4362,111 @@
             window.print();
         }
 
+        function openPrintFallbackWindow(existingWindow) {
+            const mountNode = getMountNode();
+            if (!mountNode) {
+                throw new Error("Document editor is not ready yet");
+            }
+            const clonedNode = mountNode.cloneNode(true);
+            clonedNode.style.zoom = "";
+            clonedNode.style.transform = "";
+            clonedNode.style.width = DOC_PAGE_WIDTH;
+            clonedNode.style.margin = "0 auto";
+            clonedNode.querySelectorAll(".doc-remote-caret, .doc-cursor-layer").forEach((node) => node.remove());
+
+            const printWindow = existingWindow || window.open("", "_blank", "noopener,noreferrer");
+            if (!printWindow) {
+                throw new Error("Allow pop-ups to export the document as PDF");
+            }
+
+            const printableHTML = `<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title></title>
+    <style>
+        @page {
+            margin: 0;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+        }
+
+        body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            font-family: Calibri, "Segoe UI", Arial, sans-serif;
+        }
+
+        .doc-print-shell {
+            width: 8.5in;
+            margin: 0 auto;
+            background: #ffffff;
+            box-shadow: none !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+        }
+
+        .doc-print-shell,
+        .doc-print-shell * {
+            box-shadow: none !important;
+            border-radius: 0 !important;
+        }
+
+        .doc-print-shell * {
+            overflow: visible !important;
+        }
+
+        .doc-print-shell table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        .doc-print-shell img {
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="doc-print-shell">${clonedNode.innerHTML}</div>
+    <script>
+        window.addEventListener("load", function () {
+            setTimeout(function () {
+                window.focus();
+                window.print();
+            }, 80);
+        });
+    <\/script>
+</body>
+</html>`;
+
+            printWindow.document.open();
+            printWindow.document.write(printableHTML);
+            printWindow.document.close();
+        }
+
         async function exportPdfDocument() {
+            const fallbackWindow = window.open("", "_blank", "noopener,noreferrer");
+            if (fallbackWindow) {
+                fallbackWindow.document.open();
+                fallbackWindow.document.write("<!doctype html><html><head><title></title></head><body style=\"font-family: Calibri, 'Segoe UI', Arial, sans-serif; padding: 24px;\">Preparing PDF…</body></html>");
+                fallbackWindow.document.close();
+            }
             await queueSync(true).catch(() => {});
-            const blob = await exportCurrentDocument("pdf");
-            downloadBlob(blob, getDocumentBaseName() + ".pdf");
-            setStatus("Ready", "live");
+            try {
+                const blob = await exportCurrentDocument("pdf");
+                if (fallbackWindow && !fallbackWindow.closed) {
+                    fallbackWindow.close();
+                }
+                downloadBlob(blob, getDocumentBaseName() + ".pdf");
+                setStatus("Ready", "live");
+            } catch (error) {
+                openPrintFallbackWindow(fallbackWindow);
+                setStatus("Print-ready PDF view opened", "live");
+            }
         }
 
         function triggerFind() {
@@ -3810,6 +4516,7 @@
             disconnecting = true;
             if (pendingSyncTimer) clearTimeout(pendingSyncTimer);
             if (pendingPresenceTimer) clearTimeout(pendingPresenceTimer);
+            clearPendingRemoteReloadTimer();
             if (snapshotPollTimer) {
                 clearInterval(snapshotPollTimer);
                 snapshotPollTimer = null;
@@ -3976,9 +4683,10 @@
         bindMenuAction("docMenuInsertTableBtn", () => promptForTableInsert());
         bindMenuAction("docMenuInsertEquationBtn", () => promptForEquationInsert());
         bindMenuAction("docMenuInsertPageBreakBtn", () => insertPageBreak());
+        bindMenuAction("docMenuTableStyleBtn", () => promptForTableStyle());
         bindMenuAction("docMenuTableFillBtn", () => promptForTableFillColor());
         bindMenuAction("docMenuTablePaddingBtn", () => promptForTablePadding());
-        bindMenuAction("docMenuTableBordersBtn", () => removeTableBorders());
+        bindMenuAction("docMenuTableBordersBtn", () => promptForTableStyle());
         bindMenuAction("docMenuTableFixBtn", () => repairTableStructure());
         bindMenuAction("docMenuPageMarginsBtn", () => promptForPageMargins());
         bindMenuAction("docMenuResetMarginsBtn", () => applyPageMargins({ top: 1, right: 1, bottom: 1, left: 1 }));
@@ -4020,7 +4728,17 @@
                 });
             });
         });
+        zoomOutButton?.addEventListener("click", () => {
+            applyDocumentZoom(documentZoom - DOC_ZOOM_STEP);
+        });
+        zoomInButton?.addEventListener("click", () => {
+            applyDocumentZoom(documentZoom + DOC_ZOOM_STEP);
+        });
+        zoomResetButton?.addEventListener("click", () => {
+            applyDocumentZoom(1);
+        });
         editorSurface?.addEventListener("scroll", queueRemoteCursorRender);
+        editorSurface?.addEventListener("keydown", handleEditorKeydown, true);
         editorSurface?.addEventListener("wheel", handleEditorWheel, { passive: false, capture: true });
         editorSurface?.addEventListener("paste", handleRichPasteEvent);
         editorSurface?.addEventListener("contextmenu", (event) => {
@@ -4052,6 +4770,7 @@
             setDrawerPanel("");
         });
 
+        applyDocumentZoom(documentZoom);
         initTheme();
         setDrawerPanel("status");
         docLog("info", "Document editor boot", {
