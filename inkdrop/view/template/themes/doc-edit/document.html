@@ -36,7 +36,10 @@
         }
 
         body {
-            background: var(--doc-page-bg);
+            background:
+                radial-gradient(circle at top left, rgba(59, 130, 246, 0.14), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.12), transparent 24%),
+                var(--doc-page-bg);
             color: var(--doc-strong);
             color-scheme: light;
             height: 100vh;
@@ -56,11 +59,11 @@
             height: 100%;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 8px;
         }
 
         .doc-commandbar {
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
@@ -123,9 +126,10 @@
             gap: 2px;
             padding: 0 4px;
             min-height: 32px;
-            border-radius: 14px;
+            border-radius: 18px;
             border: 1px solid var(--doc-border);
-            background: rgba(255, 255, 255, 0.92);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(242, 247, 255, 0.96) 100%);
+            box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
             overflow: visible;
         }
 
@@ -217,7 +221,7 @@
         }
 
         .doc-toolbar-shell[data-expanded="true"] .doc-toolbar-scroll {
-            max-height: 320px;
+            max-height: min(68vh, 560px);
             overflow: auto;
         }
 
@@ -369,10 +373,10 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 10px;
+            padding: 4px 8px;
             border-radius: 999px;
             background: var(--doc-action-bg);
-            font-size: 0.82rem;
+            font-size: 0.76rem;
             color: var(--doc-strong);
         }
 
@@ -444,9 +448,9 @@
             align-items: center;
             justify-content: space-between;
             gap: 10px;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             color: var(--doc-muted);
-            font-size: 0.78rem;
+            font-size: 0.72rem;
         }
 
         .doc-stage-actions {
@@ -516,6 +520,21 @@
             border-radius: 0;
             background: #ffffff;
             box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.34), 0 22px 50px rgba(15, 23, 42, 0.12);
+        }
+
+        .doc-editor-mount.is-pending {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .doc-mount-snapshot {
+            position: absolute;
+            left: 50%;
+            z-index: 3;
+            pointer-events: none;
+            transform: translateX(-50%);
+            box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.34), 0 22px 50px rgba(15, 23, 42, 0.12);
+            background: #ffffff;
         }
 
         #docEditorSurface .doc-editor-mount {
@@ -1123,6 +1142,8 @@
                 <div class="doc-menu">
                     <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="file" aria-expanded="false">File</button>
                     <div class="doc-menu-panel" data-doc-menu-panel="file" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuBackBtn">Back to Repository</button>
+                        <button type="button" class="doc-menu-item" id="docMenuOpenBtn">Open DOCX…</button>
                         <button type="button" class="doc-menu-item" id="docMenuSaveBtn">Save <code>Ctrl+S</code></button>
                         <button type="button" class="doc-menu-item" id="docMenuSaveAsBtn">Save As <code>Ctrl+Shift+S</code></button>
                         <button type="button" class="doc-menu-item" id="docMenuExportDocxBtn">Export DOCX</button>
@@ -1405,9 +1426,9 @@
             "\\to": "→",
             "\\infty": "∞",
         });
-        const DOC_SYNC_DEBOUNCE_MS = 450;
+        const DOC_SYNC_DEBOUNCE_MS = 90;
         const DOC_REMOTE_POLL_INTERVAL_MS = 4000;
-        const DOC_REMOTE_RELOAD_DEBOUNCE_MS = 650;
+        const DOC_REMOTE_RELOAD_DEBOUNCE_MS = 260;
         const DOC_MOUNT_UPDATE_SUPPRESSION_MS = 1200;
         const DOC_ZOOM_MIN = 0.7;
         const DOC_ZOOM_MAX = 2.2;
@@ -1453,6 +1474,10 @@
         let currentPageMargins = { top: 1, right: 1, bottom: 1, left: 1 };
         let documentZoom = 1;
         let floatingDialog = null;
+        let printFallbackFrame = null;
+        let mountSnapshotOverlay = null;
+        let lastPasteSignature = "";
+        let lastPasteAt = 0;
         const clientId = "doc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
         const DOC_DEBUG = true;
 
@@ -1488,6 +1513,7 @@
             docLog("error", "showDocumentError invoked", docStateSnapshot({
                 message: message || "Failed to initialize the document editor.",
             }));
+            removeMountSnapshotOverlay();
             emptyState.hidden = false;
             editorSurface.hidden = true;
             if (toolbarSurface) {
@@ -1876,30 +1902,125 @@
 
         function updateActiveTextBlockStyles(stylePatch) {
             return performEditorAction((editor) => {
-                if (!hasEditorCommand("updateAttributes")) {
+                const view = editor && editor.view ? editor.view : null;
+                if (!view || !view.state || typeof view.dispatch !== "function") {
                     throw new Error("Block styling is not available in this editor build");
                 }
-                let nodeName = "paragraph";
-                if (typeof editor.isActive === "function") {
-                    if (editor.isActive("heading", { level: 1 }) || editor.isActive("heading", { level: 2 }) || editor.isActive("heading", { level: 3 })) {
-                        nodeName = "heading";
-                    }
-                }
-                const attrs = typeof editor.getAttributes === "function"
-                    ? (editor.getAttributes(nodeName) || {})
-                    : {};
-                const mergedStyles = parseInlineStyle(attrs.style);
-                Object.entries(stylePatch || {}).forEach(([key, value]) => {
-                    if (value == null || value === "") {
-                        delete mergedStyles[key];
+
+                const selection = view.state.selection;
+                const transaction = view.state.tr;
+                let changed = false;
+                const updateNodeStyle = (node, pos) => {
+                    if (!node || !node.isBlock) {
                         return;
                     }
-                    mergedStyles[key] = value;
-                });
-                return callEditorCommand("updateAttributes", nodeName, {
-                    style: serializeInlineStyle(mergedStyles),
-                });
+                    const nodeName = String(node.type && node.type.name || "");
+                    if (!["paragraph", "heading", "blockquote"].includes(nodeName)) {
+                        return;
+                    }
+                    const mergedStyles = parseInlineStyle(node.attrs && node.attrs.style);
+                    Object.entries(stylePatch || {}).forEach(([key, value]) => {
+                        if (value == null || value === "") {
+                            delete mergedStyles[key];
+                        } else {
+                            mergedStyles[key] = value;
+                        }
+                    });
+                    transaction.setNodeMarkup(pos, undefined, {
+                        ...node.attrs,
+                        style: serializeInlineStyle(mergedStyles),
+                    });
+                    changed = true;
+                };
+
+                if (selection.empty) {
+                    updateNodeStyle(selection.$from.parent, selection.$from.before());
+                } else {
+                    view.state.doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+                        updateNodeStyle(node, pos);
+                    });
+                }
+
+                if (!changed) {
+                    let nodeName = "paragraph";
+                    if (typeof editor.isActive === "function") {
+                        if (editor.isActive("heading", { level: 1 }) || editor.isActive("heading", { level: 2 }) || editor.isActive("heading", { level: 3 })) {
+                            nodeName = "heading";
+                        }
+                    }
+                    if (hasEditorCommand("updateAttributes")) {
+                        const attrs = typeof editor.getAttributes === "function"
+                            ? (editor.getAttributes(nodeName) || {})
+                            : {};
+                        const mergedStyles = parseInlineStyle(attrs.style);
+                        Object.entries(stylePatch || {}).forEach(([key, value]) => {
+                            if (value == null || value === "") {
+                                delete mergedStyles[key];
+                            } else {
+                                mergedStyles[key] = value;
+                            }
+                        });
+                        return callEditorCommand("updateAttributes", nodeName, {
+                            style: serializeInlineStyle(mergedStyles),
+                        });
+                    }
+                }
+
+                if (changed) {
+                    view.dispatch(transaction);
+                }
             });
+        }
+
+        function getSelectedBlockElements() {
+            const view = getEditorView();
+            if (!view || !view.state || !view.state.selection || typeof view.domAtPos !== "function") {
+                return [];
+            }
+            const selection = view.state.selection;
+            const selectors = "p, h1, h2, h3, h4, h5, h6, li, td, th, blockquote";
+            const elements = new Set();
+            const positions = [selection.from, selection.to];
+            if (!selection.empty) {
+                positions.push(Math.floor((selection.from + selection.to) / 2));
+            }
+
+            positions.forEach((pos) => {
+                try {
+                    const domAtPos = view.domAtPos(pos);
+                    let node = domAtPos && domAtPos.node ? domAtPos.node : null;
+                    if (node && node.nodeType === Node.TEXT_NODE) {
+                        node = node.parentElement;
+                    }
+                    const block = node && typeof node.closest === "function"
+                        ? node.closest(selectors)
+                        : null;
+                    if (block && editorSurface && editorSurface.contains(block)) {
+                        elements.add(block);
+                    }
+                } catch (_) {}
+            });
+
+            return Array.from(elements);
+        }
+
+        function applyVisibleLineHeightPreview(value) {
+            getSelectedBlockElements().forEach((element) => {
+                element.style.lineHeight = value;
+            });
+        }
+
+        function shouldSkipDuplicatePaste(signature) {
+            const now = Date.now();
+            if (!signature) {
+                return false;
+            }
+            if (lastPasteSignature === signature && (now - lastPasteAt) < 350) {
+                return true;
+            }
+            lastPasteSignature = signature;
+            lastPasteAt = now;
+            return false;
         }
 
         function hasEditorCommand(commandName) {
@@ -1957,11 +2078,24 @@
             }
         }
 
+        function syncVisiblePageFrame() {
+            const mountNode = getMountNode();
+            if (!mountNode) {
+                return;
+            }
+            mountNode.style.paddingTop = currentPageMargins.top + "in";
+            mountNode.style.paddingRight = currentPageMargins.right + "in";
+            mountNode.style.paddingBottom = currentPageMargins.bottom + "in";
+            mountNode.style.paddingLeft = currentPageMargins.left + "in";
+            mountNode.style.boxSizing = "border-box";
+        }
+
         function applyDocumentZoom(nextZoom) {
             if (typeof nextZoom === "number" && Number.isFinite(nextZoom)) {
                 documentZoom = Math.min(DOC_ZOOM_MAX, Math.max(DOC_ZOOM_MIN, Number(nextZoom.toFixed(2))));
             }
             applyZoomToMountNode(getMountNode());
+            syncVisiblePageFrame();
             updateZoomReadout();
             queueRemoteCursorRender();
         }
@@ -2130,6 +2264,9 @@
                     toolbarExpanded = false;
                     shell.dataset.expanded = "false";
                 }
+                scroll.style.maxHeight = toolbarExpanded
+                    ? Math.min(Math.max(scroll.scrollHeight + 12, 80), Math.round(window.innerHeight * 0.68)) + "px"
+                    : "54px";
                 if (toggle) {
                     toggle.textContent = toolbarExpanded ? "▴" : "▾";
                     toggle.setAttribute("aria-expanded", String(toolbarExpanded));
@@ -2407,9 +2544,11 @@
                         if (!value) {
                             return;
                         }
-                        return updateActiveTextBlockStyles({
+                        const result = updateActiveTextBlockStyles({
                             "line-height": value,
                         });
+                        applyVisibleLineHeightPreview(value);
+                        return result;
                     }
 
                     const commandName = target.getAttribute("data-doc-command");
@@ -2697,7 +2836,7 @@
                 return performEditorCommand("insertTable", {
                     rows: dimensions.rows,
                     cols: dimensions.cols,
-                    withHeaderRow: true,
+                    withHeaderRow: false,
                 });
             });
         }
@@ -3104,6 +3243,7 @@
                 bottom: Number(margins.bottom),
                 left: Number(margins.left),
             };
+            syncVisiblePageFrame();
             const editor = requireActiveEditor();
             if (typeof editor.updatePageStyle === "function") {
                 return performEditorAction(() => editor.updatePageStyle({
@@ -3219,33 +3359,73 @@
                 };
             }
 
-            const scanLimit = 256;
-            const textBeforeStart = Math.max(0, selection.from - scanLimit);
-            const textAfterEnd = Math.min(view.state.doc.content.size, selection.from + scanLimit);
-            const textBefore = view.state.doc.textBetween(textBeforeStart, selection.from, "\n", "\uFFFC");
-            const textAfter = view.state.doc.textBetween(selection.from, textAfterEnd, "\n", "\uFFFC");
+            const parent = selection.$from.parent;
+            const parentStart = selection.$from.start();
+            const caretOffset = selection.$from.parentOffset;
+            const parentText = parent.textBetween(0, parent.content.size, "\n", "\uFFFC");
+            const segmenter = globalThis.Intl && typeof globalThis.Intl.Segmenter === "function"
+                ? new Intl.Segmenter(undefined, { granularity: "word" })
+                : null;
+
             if (direction === "backward") {
-                let index = textBefore.length;
-                while (index > 0 && /\s/.test(textBefore[index - 1])) index -= 1;
-                while (index > 0 && !/\s/.test(textBefore[index - 1])) index -= 1;
-                if (index === textBefore.length) {
+                const beforeText = parentText.slice(0, caretOffset);
+                let trimmedEnd = beforeText.length;
+                while (trimmedEnd > 0 && /\s/.test(beforeText[trimmedEnd - 1])) {
+                    trimmedEnd -= 1;
+                }
+                if (trimmedEnd === 0 && beforeText.length === 0) {
+                    return null;
+                }
+                let startIndex = trimmedEnd;
+                if (segmenter) {
+                    const segments = Array.from(segmenter.segment(beforeText.slice(0, trimmedEnd)));
+                    for (let i = segments.length - 1; i >= 0; i -= 1) {
+                        if (segments[i].isWordLike) {
+                            startIndex = segments[i].index;
+                            break;
+                        }
+                    }
+                } else {
+                    while (startIndex > 0 && /[^\s]/.test(beforeText[startIndex - 1])) {
+                        startIndex -= 1;
+                    }
+                }
+                if (startIndex === caretOffset) {
                     return null;
                 }
                 return {
-                    from: textBeforeStart + index,
+                    from: parentStart + startIndex,
                     to: selection.from,
                 };
             }
 
-            let index = 0;
-            while (index < textAfter.length && /\s/.test(textAfter[index])) index += 1;
-            while (index < textAfter.length && !/\s/.test(textAfter[index])) index += 1;
-            if (index === 0) {
+            const afterText = parentText.slice(caretOffset);
+            let leadingWhitespace = 0;
+            while (leadingWhitespace < afterText.length && /\s/.test(afterText[leadingWhitespace])) {
+                leadingWhitespace += 1;
+            }
+            if (leadingWhitespace >= afterText.length) {
                 return null;
+            }
+            let endIndex = leadingWhitespace;
+            if (segmenter) {
+                const segments = Array.from(segmenter.segment(afterText.slice(leadingWhitespace)));
+                const nextWord = segments.find((segment) => segment.isWordLike);
+                if (nextWord) {
+                    endIndex = leadingWhitespace + nextWord.index + nextWord.segment.length;
+                } else {
+                    while (endIndex < afterText.length && /[^\s]/.test(afterText[endIndex])) {
+                        endIndex += 1;
+                    }
+                }
+            } else {
+                while (endIndex < afterText.length && /[^\s]/.test(afterText[endIndex])) {
+                    endIndex += 1;
+                }
             }
             return {
                 from: selection.from,
-                to: Math.min(textAfterEnd, selection.from + index),
+                to: selection.from + endIndex,
             };
         }
 
@@ -3256,6 +3436,9 @@
                     if (item.types.includes("text/html")) {
                         const blob = await item.getType("text/html");
                         const html = await blob.text();
+                        if (shouldSkipDuplicatePaste("html:" + html)) {
+                            return;
+                        }
                         return performEditorCommand("insertContent", html, {
                             contentType: "html",
                             warnOnUnsupportedContent: true,
@@ -3265,11 +3448,17 @@
                     if (imageType) {
                         const blob = await item.getType(imageType);
                         const dataUrl = await fileToDataURL(new File([blob], "clipboard-image", { type: imageType }));
+                        if (shouldSkipDuplicatePaste("img:" + dataUrl.slice(0, 128))) {
+                            return;
+                        }
                         return performEditorCommand("setImage", { src: dataUrl, alt: "Pasted image", title: "Pasted image" });
                     }
                     if (item.types.includes("text/plain")) {
                         const blob = await item.getType("text/plain");
                         const text = await blob.text();
+                        if (shouldSkipDuplicatePaste("txt:" + text)) {
+                            return;
+                        }
                         return performEditorCommand("insertContent", text, {
                             contentType: "text",
                         });
@@ -3280,6 +3469,9 @@
             if (navigator.clipboard && typeof navigator.clipboard.readText === "function") {
                 const text = await navigator.clipboard.readText();
                 if (text) {
+                    if (shouldSkipDuplicatePaste("txt:" + text)) {
+                        return;
+                    }
                     return performEditorCommand("insertContent", text, {
                         contentType: "text",
                     });
@@ -3298,6 +3490,9 @@
             const html = clipboard.getData("text/html");
             if (html) {
                 event.preventDefault();
+                if (shouldSkipDuplicatePaste("html:" + html)) {
+                    return;
+                }
                 Promise.resolve()
                     .then(() => performEditorCommand("insertContent", html, {
                         contentType: "html",
@@ -3315,6 +3510,9 @@
                 Promise.resolve()
                     .then(async () => {
                         const dataUrl = await fileToDataURL(imageFile);
+                        if (shouldSkipDuplicatePaste("img:" + dataUrl.slice(0, 128))) {
+                            return;
+                        }
                         return performEditorCommand("setImage", {
                             src: dataUrl,
                             alt: imageFile.name || "Pasted image",
@@ -3330,6 +3528,9 @@
             const text = clipboard.getData("text/plain");
             if (text) {
                 event.preventDefault();
+                if (shouldSkipDuplicatePaste("txt:" + text)) {
+                    return;
+                }
                 Promise.resolve()
                     .then(() => performEditorCommand("insertContent", text, {
                         contentType: "text",
@@ -3522,6 +3723,37 @@
             return null;
         }
 
+        function removeMountSnapshotOverlay() {
+            if (mountSnapshotOverlay) {
+                mountSnapshotOverlay.remove();
+                mountSnapshotOverlay = null;
+            }
+        }
+
+        function showMountSnapshotOverlay() {
+            removeMountSnapshotOverlay();
+            const currentMount = getMountNode();
+            if (!currentMount || !editorSurface) {
+                return;
+            }
+            const snapshot = currentMount.cloneNode(true);
+            snapshot.classList.add("doc-mount-snapshot");
+            snapshot.style.top = currentMount.offsetTop + "px";
+            snapshot.style.width = currentMount.offsetWidth + "px";
+            snapshot.style.paddingTop = currentMount.style.paddingTop;
+            snapshot.style.paddingRight = currentMount.style.paddingRight;
+            snapshot.style.paddingBottom = currentMount.style.paddingBottom;
+            snapshot.style.paddingLeft = currentMount.style.paddingLeft;
+            if (SUPPORTS_CSS_ZOOM) {
+                snapshot.style.zoom = currentMount.style.zoom || String(documentZoom);
+            } else {
+                snapshot.style.transform = "translateX(-50%) scale(" + documentZoom + ")";
+                snapshot.style.transformOrigin = "top center";
+            }
+            editorSurface.appendChild(snapshot);
+            mountSnapshotOverlay = snapshot;
+        }
+
         function destroyDocumentEditorInstance(instance) {
             if (!instance || typeof instance.destroy !== "function") {
                 return;
@@ -3535,13 +3767,15 @@
         }
 
         function createFreshMountNode(mountToken) {
-            editorSurface.innerHTML = "";
+            Array.from(editorSurface.querySelectorAll(".doc-editor-mount")).forEach((node) => node.remove());
             const mountNode = document.createElement("div");
             mountNode.id = "docEditorMount-" + String(mountToken);
             mountNode.className = "doc-editor-mount";
             mountNode.style.margin = "0 auto";
+            mountNode.classList.add("is-pending");
             editorSurface.appendChild(mountNode);
             applyZoomToMountNode(mountNode);
+            syncVisiblePageFrame();
             return mountNode;
         }
 
@@ -3654,6 +3888,7 @@
                 throw new Error("Editor surface element (#docEditorSurface) not found in DOM");
             }
 
+            showMountSnapshotOverlay();
             const previousSuperDoc = superdocInstance;
             const previousEditor = documentEditor;
             superdocInstance = null;
@@ -3770,6 +4005,8 @@
                                 superdocInstance = superdoc || instance;
                                 documentEditor = getActiveEditor();
                                 editorReady = true;
+                                mountNode.classList.remove("is-pending");
+                                removeMountSnapshotOverlay();
                                 setStatus("Ready", "live");
                                 proofingStatus.textContent = "Ribbon and document surface are ready.";
                                 syncEditorInteractionState();
@@ -3902,6 +4139,8 @@
                             documentEditor = instance;
                             editorReady = true;
                             suppressEditorUpdatesUntil = Date.now() + DOC_MOUNT_UPDATE_SUPPRESSION_MS;
+                            mountNode.classList.remove("is-pending");
+                            removeMountSnapshotOverlay();
                             setStatus("Ready", "live");
                             syncEditorInteractionState();
                             proofingStatus.textContent = fallbackReason
@@ -4359,10 +4598,10 @@
         }
 
         function printCurrentDocument() {
-            window.print();
+            openPrintFallbackWindow();
         }
 
-        function openPrintFallbackWindow(existingWindow) {
+        function openPrintFallbackWindow() {
             const mountNode = getMountNode();
             if (!mountNode) {
                 throw new Error("Document editor is not ready yet");
@@ -4374,9 +4613,19 @@
             clonedNode.style.margin = "0 auto";
             clonedNode.querySelectorAll(".doc-remote-caret, .doc-cursor-layer").forEach((node) => node.remove());
 
-            const printWindow = existingWindow || window.open("", "_blank", "noopener,noreferrer");
-            if (!printWindow) {
-                throw new Error("Allow pop-ups to export the document as PDF");
+            if (!printFallbackFrame || !document.body.contains(printFallbackFrame)) {
+                printFallbackFrame = document.createElement("iframe");
+                printFallbackFrame.setAttribute("aria-hidden", "true");
+                printFallbackFrame.tabIndex = -1;
+                printFallbackFrame.style.position = "fixed";
+                printFallbackFrame.style.right = "0";
+                printFallbackFrame.style.bottom = "0";
+                printFallbackFrame.style.width = "0";
+                printFallbackFrame.style.height = "0";
+                printFallbackFrame.style.border = "0";
+                printFallbackFrame.style.opacity = "0";
+                printFallbackFrame.style.pointerEvents = "none";
+                document.body.appendChild(printFallbackFrame);
             }
 
             const printableHTML = `<!doctype html>
@@ -4443,29 +4692,29 @@
 </body>
 </html>`;
 
-            printWindow.document.open();
-            printWindow.document.write(printableHTML);
-            printWindow.document.close();
+            const frameWindow = printFallbackFrame.contentWindow;
+            const frameDocument = frameWindow && frameWindow.document;
+            if (!frameWindow || !frameDocument) {
+                throw new Error("Print preview is not available in this browser");
+            }
+            frameDocument.open();
+            frameDocument.write(printableHTML);
+            frameDocument.close();
+            setTimeout(() => {
+                frameWindow.focus();
+                frameWindow.print();
+            }, 90);
         }
 
         async function exportPdfDocument() {
-            const fallbackWindow = window.open("", "_blank", "noopener,noreferrer");
-            if (fallbackWindow) {
-                fallbackWindow.document.open();
-                fallbackWindow.document.write("<!doctype html><html><head><title></title></head><body style=\"font-family: Calibri, 'Segoe UI', Arial, sans-serif; padding: 24px;\">Preparing PDF…</body></html>");
-                fallbackWindow.document.close();
-            }
             await queueSync(true).catch(() => {});
             try {
                 const blob = await exportCurrentDocument("pdf");
-                if (fallbackWindow && !fallbackWindow.closed) {
-                    fallbackWindow.close();
-                }
                 downloadBlob(blob, getDocumentBaseName() + ".pdf");
                 setStatus("Ready", "live");
             } catch (error) {
-                openPrintFallbackWindow(fallbackWindow);
-                setStatus("Print-ready PDF view opened", "live");
+                openPrintFallbackWindow();
+                setStatus("Print-ready PDF opened", "live");
             }
         }
 
@@ -4661,6 +4910,10 @@
         exportPdfButton?.addEventListener("click", async () => {
             exportPdfDocument().catch((error) => setStatus(error.message || "PDF export failed", "error"));
         });
+        bindMenuAction("docMenuBackBtn", () => {
+            window.location.assign(config.backURL || "/");
+        });
+        bindMenuAction("docMenuOpenBtn", () => localFileInput?.click());
         bindMenuAction("docMenuSaveBtn", () => queueSync(true));
         bindMenuAction("docMenuSaveAsBtn", () => triggerSaveAs());
         bindMenuAction("docMenuExportDocxBtn", async () => {

@@ -27,17 +27,29 @@ A comprehensive ecosystem for managing, distributing, and collaboratively editin
 
 ## Introduction
 
-The **FtR Project** is an integrated ecosystem consisting of two complementary components:
+The **FtR Project** is a comprehensive, open-source ecosystem designed to solve modern software distribution and collaborative development challenges. It consists of two complementary components working in tandem:
 
 - **FtR CLI** - A command-line package manager written in Go that enables downloading, uploading, and managing software packages with automatic multi-language build support
 - **Inkdrop** - A backend server providing collaborative file repository management, real-time editing, and secure file transfer capabilities
 
+### Why FtR Exists
+
+Traditional software distribution methods struggle with several critical problems:
+
+1. **Language Fragmentation** - Developers must learn separate tools for Python (pip), Node.js (npm), Go (go get), C++ (manual), etc. FtR unifies all of these under one consistent interface
+2. **Build Complexity** - Teams waste time configuring CI/CD pipelines for multi-language projects. FtR auto-detects project types and builds them with zero configuration
+3. **Collaborative Friction** - Distributed teams cannot efficiently edit shared files in real-time. Inkdrop provides live collaborative editing comparable to Google Docs but for any file type
+4. **Security Concerns** - Sensitive files transmitted over networks are vulnerable. FtR implements client-side AES-256 encryption with key management
+5. **Network Unreliability** - Large file uploads fail frequently. FtR's TUS protocol ensures resumable uploads that survive network interruptions
+6. **Version Chaos** - Teams struggle tracking which versions are installed and available. FtR maintains a local registry with automatic upgrade detection
+
 Together, these components create a complete solution for:
-- **Package Distribution** - Manage versioned software packages across teams
-- **Collaborative Development** - Real-time file editing with multiple users
-- **Secure File Transfer** - Client-side AES-256 encryption for sensitive files
-- **Automatic Build Management** - Multi-language build detection and compilation
-- **Repository Management** - Centralized file storage with permission controls
+- **Unified Package Distribution** - One command works across all languages and platforms
+- **Collaborative Development** - Real-time file editing with multiple users, presence awareness, and conflict resolution
+- **Secure File Transfer** - Client-side AES-256 encryption for sensitive files with intelligent key management
+- **Automatic Build Management** - Multi-language build detection and compilation with zero configuration
+- **Repository Management** - Centralized file storage with fine-grained permission controls
+- **Enterprise-Ready Features** - Session management, audit trails, multi-owner repositories, and permission hierarchies
 
 The project is open-source under a **MIT License with Commons Clause** restriction, allowing free use and modification while preventing commercial redistribution of the software itself.
 
@@ -627,8 +639,8 @@ WantedBy=multi-user.target
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/SQU1DMAN6/web-design.git
-   cd web-design/ftr
+   git clone https://github.com/SQU1DMAN6/ftr-project.git
+   cd ftr-project/ftr
    ```
 
 2. **Install dependencies:**
@@ -671,12 +683,14 @@ go build -o bin/ftr ./cmd
 
 1. **Clone the repository:**
    ```bash
-   cd web-design/inkdrop
+   git clone https://github.com/SQU1DMAN6/ftr-project.git
+   cd ftr-project/inkdrop
    ```
 
 2. **Install dependencies:**
    ```bash
    go mod download
+   go mod tidy
    ```
 
 3. **Run in development mode:**
@@ -698,7 +712,7 @@ make start       # Start via systemd
 
 ```bash
 cd /etc/systemd/system
-sudo ln -s /path/to/web-design/inkdrop/inkdrop.service .
+sudo ln -s /path/to/ftr-project/inkdrop/inkdrop.service .
 sudo systemctl daemon-reload
 sudo systemctl enable inkdrop
 sudo systemctl start inkdrop
@@ -826,11 +840,13 @@ ftr query myuser/myrepo
 http://localhost:6767
 ```
 
+Default credentials are not provided—users must register. Inkdrop has no default admin account for security reasons.
+
 #### User Registration
 1. Navigate to Inkdrop home page
 2. Click "Register"
 3. Fill in username, email, password
-4. Verify email (if configured)
+4. Account is immediately active (email verification optional based on config)
 
 #### Creating a Repository
 1. Login to Inkdrop
@@ -865,7 +881,7 @@ http://localhost:6767
 
 ```bash
 # Setup: Start Inkdrop server
-cd web-design/inkdrop
+cd ftr-project/inkdrop
 make dev
 # Server runs on localhost:6767
 
@@ -887,6 +903,82 @@ ftr get myuser/myrepo
 # Navigate to myuser/myrepo
 # Edit file in live editor with team members
 ```
+
+### Real-World Use Cases
+
+#### Scenario 1: Multi-Language Open Source Project
+
+**Problem:** Your open-source project has components in Go, Python, and C++. Users must run separate build commands for each language, consult documentation, and deal with dependency issues.
+
+**FtR Solution:**
+```bash
+# Users just run one command
+ftr get yourorg/multi-lang-project
+
+# FtR automatically:
+# - Detects Go, Python, and C++ components
+# - Compiles Go with go build
+# - Packages Python with PyInstaller
+# - Compiles C++ with g++
+# - Places binaries in standard locations
+```
+
+#### Scenario 2: Distributed Team Real-Time Collaboration
+
+**Problem:** Your team needs to edit configuration files, documentation, and scripts together. Email attachments and Git commits are too slow for real-time feedback.
+
+**FtR Solution:**
+```bash
+# Team member 1: Opens Inkdrop web UI
+http://localhost:6767/edit/deploy.yaml/john/devops
+
+# Team member 2: Opens same file in browser
+# They see live updates as each other types
+# Multiple cursors show who's editing what
+# Changes auto-save every 30 seconds
+```
+
+#### Scenario 3: Secure Binary Distribution
+
+**Problem:** Your company distributes proprietary tools to 100 developers. Email is insecure, SSH distribution is tedious, and you need to verify integrity.
+
+**FtR Solution:**
+```bash
+# Company: Build and upload with encryption
+ftr pack ./myapp -f linux-x86_64
+ftr up ./myapp.sqar company/internal-tools -E  # -E flag encrypts
+
+# Developer: Download decrypts automatically
+ftr get company/internal-tools
+# FtR verifies SHA256 hash automatically
+# Optional: -D flag decrypts if encrypted
+```
+
+#### Scenario 4: CI/CD Pipeline Integration
+
+**Problem:** Your CI/CD pipeline needs to upload build artifacts to multiple environments (dev, staging, prod) and track versions.
+
+**FtR Solution:**
+```bash
+# In your GitHub Actions workflow
+- name: Upload to FtR
+  run: |
+    ftr login --token ${{ secrets.FTR_TOKEN }}
+    ftr pack ./dist
+    ftr up ./dist.sqar myorg/app@${{ github.ref }}
+    ftr up ./dist.sqar myorg/app-staging  # Latest tag
+```
+
+#### Scenario 5: Knowledge Base with Collaborative Editing
+
+**Problem:** Your team maintains technical documentation, runbooks, and architecture diagrams. Word documents and wikis become outdated quickly because editing is painful.
+
+**FtR Solution:**
+- Store all docs in Inkdrop repository
+- Multiple team members edit Markdown simultaneously
+- Real-time updates—no merge conflicts
+- FtR's built-in Ace editor provides syntax highlighting
+- Version history maintained automatically
 
 ---
 
@@ -1012,6 +1104,7 @@ The FtR Project is dual-licensed under:
 2. **Commons Clause** - Restricts commercial redistribution of the software itself
 
 **Summary:**
+
 Allowed:
 - Use FtR for personal projects
 - Modify and improve the code
@@ -1034,7 +1127,7 @@ Not Allowed:
 
 #### FtR
 ```bash
-cd web-design/ftr
+cd ftr-project/ftr
 go mod download
 go build -o bin/ftr ./cmd
 ./bin/ftr version
@@ -1042,7 +1135,7 @@ go build -o bin/ftr ./cmd
 
 #### Inkdrop
 ```bash
-cd web-design/inkdrop
+cd ftr-project/inkdrop
 go mod download
 go build -o bin/inkdrop ./cmd
 ./bin/inkdrop
@@ -1153,8 +1246,8 @@ Together, they create a modern, efficient, and secure package distribution and c
 ---
 
 **For more information:**
-- Repository: https://github.com/SQU1DMAN6/web-design
-- Issues: https://github.com/SQU1DMAN6/web-design/issues
+- Repository: https://github.com/SQU1DMAN6/ftr-project
+- Issues: https://github.com/SQU1DMAN6/ftr-project/issues
 - Author: Quan Thai
 - Version: 3.0
 - License: MIT License with Commons Clause condition
