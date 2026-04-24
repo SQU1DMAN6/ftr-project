@@ -119,12 +119,14 @@
         .doc-menubar {
             display: flex;
             align-items: center;
-            gap: 4px;
-            padding: 0 6px;
-            min-height: 34px;
+            flex-wrap: wrap;
+            gap: 2px;
+            padding: 0 4px;
+            min-height: 32px;
             border-radius: 14px;
             border: 1px solid var(--doc-border);
             background: rgba(255, 255, 255, 0.92);
+            overflow: visible;
         }
 
         .doc-menu {
@@ -137,14 +139,15 @@
             background: transparent;
             color: var(--doc-strong);
             font: inherit;
-            font-size: 0.84rem;
+            font-size: 0.78rem;
             line-height: 1.2;
             cursor: pointer;
         }
 
         .doc-menu-trigger {
-            padding: 6px 10px;
+            padding: 5px 8px;
             border-radius: 10px;
+            white-space: nowrap;
         }
 
         .doc-menu-trigger:hover,
@@ -163,7 +166,7 @@
             border: 1px solid var(--doc-border);
             background: #ffffff;
             box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
-            z-index: 20;
+            z-index: 60;
         }
 
         .doc-menu-panel[hidden] {
@@ -188,27 +191,65 @@
 
         #docToolbarSurface {
             margin-bottom: 10px;
-            padding: 10px 12px;
+            padding: 8px 10px;
             border-radius: 16px;
             border: 1px solid color-mix(in srgb, var(--doc-border) 85%, transparent);
             background: #ffffff;
-            min-height: 54px;
+            min-height: 0;
             overflow: hidden;
+        }
+
+        .doc-toolbar-shell {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: start;
+        }
+
+        .doc-toolbar-scroll {
+            min-width: 0;
+            overflow: hidden;
+            transition: max-height 0.18s ease;
+        }
+
+        .doc-toolbar-shell[data-expanded="false"] .doc-toolbar-scroll {
+            max-height: 54px;
+        }
+
+        .doc-toolbar-shell[data-expanded="true"] .doc-toolbar-scroll {
+            max-height: 320px;
+            overflow: auto;
+        }
+
+        .doc-toolbar-shell[data-overflow="false"] .doc-toolbar-toggle {
+            display: none;
+        }
+
+        .doc-toolbar-toggle {
+            width: 30px;
+            height: 30px;
+            border: 1px solid color-mix(in srgb, var(--doc-border) 80%, transparent);
+            border-radius: 10px;
+            background: var(--doc-action-bg);
+            color: var(--doc-strong);
+            font: inherit;
+            font-size: 0.9rem;
+            cursor: pointer;
         }
 
         .doc-toolbar {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 8px;
             align-items: flex-end;
         }
 
         .doc-toolbar-group {
             display: flex;
             flex-wrap: wrap;
-            gap: 6px;
+            gap: 4px;
             align-items: center;
-            padding-right: 10px;
+            padding-right: 8px;
             margin-right: 2px;
             border-right: 1px solid color-mix(in srgb, var(--doc-border) 80%, transparent);
         }
@@ -222,12 +263,12 @@
         .doc-toolbar-field {
             display: flex;
             flex-direction: column;
-            gap: 4px;
-            min-width: 112px;
+            gap: 3px;
+            min-width: 96px;
         }
 
         .doc-toolbar-field-size {
-            min-width: 74px;
+            min-width: 70px;
         }
 
         .doc-toolbar-label {
@@ -239,25 +280,37 @@
         }
 
         .doc-toolbar-select {
-            height: 34px;
-            padding: 0 10px;
+            height: 30px;
+            padding: 0 8px;
             border-radius: 10px;
             border: 1px solid var(--doc-border);
             background: #ffffff;
             color: var(--doc-strong);
             font: inherit;
+            font-size: 0.78rem;
+        }
+
+        .doc-toolbar-input {
+            height: 30px;
+            padding: 0 8px;
+            border-radius: 10px;
+            border: 1px solid var(--doc-border);
+            background: #ffffff;
+            color: var(--doc-strong);
+            font: inherit;
+            font-size: 0.78rem;
         }
 
         .doc-toolbar-button {
-            min-width: 34px;
-            height: 34px;
-            padding: 0 10px;
+            min-width: 30px;
+            height: 30px;
+            padding: 0 8px;
             border: 1px solid transparent;
             border-radius: 10px;
             background: var(--doc-action-bg);
             color: var(--doc-strong);
             font: inherit;
-            font-size: 0.84rem;
+            font-size: 0.78rem;
             font-weight: 600;
             line-height: 1;
             cursor: pointer;
@@ -277,11 +330,26 @@
         }
 
         .doc-toolbar-button[data-variant="text"] {
-            min-width: 42px;
+            min-width: 34px;
         }
 
         .doc-toolbar-button[data-variant="wide"] {
-            min-width: 70px;
+            min-width: 58px;
+        }
+
+        .doc-toolbar-button[data-active="true"] {
+            background: var(--toolbar-button-active);
+            border-color: color-mix(in srgb, var(--doc-border) 92%, transparent);
+        }
+
+        .doc-toolbar-color {
+            width: 30px;
+            height: 30px;
+            padding: 2px;
+            border-radius: 10px;
+            border: 1px solid var(--doc-border);
+            background: #ffffff;
+            cursor: pointer;
         }
 
         .doc-toolbar-hint {
@@ -386,9 +454,180 @@
             min-height: 0;
             height: 100%;
             border-radius: 18px;
-            overflow: hidden;
+            position: relative;
+            overflow: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable both-edges;
+            scrollbar-width: thin;
             background: var(--doc-stage-bg);
             border: 1px solid color-mix(in srgb, var(--doc-border) 80%, transparent);
+            padding: 18px 0 24px;
+        }
+
+        .doc-editor-mount {
+            width: min(calc(100% - 40px), 8.9in);
+            min-height: 0;
+            margin: 0 auto;
+            position: relative;
+            border-radius: 18px;
+            background: #ffffff;
+            box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.34), 0 22px 50px rgba(15, 23, 42, 0.12);
+        }
+
+        #docEditorSurface .doc-editor-mount {
+            font-family: Calibri, "Segoe UI", Arial, sans-serif;
+        }
+
+        #docEditorSurface table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        #docEditorSurface table,
+        #docEditorSurface td,
+        #docEditorSurface th {
+            border: 1px solid #94a3b8;
+        }
+
+        #docEditorSurface td,
+        #docEditorSurface th {
+            padding: 8px;
+            vertical-align: top;
+        }
+
+        .doc-cursor-layer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 4;
+        }
+
+        .doc-remote-caret {
+            position: absolute;
+            transform: translate(-1px, 0);
+        }
+
+        .doc-remote-caret-line {
+            width: 2px;
+            height: 22px;
+            border-radius: 999px;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+        }
+
+        .doc-remote-caret-badge {
+            position: absolute;
+            top: -22px;
+            left: -4px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            color: #ffffff;
+            font-size: 0.72rem;
+            font-weight: 600;
+            white-space: nowrap;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
+        }
+
+        .doc-context-menu {
+            position: fixed;
+            min-width: 210px;
+            padding: 6px;
+            border-radius: 14px;
+            border: 1px solid var(--doc-border);
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+            z-index: 40;
+        }
+
+        .doc-context-menu[hidden] {
+            display: none;
+        }
+
+        .doc-context-menu-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 10px;
+            border: 0;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--doc-strong);
+            font: inherit;
+            font-size: 0.8rem;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .doc-context-menu-item:hover {
+            background: var(--doc-menu-hover);
+        }
+
+        .doc-context-menu-divider {
+            height: 1px;
+            margin: 4px 2px;
+            background: color-mix(in srgb, var(--doc-border) 80%, transparent);
+        }
+
+        .doc-popover-backdrop {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(15, 23, 42, 0.16);
+            z-index: 80;
+        }
+
+        .doc-popover-card {
+            width: min(420px, calc(100vw - 24px));
+            padding: 16px;
+            border-radius: 20px;
+            border: 1px solid var(--doc-border);
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+        }
+
+        .doc-popover-card h3,
+        .doc-popover-card p {
+            margin: 0;
+        }
+
+        .doc-popover-stack {
+            display: grid;
+            gap: 12px;
+        }
+
+        .doc-popover-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .doc-popover-row input {
+            width: 100%;
+        }
+
+        .doc-table-picker-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 24px);
+            gap: 4px;
+            justify-content: start;
+        }
+
+        .doc-table-picker-cell {
+            width: 24px;
+            height: 24px;
+            border-radius: 7px;
+            border: 1px solid color-mix(in srgb, var(--doc-border) 85%, transparent);
+            background: rgba(15, 23, 42, 0.05);
+            cursor: pointer;
+        }
+
+        .doc-table-picker-cell[data-active="true"] {
+            background: #dbeafe;
+            border-color: #60a5fa;
         }
 
         #docEditorSurface[hidden],
@@ -639,6 +878,10 @@
                 border-right: 0;
             }
 
+            .doc-toolbar-shell {
+                grid-template-columns: 1fr;
+            }
+
             .doc-toolbar-field {
                 min-width: 0;
                 flex: 1 1 140px;
@@ -735,6 +978,9 @@
                     <div class="doc-menu-panel" data-doc-menu-panel="edit" hidden>
                         <button type="button" class="doc-menu-item" id="docMenuUndoBtn">Undo <code>Ctrl+Z</code></button>
                         <button type="button" class="doc-menu-item" id="docMenuRedoBtn">Redo <code>Ctrl+Y</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuCutBtn">Cut <code>Ctrl+X</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuCopyBtn">Copy <code>Ctrl+C</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuPasteBtn">Paste <code>Ctrl+V</code></button>
                         <button type="button" class="doc-menu-item" id="docMenuFindBtn">Find</button>
                         <button type="button" class="doc-menu-item" id="docMenuClearFormatBtn">Clear Formatting</button>
                     </div>
@@ -743,7 +989,25 @@
                     <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="insert" aria-expanded="false">Insert</button>
                     <div class="doc-menu-panel" data-doc-menu-panel="insert" hidden>
                         <button type="button" class="doc-menu-item" id="docMenuInsertImageBtn">Image</button>
-                        <button type="button" class="doc-menu-item" id="docMenuInsertTableBtn">Table</button>
+                        <button type="button" class="doc-menu-item" id="docMenuInsertTableBtn">Table…</button>
+                        <button type="button" class="doc-menu-item" id="docMenuInsertEquationBtn">Equation Symbol</button>
+                        <button type="button" class="doc-menu-item" id="docMenuInsertPageBreakBtn">Page Break</button>
+                    </div>
+                </div>
+                <div class="doc-menu">
+                    <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="table" aria-expanded="false">Table</button>
+                    <div class="doc-menu-panel" data-doc-menu-panel="table" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuTableFillBtn">Cell Fill…</button>
+                        <button type="button" class="doc-menu-item" id="docMenuTablePaddingBtn">Cell Padding…</button>
+                        <button type="button" class="doc-menu-item" id="docMenuTableBordersBtn">Remove Borders</button>
+                        <button type="button" class="doc-menu-item" id="docMenuTableFixBtn">Repair Table</button>
+                    </div>
+                </div>
+                <div class="doc-menu">
+                    <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="layout" aria-expanded="false">Layout</button>
+                    <div class="doc-menu-panel" data-doc-menu-panel="layout" hidden>
+                        <button type="button" class="doc-menu-item" id="docMenuPageMarginsBtn">Page Margins…</button>
+                        <button type="button" class="doc-menu-item" id="docMenuResetMarginsBtn">Reset Margins</button>
                     </div>
                 </div>
                 <div class="doc-menu">
@@ -760,6 +1024,21 @@
                         <button type="button" class="doc-menu-item" id="docMenuBoldBtn">Bold <code>Ctrl+B</code></button>
                         <button type="button" class="doc-menu-item" id="docMenuItalicBtn">Italic <code>Ctrl+I</code></button>
                         <button type="button" class="doc-menu-item" id="docMenuUnderlineBtn">Underline <code>Ctrl+U</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuStrikeBtn">Strikethrough <code>Ctrl+Shift+S</code></button>
+                        <button type="button" class="doc-menu-item" id="docMenuTextColorBtn">Text Color…</button>
+                        <button type="button" class="doc-menu-item" id="docMenuHighlightBtn">Highlight…</button>
+                    </div>
+                </div>
+                <div class="doc-menu">
+                    <button type="button" class="doc-menu-trigger" data-doc-menu-trigger="equation" aria-expanded="false">Equation</button>
+                    <div class="doc-menu-panel" data-doc-menu-panel="equation" hidden>
+                        <button type="button" class="doc-menu-item" data-equation-symbol="α">Alpha</button>
+                        <button type="button" class="doc-menu-item" data-equation-symbol="β">Beta</button>
+                        <button type="button" class="doc-menu-item" data-equation-symbol="π">Pi</button>
+                        <button type="button" class="doc-menu-item" data-equation-symbol="∑">Summation</button>
+                        <button type="button" class="doc-menu-item" data-equation-symbol="∫">Integral</button>
+                        <button type="button" class="doc-menu-item" data-equation-symbol="√">Square Root</button>
+                        <button type="button" class="doc-menu-item" id="docMenuConvertEquationBtn">Convert <code>\...</code> codes</button>
                     </div>
                 </div>
             </nav>
@@ -932,6 +1211,31 @@
             { label: "Verdana", key: "Verdana" },
         ];
         const DOC_FONT_SIZE_OPTIONS = ["10pt", "11pt", "12pt", "14pt", "16pt", "18pt", "24pt", "32pt"];
+        const DOC_EQUATION_SHORTCUTS = Object.freeze({
+            "\\alpha": "α",
+            "\\beta": "β",
+            "\\gamma": "γ",
+            "\\delta": "δ",
+            "\\theta": "θ",
+            "\\lambda": "λ",
+            "\\mu": "μ",
+            "\\pi": "π",
+            "\\sigma": "σ",
+            "\\phi": "φ",
+            "\\omega": "ω",
+            "\\sum": "∑",
+            "\\prod": "∏",
+            "\\int": "∫",
+            "\\sqrt": "√",
+            "\\neq": "≠",
+            "\\leq": "≤",
+            "\\geq": "≥",
+            "\\times": "×",
+            "\\div": "÷",
+            "\\pm": "±",
+            "\\to": "→",
+            "\\infty": "∞",
+        });
         const DOC_SYNC_DEBOUNCE_MS = 450;
         const DOC_REMOTE_POLL_INTERVAL_MS = 4000;
         const DOC_MOUNT_UPDATE_SUPPRESSION_MS = 1200;
@@ -966,6 +1270,12 @@
         let remoteReloadInFlight = false;
         let eventStreamConnected = false;
         let suppressEditorUpdatesUntil = 0;
+        let lastKnownSelection = null;
+        let remoteCursorFrame = 0;
+        let toolbarExpanded = false;
+        let contextMenu = null;
+        let currentPageMargins = { top: 1, right: 1, bottom: 1, left: 1 };
+        let floatingDialog = null;
         const clientId = "doc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
         const DOC_DEBUG = true;
 
@@ -1146,6 +1456,275 @@
             return editor;
         }
 
+        function getEditorView() {
+            const editor = getActiveEditor();
+            return editor && editor.view ? editor.view : null;
+        }
+
+        function getCurrentSelection() {
+            const view = getEditorView();
+            if (!view || !view.state || !view.state.selection) {
+                return null;
+            }
+            const selection = view.state.selection;
+            return {
+                startRow: 0,
+                startColumn: 0,
+                endRow: 0,
+                endColumn: 0,
+                startPos: Number(selection.from || 0),
+                endPos: Number(selection.to || 0),
+            };
+        }
+
+        function captureSelectionState() {
+            lastKnownSelection = getCurrentSelection();
+            return lastKnownSelection;
+        }
+
+        function focusActiveEditor(options = {}) {
+            const restoreSelection = options.restoreSelection !== false;
+            const editor = requireActiveEditor();
+
+            if (restoreSelection && lastKnownSelection) {
+                try {
+                    if (hasEditorCommand("setTextSelection")) {
+                        callEditorCommand("setTextSelection", {
+                            from: lastKnownSelection.startPos,
+                            to: lastKnownSelection.endPos,
+                        });
+                    } else if (editor.view && editor.view.state && editor.view.dispatch && editor.view.state.selection && editor.view.state.selection.constructor && typeof editor.view.state.selection.constructor.create === "function") {
+                        const selectionCtor = editor.view.state.selection.constructor;
+                        const transaction = editor.view.state.tr.setSelection(
+                            selectionCtor.create(
+                                editor.view.state.doc,
+                                lastKnownSelection.startPos,
+                                lastKnownSelection.endPos,
+                            )
+                        );
+                        editor.view.dispatch(transaction);
+                    }
+                } catch (_) {}
+            }
+
+            if (typeof editor.focus === "function") {
+                editor.focus();
+            } else if (editor.view && typeof editor.view.focus === "function") {
+                editor.view.focus();
+            }
+
+            return editor;
+        }
+
+        function performEditorAction(action) {
+            const editor = focusActiveEditor();
+            const result = action(editor);
+            captureSelectionState();
+            refreshToolbarAvailability();
+            queuePresenceUpdate();
+            queueRemoteCursorRender();
+            return result;
+        }
+
+        function performEditorCommand(commandName, ...args) {
+            return performEditorAction(() => callEditorCommand(commandName, ...args));
+        }
+
+        function performEditorTransaction(mutator) {
+            return performEditorAction((editor) => {
+                const view = editor && editor.view ? editor.view : null;
+                if (!view || !view.state || typeof view.dispatch !== "function") {
+                    throw new Error("The editor transaction API is not available");
+                }
+                const transaction = mutator(view.state.tr, view.state, view);
+                if (transaction) {
+                    view.dispatch(transaction);
+                }
+            });
+        }
+
+        function coerceExportBlob(exported, exportType = "docx") {
+            const mimeType = exportType === "pdf"
+                ? "application/pdf"
+                : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+            if (!exported) {
+                return null;
+            }
+            if (exported instanceof Blob) {
+                return exported;
+            }
+            if (exported instanceof ArrayBuffer) {
+                return new Blob([exported], { type: mimeType });
+            }
+            if (ArrayBuffer.isView(exported)) {
+                return new Blob([exported], { type: mimeType });
+            }
+            if (typeof exported === "object") {
+                const candidateKeys = [exportType, "blob", "file", "data", "content"];
+                for (const key of candidateKeys) {
+                    if (!(key in exported)) {
+                        continue;
+                    }
+                    const blob = coerceExportBlob(exported[key], exportType);
+                    if (blob) {
+                        return blob;
+                    }
+                }
+            }
+            if (typeof exported === "string" && exported.length > 0) {
+                return new Blob([exported], { type: mimeType });
+            }
+            return null;
+        }
+
+        async function blobLooksLikePdf(blob) {
+            if (!(blob instanceof Blob)) {
+                return false;
+            }
+            const header = await blob.slice(0, 5).text().catch(() => "");
+            return header === "%PDF-";
+        }
+
+        function isEditorFocused() {
+            const view = getEditorView();
+            if (view && typeof view.hasFocus === "function" && view.hasFocus()) {
+                return true;
+            }
+            return Boolean(
+                editorSurface &&
+                document.activeElement &&
+                editorSurface.contains(document.activeElement)
+            );
+        }
+
+        function getEditorSelectionText() {
+            const view = getEditorView();
+            if (!view || !view.state || !view.state.selection || !view.state.doc) {
+                return "";
+            }
+            const selection = view.state.selection;
+            if (selection.empty) {
+                return "";
+            }
+            return view.state.doc.textBetween(selection.from, selection.to, "\n", "\n");
+        }
+
+        async function runClipboardCommand(commandName) {
+            focusActiveEditor();
+            if (typeof document.execCommand === "function") {
+                const success = document.execCommand(commandName);
+                if (success) {
+                    return;
+                }
+            }
+
+            if (commandName === "copy" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+                const text = getEditorSelectionText();
+                if (!text) {
+                    throw new Error("Select some text first");
+                }
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+
+            throw new Error(commandName + " is not available in this browser");
+        }
+
+        function parseInlineStyle(styleText) {
+            const styles = {};
+            String(styleText || "")
+                .split(";")
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+                .forEach((entry) => {
+                    const separatorIndex = entry.indexOf(":");
+                    if (separatorIndex <= 0) {
+                        return;
+                    }
+                    const key = entry.slice(0, separatorIndex).trim().toLowerCase();
+                    const value = entry.slice(separatorIndex + 1).trim();
+                    if (key && value) {
+                        styles[key] = value;
+                    }
+                });
+            return styles;
+        }
+
+        function serializeInlineStyle(styleMap) {
+            return Object.entries(styleMap)
+                .filter(([, value]) => String(value || "").trim() !== "")
+                .map(([key, value]) => key + ": " + value)
+                .join("; ");
+        }
+
+        function getActiveTableCellNodeName(editor) {
+            if (!editor || typeof editor.isActive !== "function") {
+                return "tableCell";
+            }
+            if (editor.isActive("tableHeader")) {
+                return "tableHeader";
+            }
+            if (editor.isActive("tableCell")) {
+                return "tableCell";
+            }
+            return "";
+        }
+
+        function updateActiveTableCellStyles(stylePatch) {
+            return performEditorAction((editor) => {
+                const nodeName = getActiveTableCellNodeName(editor);
+                if (!nodeName) {
+                    throw new Error("Place the cursor inside a table cell first");
+                }
+                if (!hasEditorCommand("updateAttributes")) {
+                    throw new Error("Table styling is not available in this editor build");
+                }
+                const attrs = typeof editor.getAttributes === "function"
+                    ? (editor.getAttributes(nodeName) || {})
+                    : {};
+                const mergedStyles = parseInlineStyle(attrs.style);
+                Object.entries(stylePatch || {}).forEach(([key, value]) => {
+                    if (value == null || value === "") {
+                        delete mergedStyles[key];
+                        return;
+                    }
+                    mergedStyles[key] = value;
+                });
+                return callEditorCommand("updateAttributes", nodeName, {
+                    style: serializeInlineStyle(mergedStyles),
+                });
+            });
+        }
+
+        function updateActiveTextBlockStyles(stylePatch) {
+            return performEditorAction((editor) => {
+                if (!hasEditorCommand("updateAttributes")) {
+                    throw new Error("Block styling is not available in this editor build");
+                }
+                let nodeName = "paragraph";
+                if (typeof editor.isActive === "function") {
+                    if (editor.isActive("heading", { level: 1 }) || editor.isActive("heading", { level: 2 }) || editor.isActive("heading", { level: 3 })) {
+                        nodeName = "heading";
+                    }
+                }
+                const attrs = typeof editor.getAttributes === "function"
+                    ? (editor.getAttributes(nodeName) || {})
+                    : {};
+                const mergedStyles = parseInlineStyle(attrs.style);
+                Object.entries(stylePatch || {}).forEach(([key, value]) => {
+                    if (value == null || value === "") {
+                        delete mergedStyles[key];
+                        return;
+                    }
+                    mergedStyles[key] = value;
+                });
+                return callEditorCommand("updateAttributes", nodeName, {
+                    style: serializeInlineStyle(mergedStyles),
+                });
+            });
+        }
+
         function hasEditorCommand(commandName) {
             const editor = getActiveEditor();
             return Boolean(editor && editor.commands && typeof editor.commands[commandName] === "function");
@@ -1174,6 +1753,85 @@
             pendingRemoteSavedAt = 0;
             pendingRemoteVersion = 0;
             pendingRemoteExternal = false;
+        }
+
+        function ensureCursorLayer() {
+            if (!editorSurface) {
+                return null;
+            }
+            let layer = editorSurface.querySelector(".doc-cursor-layer");
+            if (!layer) {
+                layer = document.createElement("div");
+                layer.className = "doc-cursor-layer";
+                editorSurface.appendChild(layer);
+            }
+            return layer;
+        }
+
+        function queueRemoteCursorRender() {
+            if (remoteCursorFrame) {
+                cancelAnimationFrame(remoteCursorFrame);
+            }
+            remoteCursorFrame = requestAnimationFrame(() => {
+                remoteCursorFrame = 0;
+                renderRemoteCursors();
+            });
+        }
+
+        function renderRemoteCursors() {
+            const layer = ensureCursorLayer();
+            const editor = getActiveEditor();
+            const view = getEditorView();
+            if (!layer) {
+                return;
+            }
+
+            layer.innerHTML = "";
+            if (!editorReady || !editor || !view) {
+                return;
+            }
+
+            const surfaceRect = editorSurface.getBoundingClientRect();
+            latestPresence.forEach((person) => {
+                if (!person || person.clientId === clientId || !person.selection) {
+                    return;
+                }
+
+                const selection = person.selection;
+                const headPos = Number(selection.endPos || selection.startPos || 0);
+                if (headPos <= 0) {
+                    return;
+                }
+
+                let coords = null;
+                try {
+                    coords = view.coordsAtPos(headPos);
+                } catch (_) {
+                    return;
+                }
+                if (!coords) {
+                    return;
+                }
+
+                const caret = document.createElement("div");
+                caret.className = "doc-remote-caret";
+                caret.style.left = (coords.left - surfaceRect.left + editorSurface.scrollLeft) + "px";
+                caret.style.top = (coords.top - surfaceRect.top + editorSurface.scrollTop) + "px";
+
+                const color = person.color || "#0f766e";
+                const line = document.createElement("div");
+                line.className = "doc-remote-caret-line";
+                line.style.background = color;
+
+                const badge = document.createElement("div");
+                badge.className = "doc-remote-caret-badge";
+                badge.style.background = color;
+                badge.textContent = person.user || "Collaborator";
+
+                caret.appendChild(badge);
+                caret.appendChild(line);
+                layer.appendChild(caret);
+            });
         }
 
         function applyToolbarStyle(styleKey) {
@@ -1209,19 +1867,62 @@
             throw new Error("Selected document style is not available in this editor build");
         }
 
+        function normalizeColorInputValue(color, fallback) {
+            const resolved = String(color || "").trim();
+            if (/^#[0-9a-f]{6}$/i.test(resolved)) {
+                return resolved;
+            }
+            if (/^[0-9a-f]{6}$/i.test(resolved)) {
+                return "#" + resolved;
+            }
+            return fallback;
+        }
+
+        function syncToolbarOverflow() {
+            const shell = toolbarSurface && toolbarSurface.querySelector("#docToolbarShell");
+            const scroll = toolbarSurface && toolbarSurface.querySelector(".doc-toolbar-scroll");
+            const toggle = toolbarSurface && toolbarSurface.querySelector("#docToolbarToggle");
+            if (!shell || !scroll) {
+                return;
+            }
+
+            shell.dataset.expanded = String(toolbarExpanded);
+            requestAnimationFrame(() => {
+                const hasOverflow = scroll.scrollHeight > 58;
+                shell.dataset.overflow = String(hasOverflow);
+                if (!hasOverflow) {
+                    toolbarExpanded = false;
+                    shell.dataset.expanded = "false";
+                }
+                if (toggle) {
+                    toggle.textContent = toolbarExpanded ? "▴" : "▾";
+                    toggle.setAttribute("aria-expanded", String(toolbarExpanded));
+                }
+            });
+        }
+
         function refreshToolbarAvailability() {
             if (!toolbarSurface) {
                 return;
             }
             const styleSelect = toolbarSurface.querySelector("#docToolbarStyle");
             const fontSelect = toolbarSurface.querySelector("#docToolbarFont");
-            const sizeSelect = toolbarSurface.querySelector("#docToolbarFontSize");
+            const sizeInput = toolbarSurface.querySelector("#docToolbarFontSize");
+            const textColorInput = toolbarSurface.querySelector("#docToolbarTextColor");
+            const highlightInput = toolbarSurface.querySelector("#docToolbarHighlightColor");
             const imageButton = toolbarSurface.querySelector("#docToolbarInsertImage");
+            const marginLeftInput = toolbarSurface.querySelector("#docToolbarMarginLeft");
+            const marginRightInput = toolbarSurface.querySelector("#docToolbarMarginRight");
+            const lineHeightInput = toolbarSurface.querySelector("#docToolbarLineHeight");
             const ready = Boolean(editorReady && getActiveEditor());
             const canSetStyle = hasEditorCommand("setStyleById") || hasEditorCommand("setParagraph") || hasEditorCommand("clearNodesFormat");
+            const editor = getActiveEditor();
 
             toolbarSurface.querySelectorAll("[data-doc-command]").forEach((button) => {
                 button.disabled = !ready || !hasEditorCommand(button.getAttribute("data-doc-command"));
+            });
+            toolbarSurface.querySelectorAll("[data-doc-action]").forEach((button) => {
+                button.disabled = !ready;
             });
             if (styleSelect) {
                 styleSelect.disabled = !ready || !canSetStyle;
@@ -1229,12 +1930,102 @@
             if (fontSelect) {
                 fontSelect.disabled = !ready || !hasEditorCommand("setFontFamily");
             }
-            if (sizeSelect) {
-                sizeSelect.disabled = !ready || !hasEditorCommand("setFontSize");
+            if (sizeInput) {
+                sizeInput.disabled = !ready || !hasEditorCommand("setFontSize");
             }
             if (imageButton) {
                 imageButton.disabled = !ready;
             }
+            if (textColorInput) {
+                textColorInput.disabled = !ready || !hasEditorCommand("setColor");
+            }
+            if (highlightInput) {
+                highlightInput.disabled = !ready || !hasEditorCommand("setHighlight");
+            }
+
+            if (!ready || !editor || typeof editor.isActive !== "function") {
+                syncToolbarOverflow();
+                return;
+            }
+
+            const textStyleAttrs = typeof editor.getAttributes === "function"
+                ? (editor.getAttributes("textStyle") || {})
+                : {};
+            const paragraphAttrs = typeof editor.getAttributes === "function"
+                ? (editor.getAttributes("paragraph") || {})
+                : {};
+            const highlightAttrs = typeof editor.getAttributes === "function"
+                ? (editor.getAttributes("highlight") || {})
+                : {};
+            const paragraphStyleMap = parseInlineStyle(paragraphAttrs.style);
+            const currentAlignment = paragraphAttrs.textAlign || "left";
+
+            const setActive = (selector, active) => {
+                const element = toolbarSurface.querySelector(selector);
+                if (element) {
+                    element.dataset.active = active ? "true" : "false";
+                }
+            };
+
+            setActive("[data-doc-command='toggleBold']", editor.isActive("bold"));
+            setActive("[data-doc-command='toggleItalic']", editor.isActive("italic"));
+            setActive("[data-doc-command='toggleUnderline']", editor.isActive("underline"));
+            setActive("[data-doc-command='toggleStrike']", editor.isActive("strike"));
+            setActive("[data-doc-command='toggleBulletList']", editor.isActive("bulletList"));
+            setActive("[data-doc-command='toggleOrderedList']", editor.isActive("orderedList"));
+            setActive("[data-doc-command='increaseTextIndent']", false);
+            setActive("[data-doc-command='decreaseTextIndent']", false);
+            setActive("[data-doc-command='setTextAlign'][data-doc-command-arg='left']", currentAlignment === "left");
+            setActive("[data-doc-command='setTextAlign'][data-doc-command-arg='center']", currentAlignment === "center");
+            setActive("[data-doc-command='setTextAlign'][data-doc-command-arg='right']", currentAlignment === "right");
+            setActive("[data-doc-command='setTextAlign'][data-doc-command-arg='justify']", currentAlignment === "justify");
+
+            if (styleSelect) {
+                styleSelect.value = editor.isActive("heading", { level: 1 })
+                    ? "heading1"
+                    : editor.isActive("heading", { level: 2 })
+                        ? "heading2"
+                        : "paragraph";
+            }
+
+            if (fontSelect && textStyleAttrs.fontFamily) {
+                const fontValue = String(textStyleAttrs.fontFamily).replaceAll("'", "\"");
+                const matchingOption = DOC_FONT_OPTIONS.find((option) => option.key.replaceAll("'", "\"") === fontValue);
+                if (matchingOption) {
+                    fontSelect.value = matchingOption.key;
+                }
+            }
+
+            if (sizeInput && textStyleAttrs.fontSize) {
+                sizeInput.value = String(textStyleAttrs.fontSize);
+            }
+
+            if (textColorInput) {
+                textColorInput.value = normalizeColorInputValue(textStyleAttrs.color, "#102033");
+            }
+
+            if (highlightInput) {
+                highlightInput.value = normalizeColorInputValue(highlightAttrs.color, "#fff59d");
+            }
+
+            if (marginLeftInput) {
+                marginLeftInput.disabled = !ready;
+                marginLeftInput.value = String(currentPageMargins.left);
+            }
+
+            if (marginRightInput) {
+                marginRightInput.disabled = !ready;
+                marginRightInput.value = String(currentPageMargins.right);
+            }
+
+            if (lineHeightInput && paragraphStyleMap["line-height"]) {
+                lineHeightInput.value = paragraphStyleMap["line-height"];
+            }
+            if (lineHeightInput) {
+                lineHeightInput.disabled = !ready;
+            }
+
+            syncToolbarOverflow();
         }
 
         function renderToolbarSurface() {
@@ -1245,113 +2036,201 @@
                 "<option value=\"" + option.key.replaceAll("\"", "&quot;") + "\">" + option.label + "</option>"
             )).join("");
             const sizeOptions = DOC_FONT_SIZE_OPTIONS.map((option) => (
-                "<option value=\"" + option + "\">" + option + "</option>"
+                "<option value=\"" + option + "\"></option>"
             )).join("");
             toolbarSurface.hidden = false;
             toolbarSurface.innerHTML = `
-                <div class="doc-toolbar" aria-label="Formatting toolbar">
-                    <div class="doc-toolbar-group">
-                        <label class="doc-toolbar-field">
-                            <span class="doc-toolbar-label">Style</span>
-                            <select class="doc-toolbar-select" id="docToolbarStyle">
-                                <option value="paragraph">Normal</option>
-                                <option value="heading1">Heading 1</option>
-                                <option value="heading2">Heading 2</option>
-                            </select>
-                        </label>
-                        <label class="doc-toolbar-field">
-                            <span class="doc-toolbar-label">Font</span>
-                            <select class="doc-toolbar-select" id="docToolbarFont">
-                                ${fontOptions}
-                            </select>
-                        </label>
-                        <label class="doc-toolbar-field doc-toolbar-field-size">
-                            <span class="doc-toolbar-label">Size</span>
-                            <select class="doc-toolbar-select" id="docToolbarFontSize">
-                                ${sizeOptions}
-                            </select>
-                        </label>
+                <div class="doc-toolbar-shell" id="docToolbarShell" data-expanded="false" data-overflow="false">
+                    <div class="doc-toolbar-scroll">
+                        <div class="doc-toolbar" aria-label="Formatting toolbar">
+                            <div class="doc-toolbar-group">
+                                <label class="doc-toolbar-field">
+                                    <span class="doc-toolbar-label">Style</span>
+                                    <select class="doc-toolbar-select" id="docToolbarStyle">
+                                        <option value="paragraph">Normal</option>
+                                        <option value="heading1">Heading 1</option>
+                                        <option value="heading2">Heading 2</option>
+                                    </select>
+                                </label>
+                                <label class="doc-toolbar-field">
+                                    <span class="doc-toolbar-label">Font</span>
+                                    <select class="doc-toolbar-select" id="docToolbarFont">
+                                        ${fontOptions}
+                                    </select>
+                                </label>
+                                <label class="doc-toolbar-field doc-toolbar-field-size">
+                                    <span class="doc-toolbar-label">Size</span>
+                                    <input type="text" class="doc-toolbar-input" id="docToolbarFontSize" value="12pt" list="docToolbarFontSizeOptions" inputmode="decimal">
+                                </label>
+                                <datalist id="docToolbarFontSizeOptions">${sizeOptions}</datalist>
+                            </div>
+                            <div class="doc-toolbar-group">
+                                <button type="button" class="doc-toolbar-button" data-doc-command="undo" title="Undo">Undo</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="redo" title="Redo">Redo</button>
+                            </div>
+                            <div class="doc-toolbar-group">
+                                <button type="button" class="doc-toolbar-button" data-doc-command="toggleBold" data-variant="text" title="Bold">B</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="toggleItalic" data-variant="text" title="Italic">I</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="toggleUnderline" data-variant="text" title="Underline">U</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="toggleStrike" data-variant="text" title="Strikethrough">S</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="clearFormat" data-variant="wide" title="Clear formatting">Clear</button>
+                            </div>
+                            <div class="doc-toolbar-group">
+                                <label class="doc-toolbar-field doc-toolbar-field-size">
+                                    <span class="doc-toolbar-label">Text</span>
+                                    <input type="color" class="doc-toolbar-color" id="docToolbarTextColor" value="#102033" title="Text color">
+                                </label>
+                                <button type="button" class="doc-toolbar-button" data-doc-action="apply-text-color" title="Apply text color">Apply Text</button>
+                                <label class="doc-toolbar-field doc-toolbar-field-size">
+                                    <span class="doc-toolbar-label">Highlight</span>
+                                    <input type="color" class="doc-toolbar-color" id="docToolbarHighlightColor" value="#fff59d" title="Highlight color">
+                                </label>
+                                <button type="button" class="doc-toolbar-button" data-doc-action="apply-highlight" title="Apply highlight">Apply Highlight</button>
+                            </div>
+                            <div class="doc-toolbar-group">
+                                <button type="button" class="doc-toolbar-button" data-doc-command="toggleBulletList" title="Bulleted list">Bullets</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="toggleOrderedList" title="Numbered list">Numbers</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="decreaseTextIndent" title="Decrease indent">Outdent</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="increaseTextIndent" title="Increase indent">Indent</button>
+                            </div>
+                            <div class="doc-toolbar-group">
+                                <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="left" title="Align left">Left</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="center" title="Align center">Center</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="right" title="Align right">Right</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="justify" title="Justify text">Justify</button>
+                            </div>
+                            <div class="doc-toolbar-group">
+                                <label class="doc-toolbar-field doc-toolbar-field-size">
+                                    <span class="doc-toolbar-label">Line Height</span>
+                                    <input type="text" class="doc-toolbar-input" id="docToolbarLineHeight" value="1.5">
+                                </label>
+                                <button type="button" class="doc-toolbar-button" data-doc-action="apply-line-height" title="Apply line height">Apply LH</button>
+                            </div>
+                            <div class="doc-toolbar-group">
+                                <label class="doc-toolbar-field doc-toolbar-field-size">
+                                    <span class="doc-toolbar-label">Left Margin</span>
+                                    <input type="number" class="doc-toolbar-input" id="docToolbarMarginLeft" min="0" max="4" step="0.1" value="1">
+                                </label>
+                                <label class="doc-toolbar-field doc-toolbar-field-size">
+                                    <span class="doc-toolbar-label">Right Margin</span>
+                                    <input type="number" class="doc-toolbar-input" id="docToolbarMarginRight" min="0" max="4" step="0.1" value="1">
+                                </label>
+                                <button type="button" class="doc-toolbar-button" data-doc-action="apply-side-margins" title="Apply left and right page margins">Apply LR</button>
+                            </div>
+                            <div class="doc-toolbar-group">
+                                <button type="button" class="doc-toolbar-button" id="docToolbarInsertImage" data-doc-action="insert-image" title="Insert image">Image</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-action="insert-table" title="Insert table">Table</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-action="page-margins" title="Adjust page margins">Margins</button>
+                                <button type="button" class="doc-toolbar-button" data-doc-action="insert-equation" title="Insert equation symbol">Eq</button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="doc-toolbar-group">
-                        <button type="button" class="doc-toolbar-button" data-doc-command="undo" title="Undo">Undo</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="redo" title="Redo">Redo</button>
-                    </div>
-                    <div class="doc-toolbar-group">
-                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleBold" data-variant="text" title="Bold">B</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleItalic" data-variant="text" title="Italic">I</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleUnderline" data-variant="text" title="Underline">U</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="clearFormat" data-variant="wide" title="Clear formatting">Clear</button>
-                    </div>
-                    <div class="doc-toolbar-group">
-                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleBulletList" title="Bulleted list">Bullets</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="toggleOrderedList" title="Numbered list">Numbers</button>
-                    </div>
-                    <div class="doc-toolbar-group">
-                        <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="left" title="Align left">Left</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="center" title="Align center">Center</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="right" title="Align right">Right</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="setTextAlign" data-doc-command-arg="justify" title="Justify text">Justify</button>
-                    </div>
-                    <div class="doc-toolbar-group">
-                        <button type="button" class="doc-toolbar-button" id="docToolbarInsertImage" data-doc-action="insert-image" title="Insert image">Image</button>
-                        <button type="button" class="doc-toolbar-button" data-doc-command="insertTable" title="Insert table">Table</button>
-                    </div>
+                    <button type="button" class="doc-toolbar-toggle" id="docToolbarToggle" aria-expanded="false" title="Expand toolbar">▾</button>
                 </div>
             `;
 
-            toolbarSurface.onclick = (event) => {
-                const target = event.target instanceof Element
-                    ? event.target.closest("button[data-doc-command], button[data-doc-action]")
-                    : null;
+            const runToolbarAction = (target) => {
                 if (!target || target.disabled) {
-                    return;
+                    return Promise.resolve();
                 }
-                Promise.resolve().then(() => {
-                    if (target.getAttribute("data-doc-action") === "insert-image") {
+                return Promise.resolve().then(() => {
+                    const actionName = target.getAttribute("data-doc-action");
+                    if (actionName === "insert-image") {
                         imageInput?.click();
                         return;
                     }
+                    if (actionName === "insert-table") {
+                        return promptForTableInsert();
+                    }
+                    if (actionName === "page-margins") {
+                        return promptForPageMargins();
+                    }
+                    if (actionName === "insert-equation") {
+                        return promptForEquationInsert();
+                    }
+                    if (actionName === "apply-text-color") {
+                        const color = toolbarSurface.querySelector("#docToolbarTextColor")?.value;
+                        return performEditorCommand("setColor", color || "#102033");
+                    }
+                    if (actionName === "apply-highlight") {
+                        const color = toolbarSurface.querySelector("#docToolbarHighlightColor")?.value;
+                        return performEditorCommand("setHighlight", color || "#fff59d");
+                    }
+                    if (actionName === "apply-side-margins") {
+                        const left = Number(toolbarSurface.querySelector("#docToolbarMarginLeft")?.value || currentPageMargins.left);
+                        const right = Number(toolbarSurface.querySelector("#docToolbarMarginRight")?.value || currentPageMargins.right);
+                        return applyPageMargins({
+                            top: currentPageMargins.top,
+                            right: Math.max(0, right),
+                            bottom: currentPageMargins.bottom,
+                            left: Math.max(0, left),
+                        });
+                    }
+                    if (actionName === "apply-line-height") {
+                        const value = String(toolbarSurface.querySelector("#docToolbarLineHeight")?.value || "").trim();
+                        if (!value) {
+                            return;
+                        }
+                        return updateActiveTextBlockStyles({
+                            "line-height": value,
+                        });
+                    }
+
                     const commandName = target.getAttribute("data-doc-command");
                     if (!commandName) {
                         return;
                     }
-                    if (commandName === "insertTable") {
-                        return callEditorCommand(commandName, {
-                            rows: 3,
-                            cols: 3,
-                            withHeaderRow: true,
-                        });
-                    }
                     const commandArg = target.getAttribute("data-doc-command-arg");
                     return commandArg == null
-                        ? callEditorCommand(commandName)
-                        : callEditorCommand(commandName, commandArg);
+                        ? performEditorCommand(commandName)
+                        : performEditorCommand(commandName, commandArg);
                 }).catch((error) => {
                     setStatus(error.message || "Toolbar action failed", "error");
                 });
+            };
+
+            toolbarSurface.onmousedown = (event) => {
+                const target = event.target instanceof Element
+                    ? event.target.closest("button[data-doc-command], button[data-doc-action]")
+                    : null;
+                if (!target || target.id === "docToolbarToggle") {
+                    return;
+                }
+                event.preventDefault();
+                runToolbarAction(target);
             };
 
             toolbarSurface.onchange = (event) => {
                 const target = event.target;
-                if (!(target instanceof HTMLSelectElement)) {
-                    return;
-                }
                 Promise.resolve().then(() => {
+                    if (target instanceof HTMLInputElement && target.id === "docToolbarFontSize") {
+                        const nextSize = String(target.value || "").trim();
+                        if (!nextSize) {
+                            return;
+                        }
+                        return performEditorCommand("setFontSize", nextSize);
+                    }
+                    if (!(target instanceof HTMLSelectElement)) {
+                        return;
+                    }
                     if (target.id === "docToolbarStyle") {
-                        return applyToolbarStyle(target.value);
+                        return performEditorAction(() => applyToolbarStyle(target.value));
                     }
                     if (target.id === "docToolbarFont") {
-                        return callEditorCommand("setFontFamily", target.value);
-                    }
-                    if (target.id === "docToolbarFontSize") {
-                        return callEditorCommand("setFontSize", target.value);
+                        return performEditorCommand("setFontFamily", target.value);
                     }
                 }).catch((error) => {
                     setStatus(error.message || "Toolbar action failed", "error");
                 });
             };
 
+            toolbarSurface.querySelector("#docToolbarToggle")?.addEventListener("click", () => {
+                toolbarExpanded = !toolbarExpanded;
+                syncToolbarOverflow();
+            });
+
             refreshToolbarAvailability();
+            syncToolbarOverflow();
         }
 
         function closeMenus() {
@@ -1361,6 +2240,83 @@
             menuPanels.forEach((panel) => {
                 panel.hidden = true;
             });
+        }
+
+        function closeContextMenu() {
+            if (contextMenu) {
+                contextMenu.hidden = true;
+            }
+        }
+
+        function ensureContextMenu() {
+            if (contextMenu) {
+                return contextMenu;
+            }
+
+            contextMenu = document.createElement("div");
+            contextMenu.className = "doc-context-menu";
+            contextMenu.hidden = true;
+            contextMenu.innerHTML = `
+                <button type="button" class="doc-context-menu-item" data-doc-context="undo">Undo</button>
+                <button type="button" class="doc-context-menu-item" data-doc-context="redo">Redo</button>
+                <div class="doc-context-menu-divider"></div>
+                <button type="button" class="doc-context-menu-item" data-doc-context="cut">Cut</button>
+                <button type="button" class="doc-context-menu-item" data-doc-context="copy">Copy</button>
+                <button type="button" class="doc-context-menu-item" data-doc-context="paste">Paste</button>
+                <div class="doc-context-menu-divider"></div>
+                <button type="button" class="doc-context-menu-item" data-doc-context="bold">Bold</button>
+                <button type="button" class="doc-context-menu-item" data-doc-context="italic">Italic</button>
+                <button type="button" class="doc-context-menu-item" data-doc-context="underline">Underline</button>
+                <button type="button" class="doc-context-menu-item" data-doc-context="strike">Strikethrough</button>
+                <div class="doc-context-menu-divider"></div>
+                <button type="button" class="doc-context-menu-item" data-doc-context="table">Insert Table…</button>
+                <button type="button" class="doc-context-menu-item" data-doc-context="image">Insert Image…</button>
+            `;
+            document.body.appendChild(contextMenu);
+
+            contextMenu.addEventListener("mousedown", (event) => {
+                if (event.target instanceof Element && event.target.closest(".doc-context-menu-item")) {
+                    event.preventDefault();
+                }
+            });
+
+            contextMenu.addEventListener("click", (event) => {
+                const target = event.target instanceof Element
+                    ? event.target.closest("[data-doc-context]")
+                    : null;
+                if (!target) {
+                    return;
+                }
+
+                const action = target.getAttribute("data-doc-context");
+                closeContextMenu();
+                Promise.resolve().then(() => {
+                    if (action === "undo") return performEditorCommand("undo");
+                    if (action === "redo") return performEditorCommand("redo");
+                    if (action === "cut" || action === "copy") return document.execCommand(action);
+                    if (action === "paste") return pasteFromClipboard();
+                    if (action === "bold") return performEditorCommand("toggleBold");
+                    if (action === "italic") return performEditorCommand("toggleItalic");
+                    if (action === "underline") return performEditorCommand("toggleUnderline");
+                    if (action === "strike") return performEditorCommand("toggleStrike");
+                    if (action === "table") return promptForTableInsert();
+                    if (action === "image") return imageInput?.click();
+                }).catch((error) => {
+                    setStatus(error.message || "Context action failed", "error");
+                });
+            });
+
+            return contextMenu;
+        }
+
+        function openContextMenu(x, y) {
+            closeMenus();
+            const menu = ensureContextMenu();
+            menu.hidden = false;
+            const maxLeft = Math.max(12, window.innerWidth - menu.offsetWidth - 12);
+            const maxTop = Math.max(12, window.innerHeight - menu.offsetHeight - 12);
+            menu.style.left = Math.min(x, maxLeft) + "px";
+            menu.style.top = Math.min(y, maxTop) + "px";
         }
 
         function toggleMenu(menuName) {
@@ -1380,6 +2336,489 @@
                 reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
                 reader.readAsDataURL(file);
             });
+        }
+
+        function closeFloatingDialog() {
+            if (floatingDialog) {
+                floatingDialog.remove();
+                floatingDialog = null;
+            }
+        }
+
+        function openTableInsertDialog(defaultRows = 4, defaultCols = 4) {
+            closeFloatingDialog();
+            return new Promise((resolve) => {
+                let rows = defaultRows;
+                let cols = defaultCols;
+
+                const overlay = document.createElement("div");
+                overlay.className = "doc-popover-backdrop";
+                overlay.innerHTML = `
+                    <div class="doc-popover-card" role="dialog" aria-modal="true" aria-label="Insert table">
+                        <div class="doc-popover-stack">
+                            <div>
+                                <h3>Insert Table</h3>
+                                <p class="subtle" id="docTablePickerLabel">${rows} x ${cols}</p>
+                            </div>
+                            <div class="doc-table-picker-grid" id="docTablePickerGrid"></div>
+                            <div class="doc-popover-row">
+                                <label class="doc-toolbar-field doc-toolbar-field-size">
+                                    <span class="doc-toolbar-label">Rows</span>
+                                    <input type="number" class="doc-toolbar-input" id="docTableRowsInput" min="1" max="24" step="1" value="${rows}">
+                                </label>
+                                <label class="doc-toolbar-field doc-toolbar-field-size">
+                                    <span class="doc-toolbar-label">Columns</span>
+                                    <input type="number" class="doc-toolbar-input" id="docTableColsInput" min="1" max="24" step="1" value="${cols}">
+                                </label>
+                            </div>
+                            <div class="doc-popover-row">
+                                <button type="button" class="doc-toolbar-button" id="docTableInsertConfirm">Insert</button>
+                                <button type="button" class="doc-toolbar-button" id="docTableInsertCancel">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                const label = overlay.querySelector("#docTablePickerLabel");
+                const grid = overlay.querySelector("#docTablePickerGrid");
+                const rowsInput = overlay.querySelector("#docTableRowsInput");
+                const colsInput = overlay.querySelector("#docTableColsInput");
+
+                const syncLabel = () => {
+                    if (label) {
+                        label.textContent = rows + " x " + cols;
+                    }
+                    if (!grid) {
+                        return;
+                    }
+                    grid.querySelectorAll(".doc-table-picker-cell").forEach((cell) => {
+                        const cellRow = Number(cell.getAttribute("data-row"));
+                        const cellCol = Number(cell.getAttribute("data-col"));
+                        cell.dataset.active = String(cellRow <= rows && cellCol <= cols);
+                    });
+                };
+
+                for (let row = 1; row <= 8; row += 1) {
+                    for (let col = 1; col <= 10; col += 1) {
+                        const cell = document.createElement("button");
+                        cell.type = "button";
+                        cell.className = "doc-table-picker-cell";
+                        cell.setAttribute("data-row", String(row));
+                        cell.setAttribute("data-col", String(col));
+                        cell.addEventListener("mouseenter", () => {
+                            rows = row;
+                            cols = col;
+                            if (rowsInput) rowsInput.value = String(rows);
+                            if (colsInput) colsInput.value = String(cols);
+                            syncLabel();
+                        });
+                        cell.addEventListener("click", () => {
+                            rows = row;
+                            cols = col;
+                            syncLabel();
+                            closeFloatingDialog();
+                            resolve({ rows, cols });
+                        });
+                        grid?.appendChild(cell);
+                    }
+                }
+
+                rowsInput?.addEventListener("input", () => {
+                    rows = Math.min(Math.max(Number(rowsInput.value || rows), 1), 24);
+                    syncLabel();
+                });
+                colsInput?.addEventListener("input", () => {
+                    cols = Math.min(Math.max(Number(colsInput.value || cols), 1), 24);
+                    syncLabel();
+                });
+
+                overlay.querySelector("#docTableInsertConfirm")?.addEventListener("click", () => {
+                    closeFloatingDialog();
+                    resolve({ rows, cols });
+                });
+                overlay.querySelector("#docTableInsertCancel")?.addEventListener("click", () => {
+                    closeFloatingDialog();
+                    resolve(null);
+                });
+                overlay.addEventListener("click", (event) => {
+                    if (event.target === overlay) {
+                        closeFloatingDialog();
+                        resolve(null);
+                    }
+                });
+
+                floatingDialog = overlay;
+                document.body.appendChild(overlay);
+                syncLabel();
+            });
+        }
+
+        function promptForTableInsert() {
+            return openTableInsertDialog().then((dimensions) => {
+                if (!dimensions) {
+                    return;
+                }
+                return performEditorCommand("insertTable", {
+                    rows: dimensions.rows,
+                    cols: dimensions.cols,
+                    withHeaderRow: true,
+                });
+            });
+        }
+
+        function promptForTableFillColor() {
+            const response = window.prompt("Cell fill color", "#fff3c4");
+            if (response == null) {
+                return Promise.resolve();
+            }
+            const color = normalizeColorInputValue(response, "");
+            if (!color) {
+                throw new Error("Enter a valid hex color like #fff3c4");
+            }
+            return updateActiveTableCellStyles({
+                "background-color": color,
+            });
+        }
+
+        function promptForTablePadding() {
+            const response = window.prompt("Cell padding in pixels", "8");
+            if (response == null) {
+                return Promise.resolve();
+            }
+            const padding = Number(String(response).trim());
+            if (!Number.isFinite(padding) || padding < 0) {
+                throw new Error("Enter a non-negative pixel value");
+            }
+            return updateActiveTableCellStyles({
+                padding: Math.min(padding, 96) + "px",
+            });
+        }
+
+        function removeTableBorders() {
+            return updateActiveTableCellStyles({
+                border: "none",
+            });
+        }
+
+        function repairTableStructure() {
+            const editor = getActiveEditor();
+            if (editor && editor.commands) {
+                if (typeof editor.commands.fixTables === "function") {
+                    return performEditorCommand("fixTables");
+                }
+                if (typeof editor.commands.rebuildTable === "function") {
+                    return performEditorCommand("rebuildTable");
+                }
+            }
+            setStatus("Table repair is not available in this editor build", "busy");
+            return Promise.resolve();
+        }
+
+        function applyPageMargins(margins) {
+            currentPageMargins = {
+                top: Number(margins.top),
+                right: Number(margins.right),
+                bottom: Number(margins.bottom),
+                left: Number(margins.left),
+            };
+            const editor = requireActiveEditor();
+            if (typeof editor.updatePageStyle === "function") {
+                return performEditorAction(() => editor.updatePageStyle({
+                    pageMargins: {
+                        top: margins.top + "in",
+                        right: margins.right + "in",
+                        bottom: margins.bottom + "in",
+                        left: margins.left + "in",
+                    },
+                }));
+            }
+            if (hasEditorCommand("setSectionPageMarginsAtSelection")) {
+                return performEditorCommand("setSectionPageMarginsAtSelection", {
+                    topInches: margins.top,
+                    rightInches: margins.right,
+                    bottomInches: margins.bottom,
+                    leftInches: margins.left,
+                });
+            }
+            throw new Error("Page margin controls are not available in this editor build");
+        }
+
+        function promptForPageMargins(defaults = currentPageMargins) {
+            const response = window.prompt(
+                "Page margins in inches (top,right,bottom,left)",
+                [defaults.top, defaults.right, defaults.bottom, defaults.left].join(",")
+            );
+            if (response == null) {
+                return Promise.resolve();
+            }
+            const values = String(response)
+                .split(",")
+                .map((value) => Number(value.trim()))
+                .filter((value) => Number.isFinite(value));
+            if (values.length !== 4) {
+                throw new Error("Enter four comma-separated margin values");
+            }
+            return applyPageMargins({
+                top: Math.max(0, values[0]),
+                right: Math.max(0, values[1]),
+                bottom: Math.max(0, values[2]),
+                left: Math.max(0, values[3]),
+            });
+        }
+
+        function promptForEquationInsert() {
+            const response = window.prompt("Equation shortcut or symbol", "\\alpha");
+            if (response == null) {
+                return Promise.resolve();
+            }
+            const raw = String(response).trim();
+            const symbol = DOC_EQUATION_SHORTCUTS[raw] || raw;
+            return performEditorCommand("insertContent", symbol, {
+                contentType: "text",
+            });
+        }
+
+        function insertEquationSymbol(symbol) {
+            return performEditorCommand("insertContent", symbol, {
+                contentType: "text",
+            });
+        }
+
+        function insertPageBreak() {
+            const editor = getActiveEditor();
+            if (!editor) {
+                throw new Error("Document editor is not ready yet");
+            }
+            if (hasEditorCommand("setPageBreak")) {
+                return performEditorCommand("setPageBreak");
+            }
+            if (hasEditorCommand("insertPageBreak")) {
+                return performEditorCommand("insertPageBreak");
+            }
+            if (hasEditorCommand("setHardBreak")) {
+                return performEditorCommand("setHardBreak");
+            }
+            throw new Error("Page breaks are not available in this editor build");
+        }
+
+        function convertEquationShortcutNearCursor() {
+            const view = getEditorView();
+            if (!view || !view.state || !view.dispatch) {
+                return false;
+            }
+            const selection = view.state.selection;
+            if (!selection || !selection.empty) {
+                return false;
+            }
+
+            const parentText = selection.$from.parent.textBetween(0, selection.$from.parentOffset, undefined, "\uFFFC");
+            const match = parentText.match(/\\[A-Za-z]+$/);
+            if (!match) {
+                return false;
+            }
+
+            const replacement = DOC_EQUATION_SHORTCUTS[match[0]];
+            if (!replacement) {
+                return false;
+            }
+
+            const start = selection.$from.start() + parentText.length - match[0].length;
+            const end = selection.from;
+            const transaction = view.state.tr.insertText(replacement, start, end);
+            view.dispatch(transaction);
+            captureSelectionState();
+            queuePresenceUpdate();
+            queueRemoteCursorRender();
+            return true;
+        }
+
+        function getWordDeleteRange(direction) {
+            const view = getEditorView();
+            if (!view || !view.state || !view.state.selection) {
+                return null;
+            }
+            const selection = view.state.selection;
+            if (!selection.empty) {
+                return {
+                    from: selection.from,
+                    to: selection.to,
+                };
+            }
+
+            const textBefore = selection.$from.parent.textBetween(0, selection.$from.parentOffset, undefined, "\uFFFC");
+            const textAfter = selection.$from.parent.textBetween(selection.$from.parentOffset, selection.$from.parent.content.size, undefined, "\uFFFC");
+            if (direction === "backward") {
+                let index = textBefore.length;
+                while (index > 0 && /\s/.test(textBefore[index - 1])) index -= 1;
+                while (index > 0 && !/\s/.test(textBefore[index - 1])) index -= 1;
+                if (index === textBefore.length) {
+                    return null;
+                }
+                return {
+                    from: selection.$from.start() + index,
+                    to: selection.from,
+                };
+            }
+
+            let index = 0;
+            while (index < textAfter.length && /\s/.test(textAfter[index])) index += 1;
+            while (index < textAfter.length && !/\s/.test(textAfter[index])) index += 1;
+            if (index === 0) {
+                return null;
+            }
+            return {
+                from: selection.from,
+                to: selection.from + index,
+            };
+        }
+
+        async function pasteFromClipboard() {
+            if (navigator.clipboard && typeof navigator.clipboard.read === "function") {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                    if (item.types.includes("text/html")) {
+                        const blob = await item.getType("text/html");
+                        const html = await blob.text();
+                        return performEditorCommand("insertContent", html, {
+                            contentType: "html",
+                            warnOnUnsupportedContent: true,
+                        });
+                    }
+                    const imageType = item.types.find((type) => type.startsWith("image/"));
+                    if (imageType) {
+                        const blob = await item.getType(imageType);
+                        const dataUrl = await fileToDataURL(new File([blob], "clipboard-image", { type: imageType }));
+                        return performEditorCommand("setImage", { src: dataUrl, alt: "Pasted image", title: "Pasted image" });
+                    }
+                    if (item.types.includes("text/plain")) {
+                        const blob = await item.getType("text/plain");
+                        const text = await blob.text();
+                        return performEditorCommand("insertContent", text, {
+                            contentType: "text",
+                        });
+                    }
+                }
+            }
+
+            if (navigator.clipboard && typeof navigator.clipboard.readText === "function") {
+                const text = await navigator.clipboard.readText();
+                if (text) {
+                    return performEditorCommand("insertContent", text, {
+                        contentType: "text",
+                    });
+                }
+            }
+
+            throw new Error("Paste is not available in this browser");
+        }
+
+        function handleRichPasteEvent(event) {
+            if (!editorReady || !event.clipboardData) {
+                return;
+            }
+
+            const clipboard = event.clipboardData;
+            const html = clipboard.getData("text/html");
+            if (html) {
+                event.preventDefault();
+                Promise.resolve()
+                    .then(() => performEditorCommand("insertContent", html, {
+                        contentType: "html",
+                        warnOnUnsupportedContent: true,
+                    }))
+                    .catch((error) => {
+                        setStatus(error.message || "Paste failed", "error");
+                    });
+                return;
+            }
+
+            const imageFile = Array.from(clipboard.files || []).find((file) => String(file.type || "").startsWith("image/"));
+            if (imageFile) {
+                event.preventDefault();
+                Promise.resolve()
+                    .then(async () => {
+                        const dataUrl = await fileToDataURL(imageFile);
+                        return performEditorCommand("setImage", {
+                            src: dataUrl,
+                            alt: imageFile.name || "Pasted image",
+                            title: imageFile.name || "Pasted image",
+                        });
+                    })
+                    .catch((error) => {
+                        setStatus(error.message || "Image paste failed", "error");
+                    });
+                return;
+            }
+
+            const text = clipboard.getData("text/plain");
+            if (text) {
+                event.preventDefault();
+                Promise.resolve()
+                    .then(() => performEditorCommand("insertContent", text, {
+                        contentType: "text",
+                    }))
+                    .catch((error) => {
+                        setStatus(error.message || "Paste failed", "error");
+                    });
+            }
+        }
+
+        function syncEditorInteractionState() {
+            captureSelectionState();
+            refreshToolbarAvailability();
+            queuePresenceUpdate();
+            queueRemoteCursorRender();
+        }
+
+        function handleEditorKeydown(event) {
+            if (!editorReady || !isEditorFocused()) {
+                return;
+            }
+            if (event.defaultPrevented) {
+                return;
+            }
+
+            if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && (event.key === "Backspace" || event.key === "Delete")) {
+                const range = getWordDeleteRange(event.key === "Backspace" ? "backward" : "forward");
+                if (!range || range.from === range.to) {
+                    return;
+                }
+                event.preventDefault();
+                Promise.resolve()
+                    .then(() => performEditorTransaction((transaction) => transaction.delete(range.from, range.to)))
+                    .then(() => {
+                        markDirty();
+                        queueSync(false);
+                    })
+                    .catch((error) => {
+                        setStatus(error.message || "Word deletion failed", "error");
+                    });
+                return;
+            }
+
+            if (event.key === " " || event.key === "Enter" || event.key === "Tab") {
+                convertEquationShortcutNearCursor();
+            }
+        }
+
+        function handleEditorWheel(event) {
+            if (!editorReady || !editorSurface || !editorSurface.contains(event.target) || event.ctrlKey) {
+                return;
+            }
+            const canScrollVertically = editorSurface.scrollHeight > editorSurface.clientHeight + 1;
+            const canScrollHorizontally = editorSurface.scrollWidth > editorSurface.clientWidth + 1;
+            if (!canScrollVertically && !canScrollHorizontally) {
+                return;
+            }
+
+            const previousTop = editorSurface.scrollTop;
+            const previousLeft = editorSurface.scrollLeft;
+            editorSurface.scrollTop += event.deltaY;
+            editorSurface.scrollLeft += event.deltaX;
+            if (editorSurface.scrollTop !== previousTop || editorSurface.scrollLeft !== previousLeft) {
+                event.preventDefault();
+                queueRemoteCursorRender();
+            }
         }
 
         function callEditorCommand(commandName, ...args) {
@@ -1514,8 +2953,9 @@
             editorSurface.innerHTML = "";
             const mountNode = document.createElement("div");
             mountNode.id = "docEditorMount-" + String(mountToken);
-            mountNode.style.width = "100%";
-            mountNode.style.height = "100%";
+            mountNode.className = "doc-editor-mount";
+            mountNode.style.width = "min(calc(100% - 40px), 8.9in)";
+            mountNode.style.margin = "0 auto";
             editorSurface.appendChild(mountNode);
             return mountNode;
         }
@@ -1548,7 +2988,11 @@
                 name.textContent = person.user + (person.clientId === clientId ? " (You)" : "");
                 const meta = document.createElement("p");
                 meta.className = "doc-presence-meta";
-                meta.textContent = person.selection ? "Active in document" : "Watching document";
+                meta.textContent = person.selection && (person.selection.startPos || person.selection.endPos)
+                    ? "Cursor visible in document"
+                    : person.selection
+                        ? "Active in document"
+                        : "Watching document";
                 body.appendChild(name);
                 body.appendChild(meta);
                 item.appendChild(dot);
@@ -1559,6 +3003,7 @@
             if (peopleRailButton) {
                 peopleRailButton.textContent = String(latestPresence.length);
             }
+            queueRemoteCursorRender();
         }
 
         function markDirty() {
@@ -1651,8 +3096,9 @@
                     }
                 }
                 const mountNode = createFreshMountNode(mountToken);
-                mountNode.addEventListener("keyup", queuePresenceUpdate);
-                mountNode.addEventListener("mouseup", queuePresenceUpdate);
+                ensureCursorLayer();
+                mountNode.addEventListener("keyup", syncEditorInteractionState);
+                mountNode.addEventListener("mouseup", syncEditorInteractionState);
                 return mountNode;
             }
 
@@ -1716,6 +3162,7 @@
                             onEditorCreate: ({ editor }) => {
                                 if (isStaleMount()) return;
                                 documentEditor = editor;
+                                captureSelectionState();
                                 docLog("info", "SuperDoc editor created", {
                                     mountToken,
                                 });
@@ -1725,8 +3172,10 @@
                                     return;
                                 }
                                 documentEditor = editor;
+                                captureSelectionState();
                                 markDirty();
                                 queueSync(false);
+                                queueRemoteCursorRender();
                             },
                             onReady: ({ superdoc }) => {
                                 if (isStaleMount()) {
@@ -1738,6 +3187,7 @@
                                 editorReady = true;
                                 setStatus("Ready", "live");
                                 proofingStatus.textContent = "Ribbon and document surface are ready.";
+                                syncEditorInteractionState();
                                 queuePresenceUpdate();
                                 docLog("info", "SuperDoc ready", {
                                     mountToken,
@@ -1818,15 +3268,16 @@
                                 return;
                             }
                             documentEditor = instance;
+                            captureSelectionState();
                             markDirty();
                             queueSync(false);
+                            queueRemoteCursorRender();
                         },
                         onSelectionUpdate: () => {
                             if (isStaleMount()) {
                                 return;
                             }
-                            refreshToolbarAvailability();
-                            queuePresenceUpdate();
+                            syncEditorInteractionState();
                         },
                         onContentError: (payload = {}) => {
                             if (isStaleMount()) return;
@@ -1867,7 +3318,7 @@
                             editorReady = true;
                             suppressEditorUpdatesUntil = Date.now() + DOC_MOUNT_UPDATE_SUPPRESSION_MS;
                             setStatus("Ready", "live");
-                            refreshToolbarAvailability();
+                            syncEditorInteractionState();
                             proofingStatus.textContent = fallbackReason
                                 ? "Compatibility editor is ready with the InkDrop formatting toolbar."
                                 : "Document editor is ready.";
@@ -1943,27 +3394,46 @@
                     exportedName: getDocumentBaseName(),
                     triggerDownload: false,
                 });
-                if (exported instanceof Blob) {
-                    return exported;
-                }
-                if (exported instanceof ArrayBuffer) {
-                    return new Blob([exported], {
-                        type: exportType === "pdf"
-                            ? "application/pdf"
-                            : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    });
-                }
-                if (ArrayBuffer.isView(exported)) {
-                    return new Blob([exported], {
-                        type: exportType === "pdf"
-                            ? "application/pdf"
-                            : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    });
+                const blob = coerceExportBlob(exported, exportType);
+                if (blob) {
+                    return blob;
                 }
             }
             const editor = requireActiveEditor();
-            if (exportType !== "docx") {
-                throw new Error("PDF export is not available from the document engine");
+            if (exportType === "pdf") {
+                const attempts = [
+                    () => typeof editor.exportPdf === "function"
+                        ? editor.exportPdf({ triggerDownload: false, exportedName: getDocumentBaseName() })
+                        : null,
+                    () => typeof editor.exportDocument === "function"
+                        ? editor.exportDocument({ exportType: "pdf", triggerDownload: false, exportedName: getDocumentBaseName() })
+                        : null,
+                    () => typeof editor.exportDocument === "function"
+                        ? editor.exportDocument({ format: "pdf", triggerDownload: false, exportedName: getDocumentBaseName() })
+                        : null,
+                    () => typeof editor.exportDocument === "function"
+                        ? editor.exportDocument("pdf")
+                        : null,
+                    () => typeof editor.export === "function"
+                        ? editor.export({ exportType: ["pdf"], triggerDownload: false, exportedName: getDocumentBaseName() })
+                        : null,
+                ];
+                let lastError = null;
+                for (const attempt of attempts) {
+                    if (!attempt) {
+                        continue;
+                    }
+                    try {
+                        const exported = await attempt();
+                        const blob = coerceExportBlob(exported, "pdf");
+                        if (blob && await blobLooksLikePdf(blob)) {
+                            return blob;
+                        }
+                    } catch (error) {
+                        lastError = error;
+                    }
+                }
+                throw lastError || new Error("Reliable PDF export is not available from the document engine");
             }
             let exported = null;
             if (typeof editor.exportDocument === "function") {
@@ -1971,23 +3441,9 @@
             } else if (typeof editor.exportDocx === "function") {
                 exported = await editor.exportDocx();
             }
-            if (exported instanceof Blob) {
-                return exported;
-            }
-            if (exported instanceof ArrayBuffer) {
-                return new Blob([exported], {
-                    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                });
-            }
-            if (ArrayBuffer.isView(exported)) {
-                return new Blob([exported], {
-                    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                });
-            }
-            if (exported != null) {
-                return new Blob([exported], {
-                    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                });
+            const blob = coerceExportBlob(exported, "docx");
+            if (blob) {
+                return blob;
             }
             throw new Error("DOCX export is not available from the document editor");
         }
@@ -2018,6 +3474,7 @@
                     op: "presence",
                     clientId: clientId,
                     version: currentVersion,
+                    selection: getCurrentSelection(),
                 }),
             }).then((payload) => {
                 renderPresence(payload.presence);
@@ -2076,6 +3533,7 @@
                             op: explicitSave ? "save" : "sync",
                             clientId: clientId,
                             version: currentVersion,
+                            selection: getCurrentSelection(),
                             documentData: await blobToBase64(blob),
                         }),
                     });
@@ -2299,18 +3757,10 @@
         }
 
         async function exportPdfDocument() {
-            try {
-                const blob = await exportCurrentDocument("pdf");
-                downloadBlob(blob, getDocumentBaseName() + ".pdf");
-                setStatus("Ready", "live");
-            } catch (error) {
-                docLog("warn", "Falling back to browser print for PDF export", {
-                    error: error instanceof Error ? error.message : String(error),
-                });
-                await queueSync(true).catch(() => {});
-                printCurrentDocument();
-                setStatus("Print dialog ready", "live");
-            }
+            await queueSync(true).catch(() => {});
+            const blob = await exportCurrentDocument("pdf");
+            downloadBlob(blob, getDocumentBaseName() + ".pdf");
+            setStatus("Ready", "live");
         }
 
         function triggerFind() {
@@ -2401,7 +3851,10 @@
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape") {
                 closeMenus();
+                closeContextMenu();
+                closeFloatingDialog();
             }
+            handleEditorKeydown(event);
             if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") {
                 return;
             }
@@ -2420,11 +3873,30 @@
             if (!clickedMenu) {
                 closeMenus();
             }
+            if (!(event.target instanceof Element) || !event.target.closest(".doc-context-menu")) {
+                closeContextMenu();
+            }
+        });
+
+        document.addEventListener("selectionchange", () => {
+            if (!editorReady || !isEditorFocused()) {
+                return;
+            }
+            captureSelectionState();
         });
 
         menuTriggers.forEach((trigger) => {
+            trigger.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+            });
             trigger.addEventListener("click", () => {
                 toggleMenu(trigger.getAttribute("data-doc-menu-trigger"));
+            });
+        });
+
+        document.querySelectorAll(".doc-menu-item").forEach((item) => {
+            item.addEventListener("mousedown", (event) => {
+                event.preventDefault();
             });
         });
 
@@ -2454,7 +3926,7 @@
             if (!file) return;
             try {
                 const dataUrl = await fileToDataURL(file);
-                callEditorCommand("setImage", {
+                await performEditorCommand("setImage", {
                     src: dataUrl,
                     alt: file.name || "Image",
                     title: file.name || "Image",
@@ -2493,22 +3965,74 @@
             await queueSync(true).catch(() => {});
             printCurrentDocument();
         });
-        bindMenuAction("docMenuUndoBtn", () => callEditorCommand("undo"));
-        bindMenuAction("docMenuRedoBtn", () => callEditorCommand("redo"));
+        bindMenuAction("docMenuUndoBtn", () => performEditorCommand("undo"));
+        bindMenuAction("docMenuRedoBtn", () => performEditorCommand("redo"));
+        bindMenuAction("docMenuCutBtn", () => runClipboardCommand("cut"));
+        bindMenuAction("docMenuCopyBtn", () => runClipboardCommand("copy"));
+        bindMenuAction("docMenuPasteBtn", () => pasteFromClipboard());
         bindMenuAction("docMenuFindBtn", () => triggerFind());
-        bindMenuAction("docMenuClearFormatBtn", () => callEditorCommand("clearFormat"));
+        bindMenuAction("docMenuClearFormatBtn", () => performEditorCommand("clearFormat"));
         bindMenuAction("docMenuInsertImageBtn", () => imageInput?.click());
-        bindMenuAction("docMenuInsertTableBtn", () => callEditorCommand("insertTable", {
-            rows: 3,
-            cols: 3,
-            withHeaderRow: true,
-        }));
+        bindMenuAction("docMenuInsertTableBtn", () => promptForTableInsert());
+        bindMenuAction("docMenuInsertEquationBtn", () => promptForEquationInsert());
+        bindMenuAction("docMenuInsertPageBreakBtn", () => insertPageBreak());
+        bindMenuAction("docMenuTableFillBtn", () => promptForTableFillColor());
+        bindMenuAction("docMenuTablePaddingBtn", () => promptForTablePadding());
+        bindMenuAction("docMenuTableBordersBtn", () => removeTableBorders());
+        bindMenuAction("docMenuTableFixBtn", () => repairTableStructure());
+        bindMenuAction("docMenuPageMarginsBtn", () => promptForPageMargins());
+        bindMenuAction("docMenuResetMarginsBtn", () => applyPageMargins({ top: 1, right: 1, bottom: 1, left: 1 }));
         bindMenuAction("docMenuStatusBtn", () => setDrawerPanel("status"));
         bindMenuAction("docMenuPeopleBtn", () => setDrawerPanel("collaborators"));
         bindMenuAction("docMenuInfoBtn", () => setDrawerPanel("info"));
-        bindMenuAction("docMenuBoldBtn", () => callEditorCommand("toggleBold"));
-        bindMenuAction("docMenuItalicBtn", () => callEditorCommand("toggleItalic"));
-        bindMenuAction("docMenuUnderlineBtn", () => callEditorCommand("toggleUnderline"));
+        bindMenuAction("docMenuBoldBtn", () => performEditorCommand("toggleBold"));
+        bindMenuAction("docMenuItalicBtn", () => performEditorCommand("toggleItalic"));
+        bindMenuAction("docMenuUnderlineBtn", () => performEditorCommand("toggleUnderline"));
+        bindMenuAction("docMenuStrikeBtn", () => performEditorCommand("toggleStrike"));
+        bindMenuAction("docMenuTextColorBtn", () => {
+            const response = window.prompt("Text color", "#102033");
+            if (response == null) return Promise.resolve();
+            const color = normalizeColorInputValue(response, "");
+            if (!color) {
+                throw new Error("Enter a valid hex color like #102033");
+            }
+            return performEditorCommand("setColor", color);
+        });
+        bindMenuAction("docMenuHighlightBtn", () => {
+            const response = window.prompt("Highlight color", "#fff59d");
+            if (response == null) return Promise.resolve();
+            const color = normalizeColorInputValue(response, "");
+            if (!color) {
+                throw new Error("Enter a valid hex color like #fff59d");
+            }
+            return performEditorCommand("setHighlight", color);
+        });
+        bindMenuAction("docMenuConvertEquationBtn", () => {
+            if (!convertEquationShortcutNearCursor()) {
+                setStatus("No equation shortcut found next to the cursor", "busy");
+            }
+        });
+        document.querySelectorAll("[data-equation-symbol]").forEach((button) => {
+            button.addEventListener("click", () => {
+                closeMenus();
+                Promise.resolve(insertEquationSymbol(button.getAttribute("data-equation-symbol") || "")).catch((error) => {
+                    setStatus(error.message || "Equation insertion failed", "error");
+                });
+            });
+        });
+        editorSurface?.addEventListener("scroll", queueRemoteCursorRender);
+        editorSurface?.addEventListener("wheel", handleEditorWheel, { passive: false, capture: true });
+        editorSurface?.addEventListener("paste", handleRichPasteEvent);
+        editorSurface?.addEventListener("contextmenu", (event) => {
+            if (!editorReady) {
+                return;
+            }
+            event.preventDefault();
+            syncEditorInteractionState();
+            openContextMenu(event.clientX, event.clientY);
+        });
+        window.addEventListener("resize", syncToolbarOverflow);
+        window.addEventListener("resize", queueRemoteCursorRender);
         statusRailButton?.addEventListener("click", () => {
             setDrawerPanel(activeDrawerPanel === "status" ? "" : "status");
         });

@@ -27,6 +27,8 @@ type liveEditSelection struct {
 	StartColumn int `json:"startColumn"`
 	EndRow      int `json:"endRow"`
 	EndColumn   int `json:"endColumn"`
+	StartPos    int `json:"startPos,omitempty"`
+	EndPos      int `json:"endPos,omitempty"`
 }
 
 type liveEditPresence struct {

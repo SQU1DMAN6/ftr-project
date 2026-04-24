@@ -30,6 +30,7 @@ var (
 	RepoDir     string
 	RepoMetaDir string
 	TempDir     string
+	SessionDir  string
 )
 
 func init() {
@@ -47,10 +48,11 @@ func init() {
 	// RepoMetaDir stores per-repository metadata (meta.json files)
 	RepoMetaDir = filepath.Join(RepoDir, "_meta")
 	TempDir = filepath.Join(RootDir, "tmp")
+	SessionDir = filepath.Join(RootDir, "sessions")
 }
 
 func EnsureStorageLayout() error {
-	for _, dir := range []string{RepoDir, RepoMetaDir, TempDir} {
+	for _, dir := range []string{RepoDir, RepoMetaDir, TempDir, SessionDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
