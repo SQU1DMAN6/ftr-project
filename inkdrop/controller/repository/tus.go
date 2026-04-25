@@ -125,8 +125,6 @@ func TUSHandler() http.Handler {
 					}
 				}
 			}
-		} else {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 		if tusErr != nil {
 			http.Error(w, tusErr.Error(), http.StatusInternalServerError)
