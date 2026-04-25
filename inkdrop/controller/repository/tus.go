@@ -87,8 +87,7 @@ func TUSHandler() http.Handler {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		// For initial upload creation requests, validate upload metadata and
-		// ensure the logged-in user is authorized to upload to the target repo.
+
 		if r.Method == http.MethodPost {
 			metaHeader := r.Header.Get("Upload-Metadata")
 			if metaHeader != "" {
@@ -100,14 +99,12 @@ func TUSHandler() http.Handler {
 					return
 				}
 
-				// Ensure repository exists
 				repoPath := filepath.Join(repository.RepoDir, owner, repoName)
 				if ok, _ := repository.DirExists(repoPath); !ok {
 					http.Error(w, fmt.Sprintf("Repository %s/%s not found", owner, repoName), http.StatusNotFound)
 					return
 				}
 
-				// Ensure session user is authorized (owner or listed in repo metadata)
 				sessionUser := SS.GetString(r.Context(), "name")
 				if sessionUser != owner {
 					if meta, err := repository.LoadRepoMeta(owner, repoName); err == nil && meta != nil {
@@ -128,6 +125,8 @@ func TUSHandler() http.Handler {
 					}
 				}
 			}
+		} else {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 		if tusErr != nil {
 			http.Error(w, tusErr.Error(), http.StatusInternalServerError)
@@ -137,8 +136,6 @@ func TUSHandler() http.Handler {
 	})
 }
 
-// parseUploadMetadata decodes the Upload-Metadata header from the tus client.
-// The header format is: "key base64value[,key base64value]*"
 func parseUploadMetadata(header string) map[string]string {
 	out := map[string]string{}
 	parts := strings.Split(header, ",")
