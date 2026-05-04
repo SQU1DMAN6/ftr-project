@@ -10,31 +10,36 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
 
 type documentEditMutationRequest struct {
-	Op           string             `json:"op"`
-	ClientID     string             `json:"clientId"`
-	Version      int64              `json:"version"`
-	Selection    *liveEditSelection `json:"selection,omitempty"`
-	SavePath     string             `json:"savePath,omitempty"`
-	Overwrite    bool               `json:"overwrite,omitempty"`
-	DocumentData string             `json:"documentData,omitempty"`
+	Op           string                  `json:"op"`
+	ClientID     string                  `json:"clientId"`
+	Version      int64                   `json:"version"`
+	LiveVersion  int64                   `json:"liveVersion,omitempty"`
+	Selection    *liveEditSelection      `json:"selection,omitempty"`
+	Operations   []documentEditOperation `json:"operations,omitempty"`
+	SavePath     string                  `json:"savePath,omitempty"`
+	Overwrite    bool                    `json:"overwrite,omitempty"`
+	DocumentData string                  `json:"documentData,omitempty"`
+	DocumentHTML string                  `json:"documentHtml,omitempty"`
 }
 
 type documentEditMutationResponse struct {
-	Success   bool               `json:"success"`
-	Version   int64              `json:"version,omitempty"`
-	Path      string             `json:"path,omitempty"`
-	FileURL   string             `json:"fileUrl,omitempty"`
-	SavedAt   int64              `json:"savedAt,omitempty"`
-	Presence  []liveEditPresence `json:"presence,omitempty"`
-	EditURL   string             `json:"editURL,omitempty"`
-	Message   string             `json:"message,omitempty"`
-	Error     string             `json:"error,omitempty"`
-	Timestamp int64              `json:"timestamp,omitempty"`
+	Success     bool               `json:"success"`
+	Version     int64              `json:"version,omitempty"`
+	LiveVersion int64              `json:"liveVersion,omitempty"`
+	Path        string             `json:"path,omitempty"`
+	FileURL     string             `json:"fileUrl,omitempty"`
+	SavedAt     int64              `json:"savedAt,omitempty"`
+	Presence    []liveEditPresence `json:"presence,omitempty"`
+	EditURL     string             `json:"editURL,omitempty"`
+	Message     string             `json:"message,omitempty"`
+	Error       string             `json:"error,omitempty"`
+	Timestamp   int64              `json:"timestamp,omitempty"`
 }
 
 func isDocumentEditorTarget(target *liveEditTarget) bool {
@@ -70,11 +75,12 @@ func handleDocumentEditGet(w http.ResponseWriter, r *http.Request, target *liveE
 			})
 			return
 		}
-		serveDocumentEditContent(w, target)
+		serveDocumentEditContent(w, r, target)
 		return
 	}
 
 	var initialVersion int64
+	var initialLiveVersion int64
 	var initialSavedAt int64
 	var initialFileURL string
 	var snapshotErr error
@@ -83,29 +89,31 @@ func handleDocumentEditGet(w http.ResponseWriter, r *http.Request, target *liveE
 		snapshot, snapshotErr = documentEditSessions.Snapshot(target)
 		if snapshotErr == nil {
 			initialVersion = snapshot.Version
+			initialLiveVersion = snapshot.LiveVersion
 			initialSavedAt = snapshot.SavedAt
 			initialFileURL = versionedDocumentFileURL(snapshot.FileURL, snapshot.Version)
 		}
 	}
 
 	params := viewBackend.FrontEndParams{
-		Title:                   fmt.Sprintf("Document Edit - %s", target.FileName),
-		Name:                    sessionUser,
-		Error:                   make(map[string]string),
-		Path:                    target.WorkingDir,
-		EditorFileName:          target.FileName,
-		EditorFilePath:          target.DisplayPath,
-		EditorRepoOwner:         target.RepoOwner,
-		EditorRepoName:          target.RepoName,
-		EditorBackURL:           target.BackURL,
-		EditorEditable:          err == nil && snapshotErr == nil && target.FileSize <= documentEditMaxFileSize,
-		DocumentEditorFileURL:   initialFileURL,
-		DocumentEditorLoadURL:   target.LoadURL,
-		DocumentEditorSyncURL:   target.EditURL,
-		DocumentEditorStreamURL: target.StreamURL,
-		DocumentEditorSaveAsURL: target.EditURL,
-		DocumentEditorVersion:   initialVersion,
-		DocumentEditorSavedAt:   initialSavedAt,
+		Title:                     fmt.Sprintf("Document Edit - %s", target.FileName),
+		Name:                      sessionUser,
+		Error:                     make(map[string]string),
+		Path:                      target.WorkingDir,
+		EditorFileName:            target.FileName,
+		EditorFilePath:            target.DisplayPath,
+		EditorRepoOwner:           target.RepoOwner,
+		EditorRepoName:            target.RepoName,
+		EditorBackURL:             target.BackURL,
+		EditorEditable:            err == nil && snapshotErr == nil && target.FileSize <= documentEditMaxFileSize,
+		DocumentEditorFileURL:     initialFileURL,
+		DocumentEditorLoadURL:     target.LoadURL,
+		DocumentEditorSyncURL:     target.EditURL,
+		DocumentEditorStreamURL:   target.StreamURL,
+		DocumentEditorSaveAsURL:   target.EditURL,
+		DocumentEditorVersion:     initialVersion,
+		DocumentEditorLiveVersion: initialLiveVersion,
+		DocumentEditorSavedAt:     initialSavedAt,
 	}
 
 	if err != nil {
@@ -146,7 +154,7 @@ func handleDocumentEditMutation(w http.ResponseWriter, r *http.Request, target *
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, (documentEditMaxFileSize*2)+(1<<20))
+	r.Body = http.MaxBytesReader(w, r.Body, (documentEditMaxFileSize*3)+(1<<20))
 	var req documentEditMutationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, documentEditMutationResponse{
@@ -180,18 +188,36 @@ func handleDocumentEditMutation(w http.ResponseWriter, r *http.Request, target *
 			return
 		}
 		writeJSON(w, http.StatusOK, documentEditMutationResponse{
-			Success:   true,
-			Version:   event.Version,
-			Presence:  event.Presence,
-			Timestamp: event.Timestamp,
+			Success:     true,
+			Version:     event.Version,
+			LiveVersion: event.LiveVersion,
+			Presence:    event.Presence,
+			Timestamp:   event.Timestamp,
+		})
+	case "stage":
+		event, err := documentEditSessions.UpdateStage(target, req.ClientID, sessionUser, req.LiveVersion, strings.TrimSpace(req.DocumentHTML), req.Operations, req.Selection)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, documentEditMutationResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, documentEditMutationResponse{
+			Success:     true,
+			Version:     event.Version,
+			LiveVersion: event.LiveVersion,
+			Presence:    event.Presence,
+			Timestamp:   event.Timestamp,
 		})
 	case "leave":
 		event := documentEditSessions.Leave(target, req.ClientID)
 		writeJSON(w, http.StatusOK, documentEditMutationResponse{
-			Success:   true,
-			Version:   event.Version,
-			Presence:  event.Presence,
-			Timestamp: event.Timestamp,
+			Success:     true,
+			Version:     event.Version,
+			LiveVersion: event.LiveVersion,
+			Presence:    event.Presence,
+			Timestamp:   event.Timestamp,
 		})
 	case "sync", "save":
 		data, err := decodeDocumentPayload(req.DocumentData)
@@ -202,7 +228,7 @@ func handleDocumentEditMutation(w http.ResponseWriter, r *http.Request, target *
 			})
 			return
 		}
-		event, err := documentEditSessions.UpdateContent(target, req.ClientID, sessionUser, data, req.Selection)
+		event, err := documentEditSessions.UpdateContent(target, req.ClientID, sessionUser, data, req.DocumentHTML, req.Selection)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, documentEditMutationResponse{
 				Success: false,
@@ -211,14 +237,15 @@ func handleDocumentEditMutation(w http.ResponseWriter, r *http.Request, target *
 			return
 		}
 		writeJSON(w, http.StatusOK, documentEditMutationResponse{
-			Success:   true,
-			Version:   event.Version,
-			Path:      event.Path,
-			FileURL:   versionedDocumentFileURL(event.FileURL, event.Version),
-			SavedAt:   event.SavedAt,
-			Presence:  event.Presence,
-			Message:   "saved",
-			Timestamp: event.Timestamp,
+			Success:     true,
+			Version:     event.Version,
+			LiveVersion: event.LiveVersion,
+			Path:        event.Path,
+			FileURL:     versionedDocumentFileURL(event.FileURL, event.Version),
+			SavedAt:     event.SavedAt,
+			Presence:    event.Presence,
+			Message:     "saved",
+			Timestamp:   event.Timestamp,
 		})
 	case "save_as":
 		data, err := decodeDocumentPayload(req.DocumentData)
@@ -240,7 +267,7 @@ func handleDocumentEditMutation(w http.ResponseWriter, r *http.Request, target *
 		}
 
 		if savePath == target.DisplayPath {
-			event, err := documentEditSessions.UpdateContent(target, req.ClientID, sessionUser, data, req.Selection)
+			event, err := documentEditSessions.UpdateContent(target, req.ClientID, sessionUser, data, req.DocumentHTML, req.Selection)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, documentEditMutationResponse{
 					Success: false,
@@ -249,15 +276,16 @@ func handleDocumentEditMutation(w http.ResponseWriter, r *http.Request, target *
 				return
 			}
 			writeJSON(w, http.StatusOK, documentEditMutationResponse{
-				Success:   true,
-				Version:   event.Version,
-				Path:      event.Path,
-				FileURL:   versionedDocumentFileURL(event.FileURL, event.Version),
-				SavedAt:   event.SavedAt,
-				Presence:  event.Presence,
-				EditURL:   target.EditURL,
-				Message:   "saved",
-				Timestamp: event.Timestamp,
+				Success:     true,
+				Version:     event.Version,
+				LiveVersion: event.LiveVersion,
+				Path:        event.Path,
+				FileURL:     versionedDocumentFileURL(event.FileURL, event.Version),
+				SavedAt:     event.SavedAt,
+				Presence:    event.Presence,
+				EditURL:     target.EditURL,
+				Message:     "saved",
+				Timestamp:   event.Timestamp,
 			})
 			return
 		}
@@ -289,15 +317,16 @@ func handleDocumentEditMutation(w http.ResponseWriter, r *http.Request, target *
 		}
 
 		writeJSON(w, http.StatusOK, documentEditMutationResponse{
-			Success:   true,
-			Version:   snapshot.Version,
-			Path:      snapshot.Path,
-			FileURL:   versionedDocumentFileURL(snapshot.FileURL, snapshot.Version),
-			SavedAt:   snapshot.SavedAt,
-			Presence:  snapshot.Presence,
-			EditURL:   savedTarget.EditURL,
-			Message:   "saved_as",
-			Timestamp: snapshot.Timestamp,
+			Success:     true,
+			Version:     snapshot.Version,
+			LiveVersion: snapshot.LiveVersion,
+			Path:        snapshot.Path,
+			FileURL:     versionedDocumentFileURL(snapshot.FileURL, snapshot.Version),
+			SavedAt:     snapshot.SavedAt,
+			Presence:    snapshot.Presence,
+			EditURL:     savedTarget.EditURL,
+			Message:     "saved_as",
+			Timestamp:   snapshot.Timestamp,
 		})
 	default:
 		writeJSON(w, http.StatusBadRequest, documentEditMutationResponse{
@@ -307,7 +336,7 @@ func handleDocumentEditMutation(w http.ResponseWriter, r *http.Request, target *
 	}
 }
 
-func serveDocumentEditContent(w http.ResponseWriter, target *liveEditTarget) {
+func serveDocumentEditContent(w http.ResponseWriter, r *http.Request, target *liveEditTarget) {
 	if target.FileSize > documentEditMaxFileSize {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]interface{}{
 			"success": false,
@@ -325,13 +354,24 @@ func serveDocumentEditContent(w http.ResponseWriter, target *liveEditTarget) {
 		return
 	}
 
+	fromLiveVersion := int64(0)
+	if raw := strings.TrimSpace(r.URL.Query().Get("fromLiveVersion")); raw != "" {
+		parsed, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr == nil && parsed > 0 {
+			fromLiveVersion = parsed
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"path":    snapshot.Path,
-		"fileUrl": versionedDocumentFileURL(snapshot.FileURL, snapshot.Version),
-		"size":    target.FileSize,
-		"version": snapshot.Version,
-		"savedAt": snapshot.SavedAt,
+		"success":          true,
+		"path":             snapshot.Path,
+		"fileUrl":          versionedDocumentFileURL(snapshot.FileURL, snapshot.Version),
+		"size":             target.FileSize,
+		"version":          snapshot.Version,
+		"liveVersion":      snapshot.LiveVersion,
+		"documentHtml":     snapshot.DocumentHTML,
+		"savedAt":          snapshot.SavedAt,
+		"operationBatches": documentEditSessions.OperationBatchesSince(target, fromLiveVersion),
 	})
 }
 

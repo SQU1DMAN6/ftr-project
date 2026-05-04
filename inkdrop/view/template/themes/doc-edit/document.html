@@ -228,7 +228,9 @@
                     color-mix(in srgb, var(--doc-border) 85%, transparent);
                 background: #ffffff;
                 min-height: 0;
-                overflow: hidden;
+                overflow: visible;
+                position: relative;
+                z-index: 5;
             }
 
             .doc-toolbar-shell {
@@ -242,6 +244,7 @@
                 min-width: 0;
                 overflow: hidden;
                 transition: max-height 0.18s ease;
+                max-width: 100%;
             }
 
             .doc-toolbar-shell[data-expanded="false"] .doc-toolbar-scroll {
@@ -249,8 +252,9 @@
             }
 
             .doc-toolbar-shell[data-expanded="true"] .doc-toolbar-scroll {
-                max-height: min(68vh, 560px);
+                max-height: min(76vh, 640px);
                 overflow: auto;
+                padding-bottom: 4px;
             }
 
             .doc-toolbar-shell[data-overflow="false"] .doc-toolbar-toggle {
@@ -591,6 +595,17 @@
 
             #docEditorSurface .doc-editor-mount {
                 font-family: Calibri, "Segoe UI", Arial, sans-serif;
+            }
+
+            #docEditorSurface .doc-editor-mount ul,
+            #docEditorSurface .doc-editor-mount ol {
+                margin: 0.45em 0 0.85em;
+                padding-inline-start: 1.5em;
+            }
+
+            #docEditorSurface .doc-editor-mount li {
+                margin: 0.08em 0;
+                padding-left: 0.08em;
             }
 
             #docEditorSurface table {
@@ -1944,6 +1959,7 @@
               "syncURL": {{toJSON .DocumentEditorSyncURL}},
               "streamURL": {{toJSON .DocumentEditorStreamURL}},
               "version": {{.DocumentEditorVersion}},
+              "liveVersion": {{.DocumentEditorLiveVersion}},
               "savedAt": {{.DocumentEditorSavedAt}}
             }
         </script>
@@ -2044,14 +2060,70 @@
                 "\\to": "→",
                 "\\infty": "∞",
             });
-            const DOC_SYNC_DEBOUNCE_MS = 90;
+            const DOC_STAGE_DEBOUNCE_MS = 70;
+            const DOC_SYNC_DEBOUNCE_MS = 180;
             const DOC_REMOTE_POLL_INTERVAL_MS = 4000;
             const DOC_REMOTE_RELOAD_DEBOUNCE_MS = 260;
             const DOC_MOUNT_UPDATE_SUPPRESSION_MS = 1200;
+            const DOC_REMOTE_APPLY_SUPPRESSION_MS = 220;
             const DOC_ZOOM_MIN = 0.7;
             const DOC_ZOOM_MAX = 2.2;
             const DOC_ZOOM_STEP = 0.1;
             const DOC_PAGE_WIDTH = "8.5in";
+            const DOC_PRINT_STYLE_PROPERTIES = [
+                "font-family",
+                "font-size",
+                "font-weight",
+                "font-style",
+                "font-stretch",
+                "font-variant",
+                "line-height",
+                "letter-spacing",
+                "word-spacing",
+                "text-align",
+                "text-indent",
+                "text-transform",
+                "text-decoration-line",
+                "text-decoration-style",
+                "text-decoration-color",
+                "text-decoration-thickness",
+                "color",
+                "background-color",
+                "white-space",
+                "display",
+                "box-sizing",
+                "margin-top",
+                "margin-right",
+                "margin-bottom",
+                "margin-left",
+                "padding-top",
+                "padding-right",
+                "padding-bottom",
+                "padding-left",
+                "padding-inline-start",
+                "padding-inline-end",
+                "border-collapse",
+                "border-spacing",
+                "border-top-width",
+                "border-right-width",
+                "border-bottom-width",
+                "border-left-width",
+                "border-top-style",
+                "border-right-style",
+                "border-bottom-style",
+                "border-left-style",
+                "border-top-color",
+                "border-right-color",
+                "border-bottom-color",
+                "border-left-color",
+                "list-style-type",
+                "list-style-position",
+                "list-style-image",
+                "vertical-align",
+                "width",
+                "min-height",
+                "max-width",
+            ];
             const ENABLE_SUPERDOC = false;
             const SUPPORTS_CSS_ZOOM = Boolean(
                 globalThis.CSS &&
@@ -2068,20 +2140,30 @@
             let presenceTimer = null;
             let pendingSyncTimer = null;
             let pendingPresenceTimer = null;
+            let pendingStageTimer = null;
             let syncInFlight = false;
+            let stageInFlight = false;
             let syncQueued = false;
             let currentSyncPromise = null;
+            let currentStagePromise = null;
             let pendingExplicitSave = false;
             let dirty = false;
             let disconnecting = false;
             let editorReady = false;
             let currentVersion = Number(config.version || 0);
+            let currentLiveVersion = Number(
+                config.liveVersion || config.version || 0,
+            );
             let lastSavedAt = Number(config.savedAt || 0);
             let latestPresence = [];
             let currentDocumentSource = config.fileURL || "";
             let pendingRemoteFileURL = "";
+            let pendingRemoteDocumentHTML = "";
+            let pendingRemoteOperations = [];
             let pendingRemoteSavedAt = 0;
             let pendingRemoteVersion = 0;
+            let pendingRemoteLiveVersion = 0;
+            let pendingRemoteBaseLiveVersion = 0;
             let pendingRemoteExternal = false;
             let activeDrawerPanel = "";
             let activeMountToken = 0;
@@ -2089,6 +2171,7 @@
             let pendingRemoteReloadTimer = null;
             let eventStreamConnected = false;
             let suppressEditorUpdatesUntil = 0;
+            let applyingRemoteDocumentContent = false;
             let lastKnownSelection = null;
             let remoteCursorFrame = 0;
             let toolbarExpanded = false;
@@ -2100,6 +2183,8 @@
             let mountSnapshotOverlay = null;
             let lastPasteSignature = "";
             let lastPasteAt = 0;
+            let lastStagedDocumentHTML = "";
+            let pendingLocalOperations = [];
             const clientId =
                 "doc-" +
                 Date.now().toString(36) +
@@ -2382,6 +2467,72 @@
             function captureSelectionState() {
                 lastKnownSelection = getCurrentSelection();
                 return lastKnownSelection;
+            }
+
+            function clampSelectionForEditor(editor, selection) {
+                if (
+                    !editor ||
+                    !editor.view ||
+                    !editor.view.state ||
+                    !editor.view.state.doc ||
+                    !selection
+                ) {
+                    return null;
+                }
+                const maxPos = Math.max(
+                    1,
+                    Number(editor.view.state.doc.content.size || 1),
+                );
+                const from = Math.max(
+                    1,
+                    Math.min(maxPos, Number(selection.startPos || 1)),
+                );
+                const to = Math.max(
+                    from,
+                    Math.min(maxPos, Number(selection.endPos || from)),
+                );
+                return { from, to };
+            }
+
+            function restoreEditorSelection(editor, selection) {
+                const clampedSelection = clampSelectionForEditor(
+                    editor,
+                    selection,
+                );
+                if (!clampedSelection) {
+                    return;
+                }
+                try {
+                    if (
+                        editor.commands &&
+                        typeof editor.commands.setTextSelection === "function"
+                    ) {
+                        editor.commands.setTextSelection(clampedSelection);
+                        return;
+                    }
+                } catch (_) {}
+                try {
+                    if (
+                        editor.view &&
+                        editor.view.state &&
+                        editor.view.dispatch &&
+                        editor.view.state.selection &&
+                        editor.view.state.selection.constructor &&
+                        typeof editor.view.state.selection.constructor.create ===
+                            "function"
+                    ) {
+                        const selectionCtor =
+                            editor.view.state.selection.constructor;
+                        const transaction = editor.view.state.tr.setSelection(
+                            selectionCtor.create(
+                                editor.view.state.doc,
+                                clampedSelection.from,
+                                clampedSelection.to,
+                            ),
+                        );
+                        editor.view.dispatch(transaction);
+                    }
+                } catch (_) {}
             }
 
             function focusActiveEditor(options = {}) {
@@ -2681,20 +2832,7 @@
                     const selection = view.state.selection;
                     const transaction = view.state.tr;
                     let changed = false;
-                    const updateNodeStyle = (node, pos) => {
-                        if (!node || !node.isBlock) {
-                            return;
-                        }
-                        const nodeName = String(
-                            (node.type && node.type.name) || "",
-                        );
-                        if (
-                            !["paragraph", "heading", "blockquote"].includes(
-                                nodeName,
-                            )
-                        ) {
-                            return;
-                        }
+                    const buildNextAttrs = (node) => {
                         const mergedStyles = parseInlineStyle(
                             node.attrs && node.attrs.style,
                         );
@@ -2707,10 +2845,34 @@
                                 }
                             },
                         );
-                        transaction.setNodeMarkup(pos, undefined, {
-                            ...node.attrs,
+                        const nextAttrs = {
+                            ...(node.attrs || {}),
                             style: serializeInlineStyle(mergedStyles),
-                        });
+                        };
+                        if (
+                            Object.prototype.hasOwnProperty.call(
+                                stylePatch || {},
+                                "line-height",
+                            )
+                        ) {
+                            const nextLineHeight = stylePatch["line-height"];
+                            if (nextLineHeight == null || nextLineHeight === "") {
+                                delete nextAttrs.lineHeight;
+                            } else {
+                                nextAttrs.lineHeight = nextLineHeight;
+                            }
+                        }
+                        return nextAttrs;
+                    };
+                    const updateNodeStyle = (node, pos) => {
+                        if (!node || !node.isTextblock) {
+                            return;
+                        }
+                        transaction.setNodeMarkup(
+                            pos,
+                            undefined,
+                            buildNextAttrs(node),
+                        );
                         changed = true;
                     };
 
@@ -2745,22 +2907,10 @@
                                 typeof editor.getAttributes === "function"
                                     ? editor.getAttributes(nodeName) || {}
                                     : {};
-                            const mergedStyles = parseInlineStyle(attrs.style);
-                            Object.entries(stylePatch || {}).forEach(
-                                ([key, value]) => {
-                                    if (value == null || value === "") {
-                                        delete mergedStyles[key];
-                                    } else {
-                                        mergedStyles[key] = value;
-                                    }
-                                },
-                            );
                             return callEditorCommand(
                                 "updateAttributes",
                                 nodeName,
-                                {
-                                    style: serializeInlineStyle(mergedStyles),
-                                },
+                                buildNextAttrs({ attrs }),
                             );
                         }
                     }
@@ -2785,24 +2935,21 @@
                 const selectors =
                     "p, h1, h2, h3, h4, h5, h6, li, td, th, blockquote";
                 const elements = new Set();
-                const positions = [selection.from, selection.to];
-                if (!selection.empty) {
-                    positions.push(
-                        Math.floor((selection.from + selection.to) / 2),
-                    );
-                }
-
-                positions.forEach((pos) => {
+                const addBlockForNodePosition = (pos) => {
                     try {
-                        const domAtPos = view.domAtPos(pos);
-                        let node =
-                            domAtPos && domAtPos.node ? domAtPos.node : null;
-                        if (node && node.nodeType === Node.TEXT_NODE) {
-                            node = node.parentElement;
-                        }
+                        const node =
+                            typeof view.nodeDOM === "function"
+                                ? view.nodeDOM(pos)
+                                : null;
+                        const element =
+                            node instanceof Element
+                                ? node
+                                : node && node.parentElement
+                                  ? node.parentElement
+                                  : null;
                         const block =
-                            node && typeof node.closest === "function"
-                                ? node.closest(selectors)
+                            element && typeof element.closest === "function"
+                                ? element.closest(selectors)
                                 : null;
                         if (
                             block &&
@@ -2812,7 +2959,48 @@
                             elements.add(block);
                         }
                     } catch (_) {}
-                });
+                };
+
+                if (selection.empty) {
+                    addBlockForNodePosition(selection.$from.before());
+                } else {
+                    view.state.doc.nodesBetween(
+                        selection.from,
+                        selection.to,
+                        (node, pos) => {
+                            if (!node || !node.isTextblock) {
+                                return;
+                            }
+                            addBlockForNodePosition(pos);
+                        },
+                    );
+                }
+
+                if (elements.size === 0) {
+                    [selection.from, selection.to].forEach((pos) => {
+                        try {
+                            const domAtPos = view.domAtPos(pos);
+                            let node =
+                                domAtPos && domAtPos.node
+                                    ? domAtPos.node
+                                    : null;
+                            if (node && node.nodeType === Node.TEXT_NODE) {
+                                node = node.parentElement;
+                            }
+                            const block =
+                                node && typeof node.closest === "function"
+                                    ? node.closest(selectors)
+                                    : null;
+                            if (
+                                block &&
+                                editorSurface &&
+                                editorSurface.contains(block)
+                            ) {
+                                elements.add(block);
+                            }
+                        } catch (_) {}
+                    });
+                }
 
                 return Array.from(elements);
             }
@@ -2821,6 +3009,23 @@
                 getSelectedBlockElements().forEach((element) => {
                     element.style.lineHeight = value;
                 });
+            }
+
+            function getSelectedLineHeightValue() {
+                const block = getSelectedBlockElements()[0];
+                if (!block) {
+                    return "";
+                }
+                const inlineValue = String(block.style.lineHeight || "").trim();
+                if (inlineValue) {
+                    return normalizeLineHeightMultiplier(inlineValue, block);
+                }
+                const computedValue = window
+                    .getComputedStyle(block)
+                    .lineHeight.trim();
+                return computedValue && computedValue !== "normal"
+                    ? normalizeLineHeightMultiplier(computedValue, block)
+                    : "";
             }
 
             function shouldSkipDuplicatePaste(signature) {
@@ -2852,29 +3057,204 @@
                 return Date.now() < suppressEditorUpdatesUntil;
             }
 
+            function getCurrentDocumentHTML() {
+                const editor = getActiveEditor();
+                if (!editor) {
+                    return "";
+                }
+                if (typeof editor.getHTML === "function") {
+                    try {
+                        const html = editor.getHTML();
+                        if (typeof html === "string" && html.trim() !== "") {
+                            return html;
+                        }
+                    } catch (_) {}
+                }
+                if (
+                    editor.view &&
+                    editor.view.dom &&
+                    typeof editor.view.dom.innerHTML === "string"
+                ) {
+                    return editor.view.dom.innerHTML;
+                }
+                return "";
+            }
+
+            function normalizeCollaborativeHTML(html) {
+                const markup = String(html || "").trim();
+                if (!markup) {
+                    return "";
+                }
+                try {
+                    const container = document.createElement("div");
+                    container.innerHTML = markup;
+                    return container.innerHTML.trim();
+                } catch (_) {
+                    return markup.replace(/>\s+</g, "><").trim();
+                }
+            }
+
+            function currentDocumentMatchesHTML(documentHTML) {
+                const normalizedIncoming =
+                    normalizeCollaborativeHTML(documentHTML);
+                if (!normalizedIncoming) {
+                    return false;
+                }
+                return (
+                    normalizeCollaborativeHTML(getCurrentDocumentHTML()) ===
+                    normalizedIncoming
+                );
+            }
+
+            function cloneSelection(selection) {
+                if (!selection) {
+                    return null;
+                }
+                return {
+                    startRow: Number(selection.startRow || 0),
+                    startColumn: Number(selection.startColumn || 0),
+                    endRow: Number(selection.endRow || 0),
+                    endColumn: Number(selection.endColumn || 0),
+                    startPos: Number(selection.startPos || 0),
+                    endPos: Number(selection.endPos || 0),
+                };
+            }
+
+            function normalizeEditorOperation(operation) {
+                if (!operation || typeof operation !== "object") {
+                    return null;
+                }
+                const kind = String(operation.kind || "")
+                    .trim()
+                    .toLowerCase();
+                if (!kind) {
+                    return null;
+                }
+
+                const from = Math.max(1, Number(operation.from || 0));
+                const to = Math.max(from, Number(operation.to || from));
+                if (kind === "replace_text") {
+                    const text = String(operation.text ?? "");
+                    if (from === to && text === "") {
+                        return null;
+                    }
+                    return {
+                        kind,
+                        from,
+                        to,
+                        text,
+                    };
+                }
+                if (kind === "delete_range") {
+                    if (from === to) {
+                        return null;
+                    }
+                    return {
+                        kind,
+                        from,
+                        to,
+                    };
+                }
+                return null;
+            }
+
+            function cloneEditorOperations(operations) {
+                if (!Array.isArray(operations) || operations.length === 0) {
+                    return [];
+                }
+                return operations
+                    .map((operation) => normalizeEditorOperation(operation))
+                    .filter(Boolean)
+                    .map((operation) => ({ ...operation }));
+            }
+
+            function queueLocalEditorOperation(operation) {
+                const normalized = normalizeEditorOperation(operation);
+                if (!normalized) {
+                    return;
+                }
+                pendingLocalOperations.push(normalized);
+                if (pendingLocalOperations.length > 120) {
+                    pendingLocalOperations.splice(
+                        0,
+                        pendingLocalOperations.length - 120,
+                    );
+                }
+            }
+
+            function normalizeIncomingLiveVersion(liveVersion, version) {
+                const nextLiveVersion = Number(liveVersion || 0);
+                if (nextLiveVersion > 0) {
+                    return nextLiveVersion;
+                }
+                return Number(version || 0);
+            }
+
+            function hasNewerRemoteState(version, liveVersion) {
+                const nextVersion = Number(version || 0);
+                const nextLiveVersion = normalizeIncomingLiveVersion(
+                    liveVersion,
+                    version,
+                );
+                return (
+                    nextVersion > currentVersion ||
+                    nextLiveVersion > currentLiveVersion
+                );
+            }
+
             function setPendingRemoteSnapshot(
                 fileURL,
                 savedAt,
                 version,
                 external,
+                documentHTML,
+                liveVersion,
+                baseLiveVersion,
+                operations,
             ) {
                 const nextVersion = Number(version || 0);
-                if (!fileURL || nextVersion <= 0) {
+                const nextLiveVersion = normalizeIncomingLiveVersion(
+                    liveVersion,
+                    version,
+                );
+                const nextOperations = cloneEditorOperations(operations);
+                if (
+                    !fileURL &&
+                    !String(documentHTML || "").trim() &&
+                    nextOperations.length === 0 &&
+                    nextVersion <= 0 &&
+                    nextLiveVersion <= 0
+                ) {
                     return;
                 }
-                if (nextVersion < pendingRemoteVersion) {
+                if (
+                    nextVersion < pendingRemoteVersion ||
+                    (nextVersion === pendingRemoteVersion &&
+                        nextLiveVersion <= pendingRemoteLiveVersion)
+                ) {
                     return;
                 }
                 pendingRemoteFileURL = fileURL;
+                pendingRemoteDocumentHTML = String(documentHTML || "");
+                pendingRemoteOperations = nextOperations;
                 pendingRemoteSavedAt = Number(savedAt || 0);
                 pendingRemoteVersion = nextVersion;
+                pendingRemoteLiveVersion = nextLiveVersion;
+                pendingRemoteBaseLiveVersion = Math.max(
+                    0,
+                    Number(baseLiveVersion || 0),
+                );
                 pendingRemoteExternal = Boolean(external);
             }
 
             function clearPendingRemoteSnapshot() {
                 pendingRemoteFileURL = "";
+                pendingRemoteDocumentHTML = "";
+                pendingRemoteOperations = [];
                 pendingRemoteSavedAt = 0;
                 pendingRemoteVersion = 0;
+                pendingRemoteLiveVersion = 0;
+                pendingRemoteBaseLiveVersion = 0;
                 pendingRemoteExternal = false;
             }
 
@@ -2941,7 +3321,9 @@
 
             function schedulePendingRemoteReload(statusMessage) {
                 if (
-                    !pendingRemoteFileURL ||
+                    (!pendingRemoteFileURL &&
+                        !pendingRemoteDocumentHTML &&
+                        pendingRemoteOperations.length === 0) ||
                     remoteReloadInFlight ||
                     dirty ||
                     syncInFlight
@@ -3103,6 +3485,54 @@
                 return fallback;
             }
 
+            function normalizeLineHeightMultiplier(value, element) {
+                const rawValue = String(value || "").trim().toLowerCase();
+                if (!rawValue || rawValue === "normal") {
+                    return "";
+                }
+                const numericValue = Number.parseFloat(rawValue);
+                if (!Number.isFinite(numericValue) || numericValue <= 0) {
+                    return "";
+                }
+
+                let multiplier = numericValue;
+                if (rawValue.endsWith("px")) {
+                    const fontSize = Number.parseFloat(
+                        window.getComputedStyle(element || document.body)
+                            .fontSize || "16",
+                    );
+                    if (Number.isFinite(fontSize) && fontSize > 0) {
+                        multiplier = numericValue / fontSize;
+                    }
+                } else if (rawValue.endsWith("%")) {
+                    multiplier = numericValue / 100;
+                } else if (rawValue.endsWith("em")) {
+                    multiplier = numericValue;
+                }
+
+                return String(
+                    Math.round(multiplier * 100) / 100,
+                ).replace(/\.0+$/, "").replace(/(\.\d*[1-9])0+$/, "$1");
+            }
+
+            function parsePointFontSize(value) {
+                const rawValue = String(value || "").trim().toLowerCase();
+                if (!rawValue) {
+                    return NaN;
+                }
+                const numericValue = Number.parseFloat(rawValue);
+                return Number.isFinite(numericValue) && numericValue > 0
+                    ? numericValue
+                    : NaN;
+            }
+
+            function formatPointFontSize(value) {
+                const nextSize = Math.max(1, Math.round(value * 10) / 10);
+                return String(nextSize)
+                    .replace(/\.0+$/, "")
+                    .replace(/(\.\d*[1-9])0+$/, "$1") + "pt";
+            }
+
             function syncToolbarOverflow() {
                 const shell =
                     toolbarSurface &&
@@ -3120,25 +3550,25 @@
                 shell.dataset.expanded = String(toolbarExpanded);
                 requestAnimationFrame(() => {
                     const hasOverflow = scroll.scrollHeight > 58;
+                    const expandedMaxHeight = Math.min(
+                        Math.max(scroll.scrollHeight + 28, 96),
+                        Math.round(window.innerHeight * 0.76),
+                    );
                     shell.dataset.overflow = String(hasOverflow);
                     if (!hasOverflow) {
                         toolbarExpanded = false;
                         shell.dataset.expanded = "false";
                     }
                     scroll.style.maxHeight = toolbarExpanded
-                        ? Math.min(
-                              Math.max(scroll.scrollHeight + 12, 80),
-                              Math.round(window.innerHeight * 0.68),
-                          ) + "px"
+                        ? expandedMaxHeight + "px"
                         : "54px";
+                    toolbarSurface.style.minHeight = toolbarExpanded
+                        ? expandedMaxHeight + 18 + "px"
+                        : "";
+                    toolbarSurface.style.overflow = toolbarExpanded
+                        ? "visible"
+                        : "visible";
                     if (toggle) {
-                        if (toolbarExpanded === true) {
-                            toolbarSurface.style.height =
-                                "calc-size(max-content, size + 50px)";
-                        } else {
-                            toolbarSurface.style.height =
-                                "calc-size(max-content, size + 0px)";
-                        }
                         toggle.textContent = toolbarExpanded ? "▴" : "▾";
                         toggle.setAttribute(
                             "aria-expanded",
@@ -3346,10 +3776,14 @@
                     marginRightInput.value = String(currentPageMargins.right);
                 }
 
-                if (lineHeightInput && paragraphStyleMap["line-height"]) {
-                    lineHeightInput.value = paragraphStyleMap["line-height"];
-                }
                 if (lineHeightInput) {
+                    const activeLineHeight =
+                        paragraphAttrs.lineHeight ||
+                        paragraphStyleMap["line-height"] ||
+                        getSelectedLineHeightValue() ||
+                        lineHeightInput.value ||
+                        "1.5";
+                    lineHeightInput.value = String(activeLineHeight);
                     lineHeightInput.disabled = !ready;
                 }
 
@@ -3395,6 +3829,8 @@
                                                 <span class="doc-toolbar-label">Size</span>
                                                 <input type="text" class="doc-toolbar-input" id="docToolbarFontSize" value="12pt" list="docToolbarFontSizeOptions" inputmode="decimal">
                                             </label>
+                                            <button type="button" class="doc-toolbar-button" data-doc-action="font-size-down" title="Decrease font size">A-</button>
+                                            <button type="button" class="doc-toolbar-button" data-doc-action="font-size-up" title="Increase font size">A+</button>
                                             <datalist id="docToolbarFontSizeOptions">${sizeOptions}</datalist>
                                         </div>
                                         <div class="doc-toolbar-group">
@@ -3435,8 +3871,14 @@
                                         <div class="doc-toolbar-group">
                                             <label class="doc-toolbar-field doc-toolbar-field-size">
                                                 <span class="doc-toolbar-label">Line Height</span>
-                                                <input type="text" class="doc-toolbar-input" id="docToolbarLineHeight" value="1.5">
+                                                <input type="text" class="doc-toolbar-input" id="docToolbarLineHeight" value="1.5" list="docToolbarLineHeightOptions" inputmode="decimal">
                                             </label>
+                                            <datalist id="docToolbarLineHeightOptions">
+                                                <option value="1"></option>
+                                                <option value="1.15"></option>
+                                                <option value="1.5"></option>
+                                                <option value="2"></option>
+                                            </datalist>
                                             <button type="button" class="doc-toolbar-button" data-doc-action="apply-line-height" title="Apply line height">Apply LH</button>
                                         </div>
                                         <div class="doc-toolbar-group">
@@ -3483,6 +3925,36 @@
                             if (actionName === "insert-equation") {
                                 return promptForEquationInsert();
                             }
+                            if (
+                                actionName === "font-size-down" ||
+                                actionName === "font-size-up"
+                            ) {
+                                const fontSizeInput = toolbarSurface.querySelector(
+                                    "#docToolbarFontSize",
+                                );
+                                const currentSize = parsePointFontSize(
+                                    fontSizeInput?.value ||
+                                        getActiveEditor()?.getAttributes?.(
+                                            "textStyle",
+                                        )?.fontSize ||
+                                        "12pt",
+                                );
+                                const nextSize = formatPointFontSize(
+                                    (Number.isFinite(currentSize)
+                                        ? currentSize
+                                        : 12) +
+                                        (actionName === "font-size-up"
+                                            ? 1
+                                            : -1),
+                                );
+                                if (fontSizeInput) {
+                                    fontSizeInput.value = nextSize;
+                                }
+                                return performEditorCommand(
+                                    "setFontSize",
+                                    nextSize,
+                                );
+                            }
                             if (actionName === "apply-text-color") {
                                 const color = toolbarSurface.querySelector(
                                     "#docToolbarTextColor",
@@ -3520,13 +3992,23 @@
                                 });
                             }
                             if (actionName === "apply-line-height") {
-                                const value = String(
+                                const rawValue = String(
                                     toolbarSurface.querySelector(
                                         "#docToolbarLineHeight",
                                     )?.value || "",
                                 ).trim();
+                                const value =
+                                    normalizeLineHeightMultiplier(rawValue) ||
+                                    "";
                                 if (!value) {
                                     return;
+                                }
+                                const lineHeightInput =
+                                    toolbarSurface.querySelector(
+                                        "#docToolbarLineHeight",
+                                    );
+                                if (lineHeightInput) {
+                                    lineHeightInput.value = value;
                                 }
                                 const result = updateActiveTextBlockStyles({
                                     "line-height": value,
@@ -3575,14 +4057,37 @@
                         .then(() => {
                             if (
                                 target instanceof HTMLInputElement &&
-                                target.id === "docToolbarFontSize"
+                                target.id === "docToolbarLineHeight"
                             ) {
-                                const nextSize = String(
+                                const rawValue = String(
                                     target.value || "",
                                 ).trim();
-                                if (!nextSize) {
+                                const value =
+                                    normalizeLineHeightMultiplier(rawValue) ||
+                                    "";
+                                if (!value) {
                                     return;
                                 }
+                                target.value = value;
+                                const result = updateActiveTextBlockStyles({
+                                    "line-height": value,
+                                });
+                                applyVisibleLineHeightPreview(value);
+                                return result;
+                            }
+                            if (
+                                target instanceof HTMLInputElement &&
+                                target.id === "docToolbarFontSize"
+                            ) {
+                                const nextSizeValue = parsePointFontSize(
+                                    target.value,
+                                );
+                                if (!Number.isFinite(nextSizeValue)) {
+                                    return;
+                                }
+                                const nextSize =
+                                    formatPointFontSize(nextSizeValue);
+                                target.value = nextSize;
                                 return performEditorCommand(
                                     "setFontSize",
                                     nextSize,
@@ -3609,6 +4114,41 @@
                                 "error",
                             );
                         });
+                };
+
+                toolbarSurface.oninput = (event) => {
+                    const target = event.target;
+                    if (
+                        target instanceof HTMLInputElement &&
+                        target.id === "docToolbarLineHeight"
+                    ) {
+                        const value = normalizeLineHeightMultiplier(
+                            String(target.value || "").trim(),
+                        );
+                        if (value) {
+                            applyVisibleLineHeightPreview(value);
+                        }
+                    }
+                };
+
+                toolbarSurface.onkeydown = (event) => {
+                    const target = event.target;
+                    if (!(target instanceof HTMLInputElement)) {
+                        return;
+                    }
+                    if (event.key !== "Enter") {
+                        return;
+                    }
+                    if (
+                        target.id !== "docToolbarFontSize" &&
+                        target.id !== "docToolbarLineHeight"
+                    ) {
+                        return;
+                    }
+                    event.preventDefault();
+                    target.dispatchEvent(
+                        new Event("change", { bubbles: true }),
+                    );
                 };
 
                 toolbarSurface
@@ -4695,6 +5235,44 @@
                 };
             }
 
+            function getCharacterDeleteRange(direction) {
+                const view = getEditorView();
+                if (!view || !view.state || !view.state.selection) {
+                    return null;
+                }
+                const selection = view.state.selection;
+                if (!selection) {
+                    return null;
+                }
+                if (!selection.empty) {
+                    return {
+                        from: selection.from,
+                        to: selection.to,
+                    };
+                }
+
+                const maxPos = Math.max(
+                    1,
+                    Number(view.state.doc?.content?.size || selection.from),
+                );
+                if (direction === "backward") {
+                    if (selection.from <= 1) {
+                        return null;
+                    }
+                    return {
+                        from: selection.from - 1,
+                        to: selection.from,
+                    };
+                }
+                if (selection.from >= maxPos) {
+                    return null;
+                }
+                return {
+                    from: selection.from,
+                    to: Math.min(maxPos, selection.from + 1),
+                };
+            }
+
             async function pasteFromClipboard() {
                 if (
                     navigator.clipboard &&
@@ -4768,7 +5346,11 @@
             }
 
             function handleRichPasteEvent(event) {
-                if (!editorReady || !event.clipboardData) {
+                if (
+                    !editorReady ||
+                    !event.clipboardData ||
+                    event.defaultPrevented
+                ) {
                     return;
                 }
 
@@ -4776,6 +5358,8 @@
                 const html = clipboard.getData("text/html");
                 if (html) {
                     event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation?.();
                     if (shouldSkipDuplicatePaste("html:" + html)) {
                         return;
                     }
@@ -4797,6 +5381,8 @@
                 );
                 if (imageFile) {
                     event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation?.();
                     Promise.resolve()
                         .then(async () => {
                             const dataUrl = await fileToDataURL(imageFile);
@@ -4825,6 +5411,8 @@
                 const text = clipboard.getData("text/plain");
                 if (text) {
                     event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation?.();
                     if (shouldSkipDuplicatePaste("txt:" + text)) {
                         return;
                     }
@@ -4878,6 +5466,11 @@
                             ),
                         )
                         .then(() => {
+                            queueLocalEditorOperation({
+                                kind: "delete_range",
+                                from: range.from,
+                                to: range.to,
+                            });
                             markDirty();
                             queueSync(false);
                         })
@@ -4897,6 +5490,116 @@
                 ) {
                     convertEquationShortcutNearCursor();
                 }
+            }
+
+            function handleEditorBeforeInput(event) {
+                if (
+                    !editorReady ||
+                    !config.editable ||
+                    applyingRemoteDocumentContent ||
+                    event.defaultPrevented ||
+                    event.isComposing
+                ) {
+                    return;
+                }
+
+                const selection = cloneSelection(getCurrentSelection());
+                if (!selection) {
+                    return;
+                }
+
+                const inputType = String(event.inputType || "");
+                if (
+                    (inputType === "insertText" ||
+                        inputType === "insertCompositionText") &&
+                    typeof event.data === "string"
+                ) {
+                    queueLocalEditorOperation({
+                        kind: "replace_text",
+                        from: selection.startPos,
+                        to: selection.endPos,
+                        text: event.data,
+                    });
+                    return;
+                }
+
+                if (
+                    inputType === "deleteContentBackward" ||
+                    inputType === "deleteSoftLineBackward" ||
+                    inputType === "deleteByCut"
+                ) {
+                    const range =
+                        selection.startPos !== selection.endPos
+                            ? {
+                                  from: selection.startPos,
+                                  to: selection.endPos,
+                              }
+                            : getCharacterDeleteRange("backward");
+                    if (range && range.from !== range.to) {
+                        queueLocalEditorOperation({
+                            kind: "delete_range",
+                            from: range.from,
+                            to: range.to,
+                        });
+                    }
+                    return;
+                }
+
+                if (
+                    inputType === "deleteContentForward" ||
+                    inputType === "deleteSoftLineForward"
+                ) {
+                    const range =
+                        selection.startPos !== selection.endPos
+                            ? {
+                                  from: selection.startPos,
+                                  to: selection.endPos,
+                              }
+                            : getCharacterDeleteRange("forward");
+                    if (range && range.from !== range.to) {
+                        queueLocalEditorOperation({
+                            kind: "delete_range",
+                            from: range.from,
+                            to: range.to,
+                        });
+                    }
+                    return;
+                }
+
+                if (inputType === "deleteWordBackward") {
+                    const range = getWordDeleteRange("backward");
+                    if (range && range.from !== range.to) {
+                        queueLocalEditorOperation({
+                            kind: "delete_range",
+                            from: range.from,
+                            to: range.to,
+                        });
+                    }
+                    return;
+                }
+
+                if (inputType === "deleteWordForward") {
+                    const range = getWordDeleteRange("forward");
+                    if (range && range.from !== range.to) {
+                        queueLocalEditorOperation({
+                            kind: "delete_range",
+                            from: range.from,
+                            to: range.to,
+                        });
+                    }
+                }
+            }
+
+            function handleEditorInput() {
+                if (
+                    !editorReady ||
+                    !config.editable ||
+                    applyingRemoteDocumentContent
+                ) {
+                    return;
+                }
+                markDirty();
+                queueSync(false);
             }
 
             function handleEditorWheel(event) {
@@ -5219,6 +5922,29 @@
                     }
                     return payload;
                 });
+            }
+
+            async function fetchRemoteOperationHistory(fromLiveVersion) {
+                if (!config.loadURL || !fromLiveVersion || fromLiveVersion < 1) {
+                    return [];
+                }
+                const separator = config.loadURL.includes("?") ? "&" : "?";
+                const payload = await requestJSON(
+                    config.loadURL +
+                        separator +
+                        "fromLiveVersion=" +
+                        encodeURIComponent(String(fromLiveVersion)),
+                    {
+                        cache: "no-store",
+                        credentials: "same-origin",
+                        headers: {
+                            Accept: "application/json",
+                        },
+                    },
+                );
+                return Array.isArray(payload.operationBatches)
+                    ? payload.operationBatches
+                    : [];
             }
 
             async function mountDocument(documentSource) {
@@ -5814,8 +6540,480 @@
                 });
             }
 
+            function queueStageSync() {
+                if (
+                    !config.editable ||
+                    disconnecting ||
+                    applyingRemoteDocumentContent
+                ) {
+                    return;
+                }
+                if (pendingStageTimer) {
+                    clearTimeout(pendingStageTimer);
+                }
+                pendingStageTimer = setTimeout(() => {
+                    pendingStageTimer = null;
+                    flushStageSync().catch(() => {});
+                }, DOC_STAGE_DEBOUNCE_MS);
+            }
+
+            async function flushStageSync() {
+                if (
+                    !config.editable ||
+                    disconnecting ||
+                    applyingRemoteDocumentContent
+                ) {
+                    return Promise.resolve();
+                }
+                const documentHTML = getCurrentDocumentHTML().trim();
+                const stagedOperationsCount = pendingLocalOperations.length;
+                const stagedOperations = cloneEditorOperations(
+                    pendingLocalOperations.slice(0, stagedOperationsCount),
+                );
+                if (
+                    (!documentHTML ||
+                        documentHTML === lastStagedDocumentHTML) &&
+                    stagedOperations.length === 0
+                ) {
+                    return Promise.resolve();
+                }
+                if (stageInFlight) {
+                    return currentStagePromise || Promise.resolve();
+                }
+
+                stageInFlight = true;
+                currentStagePromise = requestJSON(config.syncURL, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Accept: "application/json",
+                    },
+                    body: JSON.stringify({
+                        op: "stage",
+                        clientId: clientId,
+                        version: currentVersion,
+                        liveVersion: currentLiveVersion,
+                        selection: getCurrentSelection(),
+                        documentHtml: documentHTML,
+                        operations: stagedOperations,
+                    }),
+                })
+                    .then((payload) => {
+                        lastStagedDocumentHTML = documentHTML;
+                        if (stagedOperations.length > 0) {
+                            pendingLocalOperations = pendingLocalOperations.slice(
+                                stagedOperationsCount,
+                            );
+                        }
+                        currentLiveVersion = Math.max(
+                            currentLiveVersion,
+                            normalizeIncomingLiveVersion(
+                                payload.liveVersion,
+                                payload.version,
+                            ),
+                        );
+                        renderPresence(payload.presence);
+                        return payload;
+                    })
+                    .finally(() => {
+                        stageInFlight = false;
+                        currentStagePromise = null;
+                        if (
+                            pendingLocalOperations.length > 0 ||
+                            getCurrentDocumentHTML().trim() !==
+                                lastStagedDocumentHTML
+                        ) {
+                            queueStageSync();
+                        }
+                    });
+
+                return currentStagePromise;
+            }
+
+            function clampOperationRangeForEditor(editor, operation) {
+                if (
+                    !editor ||
+                    !editor.view ||
+                    !editor.view.state ||
+                    !editor.view.state.doc ||
+                    !operation
+                ) {
+                    return null;
+                }
+                const maxPos = Math.max(
+                    1,
+                    Number(editor.view.state.doc.content.size || 1),
+                );
+                const from = Math.max(
+                    1,
+                    Math.min(maxPos, Number(operation.from || 1)),
+                );
+                const to = Math.max(
+                    from,
+                    Math.min(maxPos, Number(operation.to || from)),
+                );
+                return { from, to };
+            }
+
+            function applySingleRemoteEditorOperation(editor, operation) {
+                const normalized = normalizeEditorOperation(operation);
+                if (!normalized) {
+                    return false;
+                }
+                const view = editor && editor.view ? editor.view : null;
+                if (!view || !view.state || typeof view.dispatch !== "function") {
+                    return false;
+                }
+                const range = clampOperationRangeForEditor(editor, normalized);
+                if (!range) {
+                    return false;
+                }
+
+                if (normalized.kind === "replace_text") {
+                    view.dispatch(
+                        view.state.tr.insertText(
+                            normalized.text,
+                            range.from,
+                            range.to,
+                        ),
+                    );
+                    return true;
+                }
+                if (normalized.kind === "delete_range") {
+                    if (range.from === range.to) {
+                        return false;
+                    }
+                    view.dispatch(view.state.tr.delete(range.from, range.to));
+                    return true;
+                }
+                return false;
+            }
+
+            async function applyRemoteEditorOperations(
+                fileURL,
+                operations,
+                savedAt,
+                version,
+                external,
+                liveVersion,
+                baseLiveVersion,
+            ) {
+                const normalizedOperations = cloneEditorOperations(operations);
+                if (
+                    normalizedOperations.length === 0 ||
+                    !editorReady ||
+                    Number(baseLiveVersion || 0) !== currentLiveVersion
+                ) {
+                    return false;
+                }
+                if (
+                    dirty ||
+                    syncInFlight ||
+                    remoteReloadInFlight ||
+                    applyingRemoteDocumentContent
+                ) {
+                    setPendingRemoteSnapshot(
+                        fileURL,
+                        savedAt,
+                        version,
+                        external,
+                        "",
+                        liveVersion,
+                        baseLiveVersion,
+                        normalizedOperations,
+                    );
+                    return false;
+                }
+
+                const editor = getActiveEditor();
+                if (!editor) {
+                    return false;
+                }
+
+                const previousSelection = cloneSelection(getCurrentSelection());
+                const preserveSelection = isEditorFocused();
+                let applied = 0;
+                suppressEditorUpdatesUntil =
+                    Date.now() + DOC_REMOTE_APPLY_SUPPRESSION_MS;
+                applyingRemoteDocumentContent = true;
+                try {
+                    for (const operation of normalizedOperations) {
+                        if (!applySingleRemoteEditorOperation(editor, operation)) {
+                            break;
+                        }
+                        applied += 1;
+                    }
+                } finally {
+                    applyingRemoteDocumentContent = false;
+                }
+
+                if (applied !== normalizedOperations.length) {
+                    return false;
+                }
+
+                dirty = false;
+                pendingLocalOperations = [];
+                lastStagedDocumentHTML = getCurrentDocumentHTML().trim();
+                if (fileURL) {
+                    currentDocumentSource = fileURL;
+                }
+                currentVersion = Math.max(currentVersion, Number(version || 0));
+                currentLiveVersion = Math.max(
+                    currentLiveVersion,
+                    normalizeIncomingLiveVersion(liveVersion, version),
+                );
+                setSaveState("saved", Number(savedAt || 0));
+                setStatus("Live collaborator change synced", "live");
+
+                requestAnimationFrame(() => {
+                    if (preserveSelection) {
+                        restoreEditorSelection(editor, previousSelection);
+                    }
+                    captureSelectionState();
+                    refreshToolbarAvailability();
+                    queueRemoteCursorRender();
+                });
+                return true;
+            }
+
+            async function catchUpRemoteEditorOperations(
+                fileURL,
+                savedAt,
+                version,
+                external,
+                liveVersion,
+                baseLiveVersion,
+                operations,
+            ) {
+                const normalizedBaseLiveVersion = Number(baseLiveVersion || 0);
+                const directOperations = cloneEditorOperations(operations);
+                if (
+                    directOperations.length > 0 &&
+                    normalizedBaseLiveVersion === currentLiveVersion
+                ) {
+                    return applyRemoteEditorOperations(
+                        fileURL,
+                        directOperations,
+                        savedAt,
+                        version,
+                        external,
+                        liveVersion,
+                        normalizedBaseLiveVersion,
+                    );
+                }
+
+                if (!config.loadURL || currentLiveVersion < 1) {
+                    return false;
+                }
+
+                const historyBatches = await fetchRemoteOperationHistory(
+                    currentLiveVersion,
+                );
+                if (
+                    !Array.isArray(historyBatches) ||
+                    historyBatches.length === 0
+                ) {
+                    return false;
+                }
+
+                let cursor = currentLiveVersion;
+                for (const batch of historyBatches) {
+                    const batchBase = Number(batch.baseLiveVersion || 0);
+                    if (batchBase !== cursor) {
+                        return false;
+                    }
+                    const applied = await applyRemoteEditorOperations(
+                        fileURL,
+                        batch.operations,
+                        savedAt,
+                        version,
+                        external,
+                        batch.liveVersion,
+                        batchBase,
+                    );
+                    if (!applied) {
+                        return false;
+                    }
+                    cursor = Number(batch.liveVersion || cursor);
+                }
+
+                if (cursor < normalizeIncomingLiveVersion(liveVersion, version)) {
+                    return false;
+                }
+                return true;
+            }
+
+            function acceptRemoteDocumentVersion(
+                fileURL,
+                savedAt,
+                version,
+                external,
+                liveVersion,
+            ) {
+                dirty = false;
+                if (fileURL) {
+                    currentDocumentSource = fileURL;
+                }
+                currentVersion = Math.max(currentVersion, Number(version || 0));
+                currentLiveVersion = Math.max(
+                    currentLiveVersion,
+                    normalizeIncomingLiveVersion(liveVersion, version),
+                );
+                setSaveState("saved", Number(savedAt || 0));
+                setStatus(
+                    external
+                        ? "External change synced"
+                        : "Live collaborator change synced",
+                    "live",
+                );
+                requestAnimationFrame(() => {
+                    captureSelectionState();
+                    refreshToolbarAvailability();
+                    queueRemoteCursorRender();
+                });
+            }
+
+            async function applyRemoteDocumentHTML(
+                fileURL,
+                documentHTML,
+                savedAt,
+                version,
+                external,
+                liveVersion,
+                baseLiveVersion,
+                operations,
+            ) {
+                const normalizedHTML = String(documentHTML || "").trim();
+                if (!normalizedHTML || !editorReady) {
+                    return false;
+                }
+                if (
+                    !dirty &&
+                    !syncInFlight &&
+                    !remoteReloadInFlight &&
+                    !applyingRemoteDocumentContent &&
+                    currentDocumentMatchesHTML(normalizedHTML)
+                ) {
+                    lastStagedDocumentHTML = normalizedHTML;
+                    acceptRemoteDocumentVersion(
+                        fileURL,
+                        savedAt,
+                        version,
+                        external,
+                        liveVersion,
+                    );
+                    return true;
+                }
+                if (
+                    dirty ||
+                    syncInFlight ||
+                    remoteReloadInFlight ||
+                    applyingRemoteDocumentContent
+                ) {
+                    setPendingRemoteSnapshot(
+                        fileURL,
+                        savedAt,
+                        version,
+                        external,
+                        normalizedHTML,
+                        liveVersion,
+                        baseLiveVersion,
+                        operations,
+                    );
+                    return false;
+                }
+
+                const editor = getActiveEditor();
+                if (!editor) {
+                    return false;
+                }
+
+                const previousSelection = getCurrentSelection();
+                const preserveSelection = isEditorFocused();
+                const applyAttempts = [];
+                if (
+                    editor.commands &&
+                    typeof editor.commands.setContent === "function"
+                ) {
+                    applyAttempts.push(() =>
+                        editor.commands.setContent(normalizedHTML, false),
+                    );
+                    applyAttempts.push(() =>
+                        editor.commands.setContent(normalizedHTML),
+                    );
+                }
+                if (typeof editor.setContent === "function") {
+                    applyAttempts.push(() =>
+                        editor.setContent(normalizedHTML, false),
+                    );
+                    applyAttempts.push(() => editor.setContent(normalizedHTML));
+                }
+
+                let applied = false;
+                let lastError = null;
+                suppressEditorUpdatesUntil =
+                    Date.now() + DOC_REMOTE_APPLY_SUPPRESSION_MS;
+                applyingRemoteDocumentContent = true;
+                try {
+                    for (const attempt of applyAttempts) {
+                        try {
+                            await Promise.resolve(attempt());
+                            applied = true;
+                            break;
+                        } catch (error) {
+                            lastError = error;
+                        }
+                    }
+                } finally {
+                    applyingRemoteDocumentContent = false;
+                }
+
+                if (!applied) {
+                    if (lastError) {
+                        console.warn(
+                            "InkDrop in-memory remote apply failed",
+                            lastError,
+                        );
+                    }
+                    return false;
+                }
+
+                dirty = false;
+                lastStagedDocumentHTML = normalizedHTML;
+                if (fileURL) {
+                    currentDocumentSource = fileURL;
+                }
+                currentVersion = Math.max(currentVersion, Number(version || 0));
+                currentLiveVersion = Math.max(
+                    currentLiveVersion,
+                    normalizeIncomingLiveVersion(liveVersion, version),
+                );
+                setSaveState("saved", Number(savedAt || 0));
+                setStatus(
+                    external
+                        ? "External change synced"
+                        : "Live collaborator change synced",
+                    "live",
+                );
+
+                requestAnimationFrame(() => {
+                    if (preserveSelection) {
+                        restoreEditorSelection(editor, previousSelection);
+                    }
+                    captureSelectionState();
+                    refreshToolbarAvailability();
+                    queueRemoteCursorRender();
+                });
+                return true;
+            }
+
             async function processPendingRemoteSnapshot(force = false) {
-                if (!pendingRemoteFileURL) {
+                if (
+                    !pendingRemoteFileURL &&
+                    !pendingRemoteDocumentHTML &&
+                    pendingRemoteOperations.length === 0
+                ) {
                     return;
                 }
                 if (!force && (dirty || syncInFlight || remoteReloadInFlight)) {
@@ -5823,11 +7021,49 @@
                 }
                 clearPendingRemoteReloadTimer();
                 const nextFileURL = pendingRemoteFileURL;
+                const nextDocumentHTML = pendingRemoteDocumentHTML;
+                const nextOperations = cloneEditorOperations(
+                    pendingRemoteOperations,
+                );
                 const nextSavedAt = pendingRemoteSavedAt;
                 const nextVersion = pendingRemoteVersion;
+                const nextLiveVersion = pendingRemoteLiveVersion;
+                const nextBaseLiveVersion = pendingRemoteBaseLiveVersion;
                 const nextExternal = pendingRemoteExternal;
                 clearPendingRemoteSnapshot();
-                if (!nextFileURL || nextVersion <= currentVersion) {
+                if (!hasNewerRemoteState(nextVersion, nextLiveVersion)) {
+                    return;
+                }
+                if (nextOperations.length > 0) {
+                    const applied = await catchUpRemoteEditorOperations(
+                        nextFileURL,
+                        nextOperations,
+                        nextSavedAt,
+                        nextVersion,
+                        nextExternal,
+                        nextLiveVersion,
+                        nextBaseLiveVersion,
+                    );
+                    if (applied) {
+                        return;
+                    }
+                }
+                if (nextDocumentHTML) {
+                    const applied = await applyRemoteDocumentHTML(
+                        nextFileURL,
+                        nextDocumentHTML,
+                        nextSavedAt,
+                        nextVersion,
+                        nextExternal,
+                        nextLiveVersion,
+                        nextBaseLiveVersion,
+                        nextOperations,
+                    );
+                    if (applied) {
+                        return;
+                    }
+                }
+                if (!nextFileURL) {
                     return;
                 }
                 await performRemoteDocumentReload(
@@ -5835,6 +7071,10 @@
                     nextSavedAt,
                     nextVersion,
                     nextExternal,
+                    nextDocumentHTML,
+                    nextLiveVersion,
+                    nextBaseLiveVersion,
+                    nextOperations,
                 );
             }
 
@@ -5863,6 +7103,7 @@
                 currentSyncPromise = Promise.resolve()
                     .then(async () => {
                         const blob = await exportCurrentDocument("docx");
+                        const documentHTML = getCurrentDocumentHTML().trim();
                         const payload = await requestJSON(config.syncURL, {
                             method: "POST",
                             credentials: "same-origin",
@@ -5874,14 +7115,25 @@
                                 op: explicitSave ? "save" : "sync",
                                 clientId: clientId,
                                 version: currentVersion,
+                                liveVersion: currentLiveVersion,
                                 selection: getCurrentSelection(),
                                 documentData: await blobToBase64(blob),
+                                documentHtml: documentHTML,
                             }),
                         });
                         dirty = false;
+                        pendingLocalOperations = [];
                         currentVersion = Number(
                             payload.version || currentVersion,
                         );
+                        currentLiveVersion = Math.max(
+                            currentLiveVersion,
+                            normalizeIncomingLiveVersion(
+                                payload.liveVersion,
+                                payload.version,
+                            ),
+                        );
+                        lastStagedDocumentHTML = documentHTML;
                         if (payload.fileUrl) {
                             currentDocumentSource = payload.fileUrl;
                         }
@@ -5934,6 +7186,7 @@
                     return Promise.resolve();
                 }
                 dirty = true;
+                queueStageSync();
                 pendingExplicitSave =
                     pendingExplicitSave || Boolean(explicitSave);
                 setSaveState(syncInFlight ? "saving" : "dirty");
@@ -5967,12 +7220,71 @@
                 savedAt,
                 version,
                 external,
+                documentHTML,
+                liveVersion,
+                baseLiveVersion,
+                operations,
             ) {
                 const incomingVersion = Number(version || 0);
-                if (!fileURL) return;
-                if (incomingVersion <= currentVersion) {
+                const incomingLiveVersion = normalizeIncomingLiveVersion(
+                    liveVersion,
+                    version,
+                );
+                if (
+                    !fileURL &&
+                    !String(documentHTML || "").trim() &&
+                    (!Array.isArray(operations) || operations.length === 0)
+                )
+                    return;
+                if (!hasNewerRemoteState(incomingVersion, incomingLiveVersion)) {
                     currentDocumentSource = fileURL;
                     return;
+                }
+                if (Array.isArray(operations) && operations.length > 0) {
+                    const caughtUp = await catchUpRemoteEditorOperations(
+                        fileURL,
+                        savedAt,
+                        incomingVersion,
+                        external,
+                        incomingLiveVersion,
+                        Number(baseLiveVersion || 0),
+                        operations,
+                    );
+                    if (caughtUp) {
+                        return;
+                    }
+                }
+                if (
+                    documentHTML &&
+                    !dirty &&
+                    !syncInFlight &&
+                    !remoteReloadInFlight &&
+                    currentDocumentMatchesHTML(documentHTML)
+                ) {
+                    lastStagedDocumentHTML = String(documentHTML || "").trim();
+                    acceptRemoteDocumentVersion(
+                        fileURL,
+                        savedAt,
+                        incomingVersion,
+                        external,
+                        incomingLiveVersion,
+                    );
+                    return;
+                }
+                if (documentHTML) {
+                    const applied = await applyRemoteDocumentHTML(
+                        fileURL,
+                        documentHTML,
+                        savedAt,
+                        incomingVersion,
+                        external,
+                        incomingLiveVersion,
+                        Number(baseLiveVersion || 0),
+                        operations,
+                    );
+                    if (applied) {
+                        return;
+                    }
                 }
                 if (dirty || syncInFlight || remoteReloadInFlight) {
                     setPendingRemoteSnapshot(
@@ -5980,6 +7292,10 @@
                         savedAt,
                         incomingVersion,
                         external,
+                        documentHTML,
+                        incomingLiveVersion,
+                        Number(baseLiveVersion || 0),
+                        operations,
                     );
                     setStatus(
                         dirty || syncInFlight
@@ -6004,6 +7320,10 @@
                     await mountDocument(fileURL);
                     currentDocumentSource = fileURL;
                     currentVersion = Math.max(currentVersion, incomingVersion);
+                    currentLiveVersion = Math.max(
+                        currentLiveVersion,
+                        incomingLiveVersion,
+                    );
                     setSaveState("saved", Number(savedAt || 0));
                     setStatus(
                         external
@@ -6027,12 +7347,24 @@
                 savedAt,
                 version,
                 external,
+                documentHTML,
+                liveVersion,
+                baseLiveVersion,
+                operations,
             ) {
                 const incomingVersion = Number(version || 0);
-                if (!fileURL) {
+                const incomingLiveVersion = normalizeIncomingLiveVersion(
+                    liveVersion,
+                    version,
+                );
+                if (
+                    !fileURL &&
+                    !String(documentHTML || "").trim() &&
+                    (!Array.isArray(operations) || operations.length === 0)
+                ) {
                     return;
                 }
-                if (incomingVersion <= currentVersion) {
+                if (!hasNewerRemoteState(incomingVersion, incomingLiveVersion)) {
                     currentDocumentSource = fileURL;
                     return;
                 }
@@ -6041,6 +7373,10 @@
                     savedAt,
                     incomingVersion,
                     external,
+                    documentHTML,
+                    incomingLiveVersion,
+                    Number(baseLiveVersion || 0),
+                    operations,
                 );
                 if (dirty || syncInFlight || remoteReloadInFlight) {
                     setStatus(
@@ -6089,22 +7425,36 @@
                         if (Array.isArray(payload.presence)) {
                             renderPresence(payload.presence);
                         }
-                        if (payload.type === "snapshot") {
+                        if (
+                            payload.type === "snapshot" ||
+                            payload.type === "stage"
+                        ) {
                             if (payload.clientId === clientId) {
                                 currentVersion = Math.max(
                                     currentVersion,
                                     Number(payload.version || 0),
                                 );
-                                setSaveState(
-                                    "saved",
-                                    Number(payload.savedAt || 0),
+                                currentLiveVersion = Math.max(
+                                    currentLiveVersion,
+                                    normalizeIncomingLiveVersion(
+                                        payload.liveVersion,
+                                        payload.version,
+                                    ),
                                 );
+                                if (payload.type === "snapshot") {
+                                    setSaveState(
+                                        "saved",
+                                        Number(payload.savedAt || 0),
+                                    );
+                                }
                                 return;
                             }
-                            const incomingVersion = Number(
-                                payload.version || 0,
-                            );
-                            if (incomingVersion <= currentVersion) {
+                            if (
+                                !hasNewerRemoteState(
+                                    payload.version,
+                                    payload.liveVersion,
+                                )
+                            ) {
                                 if (payload.fileUrl) {
                                     currentDocumentSource = payload.fileUrl;
                                 }
@@ -6115,6 +7465,10 @@
                                 payload.savedAt,
                                 payload.version,
                                 payload.external,
+                                payload.documentHtml,
+                                payload.liveVersion,
+                                payload.baseLiveVersion,
+                                payload.operations,
                             ).catch((error) => {
                                 console.warn(
                                     "InkDrop document reload failed",
@@ -6165,14 +7519,18 @@
                     })
                         .then((payload) => {
                             if (
-                                Number(payload.version || 0) > currentVersion &&
-                                payload.fileUrl
+                                hasNewerRemoteState(
+                                    payload.version,
+                                    payload.liveVersion,
+                                ) &&
+                                (payload.fileUrl || payload.documentHtml)
                             ) {
                                 docLog(
                                     "info",
                                     "Snapshot poll detected newer version",
                                     {
                                         polledVersion: payload.version,
+                                        polledLiveVersion: payload.liveVersion,
                                         currentVersion,
                                         fileUrl: payload.fileUrl,
                                     },
@@ -6182,6 +7540,10 @@
                                     payload.savedAt,
                                     payload.version,
                                     true,
+                                    payload.documentHtml,
+                                    payload.liveVersion,
+                                    payload.baseLiveVersion,
+                                    payload.operations,
                                 ).catch((error) => {
                                     console.warn(
                                         "InkDrop document polling reload failed",
@@ -6196,6 +7558,13 @@
                                 currentVersion = Math.max(
                                     currentVersion,
                                     Number(payload.version || 0),
+                                );
+                                currentLiveVersion = Math.max(
+                                    currentLiveVersion,
+                                    normalizeIncomingLiveVersion(
+                                        payload.liveVersion,
+                                        payload.version,
+                                    ),
                                 );
                             }
                         })
@@ -6214,6 +7583,74 @@
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
             }
 
+            function shouldIgnorePrintableNode(node) {
+                return Boolean(
+                    node &&
+                        node.classList &&
+                        (node.classList.contains("doc-remote-caret") ||
+                            node.classList.contains("doc-cursor-layer")),
+                );
+            }
+
+            function applyComputedPrintStyles(sourceNode, targetNode) {
+                if (!(sourceNode instanceof Element) || !(targetNode instanceof Element)) {
+                    return;
+                }
+                const computed = window.getComputedStyle(sourceNode);
+                DOC_PRINT_STYLE_PROPERTIES.forEach((property) => {
+                    const value = computed.getPropertyValue(property);
+                    if (value) {
+                        targetNode.style.setProperty(property, value);
+                    }
+                });
+
+                targetNode.style.setProperty("box-shadow", "none");
+                targetNode.style.setProperty("border-radius", "0");
+
+                if (sourceNode.tagName === "IMG") {
+                    targetNode.style.setProperty("max-width", computed.maxWidth);
+                    targetNode.style.setProperty("height", computed.height);
+                }
+            }
+
+            function buildPrintableClone(mountNode) {
+                const clonedNode = mountNode.cloneNode(true);
+                clonedNode
+                    .querySelectorAll(".doc-remote-caret, .doc-cursor-layer")
+                    .forEach((node) => node.remove());
+
+                const sourceNodes = [mountNode].concat(
+                    Array.from(mountNode.querySelectorAll("*")).filter(
+                        (node) => !shouldIgnorePrintableNode(node),
+                    ),
+                );
+                const targetNodes = [clonedNode].concat(
+                    Array.from(clonedNode.querySelectorAll("*")),
+                );
+
+                for (let index = 0; index < sourceNodes.length; index += 1) {
+                    applyComputedPrintStyles(
+                        sourceNodes[index],
+                        targetNodes[index],
+                    );
+                }
+
+                const mountStyles = window.getComputedStyle(mountNode);
+                clonedNode.style.zoom = "";
+                clonedNode.style.transform = "";
+                clonedNode.style.width =
+                    mountStyles.width && mountStyles.width !== "auto"
+                        ? mountStyles.width
+                        : DOC_PAGE_WIDTH;
+                clonedNode.style.minHeight = mountStyles.minHeight;
+                clonedNode.style.margin = "0 auto";
+                clonedNode.style.background = "#ffffff";
+                clonedNode.style.boxShadow = "none";
+                clonedNode.style.borderRadius = "0";
+                clonedNode.classList.add("doc-print-shell");
+                return clonedNode;
+            }
+
             function printCurrentDocument() {
                 openPrintFallbackWindow();
             }
@@ -6223,14 +7660,7 @@
                 if (!mountNode) {
                     throw new Error("Document editor is not ready yet");
                 }
-                const clonedNode = mountNode.cloneNode(true);
-                clonedNode.style.zoom = "";
-                clonedNode.style.transform = "";
-                clonedNode.style.width = DOC_PAGE_WIDTH;
-                clonedNode.style.margin = "0 auto";
-                clonedNode
-                    .querySelectorAll(".doc-remote-caret, .doc-cursor-layer")
-                    .forEach((node) => node.remove());
+                const clonedNode = buildPrintableClone(mountNode);
 
                 if (
                     !printFallbackFrame ||
@@ -6257,6 +7687,7 @@
                 <title></title>
                 <style>
                     @page {
+                        size: letter;
                         margin: 0;
                     }
 
@@ -6269,16 +7700,17 @@
                     body {
                         -webkit-print-color-adjust: exact;
                         print-color-adjust: exact;
-                        font-family: Calibri, "Segoe UI", Arial, sans-serif;
+                        font-family: inherit;
                     }
 
                     .doc-print-shell {
-                        width: 8.5in;
-                        margin: 0 auto;
+                        width: ${DOC_PAGE_WIDTH};
+                        margin: 0 auto !important;
                         background: #ffffff;
                         box-shadow: none !important;
                         border: 0 !important;
                         border-radius: 0 !important;
+                        overflow: visible !important;
                     }
 
                     .doc-print-shell,
@@ -6296,13 +7728,24 @@
                         width: 100%;
                     }
 
+                    .doc-print-shell ul,
+                    .doc-print-shell ol {
+                        margin: 0.45em 0 0.85em;
+                        padding-inline-start: 1.5em;
+                    }
+
+                    .doc-print-shell li {
+                        margin: 0.08em 0;
+                        padding-left: 0.08em;
+                    }
+
                     .doc-print-shell img {
                         max-width: 100%;
                     }
                 </style>
             </head>
             <body>
-                <div class="doc-print-shell">${clonedNode.innerHTML}</div>
+                ${clonedNode.outerHTML}
                 <script>
                     window.addEventListener("load", function () {
                         setTimeout(function () {
@@ -6406,6 +7849,7 @@
                 disconnecting = true;
                 if (pendingSyncTimer) clearTimeout(pendingSyncTimer);
                 if (pendingPresenceTimer) clearTimeout(pendingPresenceTimer);
+                if (pendingStageTimer) clearTimeout(pendingStageTimer);
                 clearPendingRemoteReloadTimer();
                 if (snapshotPollTimer) {
                     clearInterval(snapshotPollTimer);
@@ -6707,7 +8151,13 @@
                 passive: false,
                 capture: true,
             });
-            editorSurface?.addEventListener("paste", handleRichPasteEvent);
+            editorSurface?.addEventListener(
+                "beforeinput",
+                handleEditorBeforeInput,
+                true,
+            );
+            editorSurface?.addEventListener("paste", handleRichPasteEvent, true);
+            editorSurface?.addEventListener("input", handleEditorInput, true);
             editorSurface?.addEventListener("contextmenu", (event) => {
                 if (!editorReady) {
                     return;

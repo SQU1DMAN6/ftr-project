@@ -4,6 +4,292 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/assets/root.css" />
+    <style>
+        body {
+            position: relative;
+            overflow-x: hidden;
+            background:
+                radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 36%),
+                radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 34%),
+                linear-gradient(180deg, #f7fbff 0%, #eef5ff 100%);
+        }
+
+        body::before,
+        body::after {
+            content: "";
+            position: fixed;
+            inset: auto;
+            width: 320px;
+            height: 320px;
+            border-radius: 999px;
+            pointer-events: none;
+            filter: blur(18px);
+            opacity: 0.58;
+            z-index: 0;
+            animation: browse-float 14s ease-in-out infinite;
+        }
+
+        body::before {
+            top: 92px;
+            left: -120px;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.28), transparent 68%);
+        }
+
+        body::after {
+            right: -90px;
+            bottom: 10vh;
+            background: radial-gradient(circle, rgba(251, 191, 36, 0.22), transparent 70%);
+            animation-delay: -6s;
+        }
+
+        @keyframes browse-float {
+            0%, 100% {
+                transform: translate3d(0, 0, 0);
+            }
+            50% {
+                transform: translate3d(0, -14px, 0);
+            }
+        }
+
+        .shell.stack-lg {
+            gap: 18px;
+        }
+
+        .panel.dark {
+            border-radius: 28px;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            background:
+                linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.9)),
+                radial-gradient(circle at top right, rgba(56, 189, 248, 0.16), transparent 42%);
+            box-shadow: 0 26px 60px rgba(15, 23, 42, 0.18);
+        }
+
+        #filePanel {
+            position: relative;
+            border-radius: 28px;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            box-shadow: 0 24px 56px rgba(15, 23, 42, 0.12);
+            backdrop-filter: blur(20px);
+            overflow: hidden;
+        }
+
+        #filePanel::before {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto;
+            height: 4px;
+            background: linear-gradient(90deg, rgba(59, 130, 246, 0.88), rgba(16, 185, 129, 0.74), rgba(245, 158, 11, 0.72));
+        }
+
+        .browser-list#entryList {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+            gap: 18px 16px;
+            align-items: stretch;
+        }
+
+        .repo-card {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 160px;
+            padding: 14px 12px 12px;
+            border-radius: 24px;
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 249, 255, 0.82));
+            box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+            transition:
+                transform 0.18s ease,
+                box-shadow 0.18s ease,
+                border-color 0.18s ease,
+                background 0.18s ease;
+            cursor: default;
+        }
+
+        .repo-card::before {
+            content: "";
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            right: -34px;
+            top: -38px;
+            border-radius: 999px;
+            opacity: 0.7;
+        }
+
+        .repo-card:hover {
+            transform: translateY(-3px) scale(1.01);
+            box-shadow: 0 20px 38px rgba(15, 23, 42, 0.12);
+            border-color: rgba(59, 130, 246, 0.34);
+        }
+
+        .repo-card.folder {
+            background:
+                linear-gradient(180deg, rgba(255, 251, 235, 0.98), rgba(255, 244, 214, 0.94));
+        }
+
+        .repo-card.folder::before {
+            background: radial-gradient(circle, rgba(251, 191, 36, 0.34), transparent 68%);
+        }
+
+        .repo-card.file {
+            background:
+                linear-gradient(180deg, rgba(239, 246, 255, 0.98), rgba(229, 241, 255, 0.94));
+        }
+
+        .repo-card.file::before {
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.3), transparent 70%);
+        }
+
+        .repo-card.selected {
+            border-color: rgba(37, 99, 235, 0.5);
+            box-shadow:
+                0 0 0 3px rgba(59, 130, 246, 0.16),
+                0 20px 40px rgba(15, 23, 42, 0.16);
+        }
+
+        .repo-icon {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            width: 100%;
+            min-height: 94px;
+            font-size: 3.5rem;
+            line-height: 1;
+            user-select: none;
+            filter: drop-shadow(0 10px 16px rgba(15, 23, 42, 0.14));
+        }
+
+        .repo-card.folder .repo-icon {
+            color: #d97706;
+        }
+
+        .repo-card.file .repo-icon {
+            color: #2563eb;
+        }
+
+        .repo-card.parent .repo-icon {
+            color: #475569;
+        }
+
+        .repo-name {
+            position: relative;
+            z-index: 1;
+            margin: 0;
+            width: 100%;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            text-align: center;
+            font-size: 0.92rem;
+            line-height: 1.25;
+            color: #0f172a;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            word-break: break-word;
+            max-height: 2.5em;
+            padding: 0 2px;
+        }
+
+        .repo-card.parent .repo-name {
+            font-weight: 700;
+        }
+
+        @media (max-width: 780px) {
+            .browser-list#entryList {
+                grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+                gap: 14px 12px;
+            }
+
+            .repo-card {
+                min-height: 142px;
+                padding: 12px 10px 10px;
+            }
+
+            .repo-icon {
+                min-height: 80px;
+                font-size: 3rem;
+            }
+        }
+
+        .file-preview-panel {
+            position: relative;
+            overflow: hidden;
+            border-radius: 24px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 255, 0.96));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            padding: 14px;
+        }
+
+        .file-preview-panel::before {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto;
+            height: 3px;
+            background: linear-gradient(90deg, rgba(14, 165, 233, 0.78), rgba(59, 130, 246, 0.54), transparent 78%);
+        }
+
+        .preview-header {
+            margin-bottom: 8px;
+        }
+
+        .preview-content {
+            min-height: 260px;
+            border-radius: 18px;
+            border: 1px dashed rgba(148, 163, 184, 0.32);
+            background:
+                linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(239, 246, 255, 0.78));
+            padding: 14px;
+            overflow: auto;
+        }
+
+        .preview-image,
+        .preview-video,
+        .preview-audio,
+        .preview-pdf {
+            width: 100%;
+            border-radius: 14px;
+            background: #ffffff;
+        }
+
+        .preview-pdf {
+            min-height: 420px;
+        }
+
+        .preview-placeholder,
+        .preview-text {
+            margin: 0;
+        }
+
+        .preview-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .preview-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: rgba(226, 232, 240, 0.68);
+            color: #1e293b;
+            font-size: 0.78rem;
+        }
+    </style>
     <title>{{ .Title }}</title>
 </head>
 <body>
@@ -65,7 +351,7 @@
                         <a href="/downloadrepo/{{.Message2}}/{{.Message3}}"><button type="button" class="button-link small" id="downloadRepoInline">Download Repository</button></a>
                     </div>
                 </div>
-                <p class="subtle">Tips: Double-click folder to open. Select a folder then press <strong>F2</strong> or <strong>Enter</strong> to rename/move, <strong>Del</strong> or <strong>Backspace</strong> to delete.</p>
+                <p class="subtle">Tips: Double-click folders to open them. Double-click editable files to jump into the editor, or download non-editable files. Select a folder then press <strong>F2</strong> or <strong>Enter</strong> to rename/move, <strong>Del</strong> or <strong>Backspace</strong> to delete.</p>
 
                 {{if .Error}}
                 <div class="alert">
@@ -78,15 +364,18 @@
                 <div class="clean-list browser-list row" id="entryList">
                     {{range $i, $entry := .RepoList}}
                     {{if eq $entry ".."}}
-                    <li class="repo-card folder parent" data-kind="parent" data-name=".." tabindex="0">
+                    <li class="repo-card folder parent" data-kind="parent" data-name=".." tabindex="0" title="Go up">
+                        <div class="repo-icon" aria-hidden="true">↩</div>
                         <p class="repo-name">..</p>
                     </li>
                     {{else if hasSuffix $entry "/"}}
-                    <li class="repo-card folder" data-kind="folder" data-name="{{trimSuffix $entry "/"}}" tabindex="0">
+                    <li class="repo-card folder" data-kind="folder" data-name="{{trimSuffix $entry "/"}}" tabindex="0" title="{{trimSuffix $entry "/"}}">
+                        <div class="repo-icon" aria-hidden="true">📁</div>
                         <p class="repo-name">{{trimSuffix $entry "/"}}</p>
                     </li>
                     {{else}}
-                    <li class="repo-card file" data-kind="file" data-name="{{$entry}}" tabindex="0">
+                    <li class="repo-card file" data-kind="file" data-name="{{$entry}}" tabindex="0" title="{{$entry}}">
+                        <div class="repo-icon" aria-hidden="true">📄</div>
                         <p class="repo-name">{{$entry}}</p>
                     </li>
                     {{end}}
@@ -685,8 +974,66 @@
                 return entry && entryKind(entry) === "file";
             }
 
+            function isEditableFileName(fileName) {
+                var lowerName = String(fileName || "").toLowerCase();
+                if (!lowerName) return false;
+                var editableExtensions = [
+                    ".txt", ".md", ".markdown", ".rst", ".json", ".xml",
+                    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+                    ".html", ".htm", ".css", ".scss", ".less", ".js",
+                    ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".py",
+                    ".java", ".c", ".h", ".hpp", ".cpp", ".cc", ".rs",
+                    ".sh", ".bash", ".zsh", ".sql", ".csv", ".svg",
+                    ".log", ".gitignore", ".env", ".docx"
+                ];
+                return editableExtensions.some(function (extension) {
+                    return lowerName.endsWith(extension);
+                });
+            }
+
             function canEditFile(entry) {
-                return entry && entryKind(entry) === "file";
+                return entry && entryKind(entry) === "file" && isEditableFileName(entry.getAttribute("data-name"));
+            }
+
+            function downloadFiles(fileNames) {
+                (fileNames || []).forEach(function (file, index) {
+                    if (!file) return;
+                    var frameName = "downloadFrame_" + Date.now() + "_" + index;
+                    var iframe = document.createElement("iframe");
+                    iframe.name = frameName;
+                    iframe.style.display = "none";
+                    document.body.appendChild(iframe);
+
+                    var tempForm = document.createElement("form");
+                    tempForm.method = "post";
+                    tempForm.action = "/download";
+                    tempForm.enctype = "application/x-www-form-urlencoded";
+                    tempForm.target = frameName;
+
+                    var hiddenFields = {
+                        repository: currentRepo,
+                        user: currentUser,
+                        "working-directory": currentPath,
+                        itemName: file,
+                    };
+                    Object.keys(hiddenFields).forEach(function (name) {
+                        var input = document.createElement("input");
+                        input.type = "hidden";
+                        input.name = name;
+                        input.value = hiddenFields[name];
+                        tempForm.appendChild(input);
+                    });
+
+                    document.body.appendChild(tempForm);
+                    tempForm.submit();
+
+                    window.setTimeout(function () {
+                        document.body.removeChild(tempForm);
+                        if (iframe.parentNode) {
+                            iframe.parentNode.removeChild(iframe);
+                        }
+                    }, 60000);
+                });
             }
 
             function openEntry(entry) {
@@ -701,6 +1048,14 @@
                     var base = normalizePath(currentPath);
                     var next = base === "/" ? "/" + name : base + "/" + name;
                     window.location.href = buildBrowseURL(next);
+                    return;
+                }
+                if (kind === "file") {
+                    if (canEditFile(entry)) {
+                        window.location.href = buildEditURL(name, currentPath);
+                        return;
+                    }
+                    downloadFiles([name]);
                 }
             }
 
@@ -898,45 +1253,7 @@
                     selection = [selectedEntry.getAttribute("data-name")];
                 }
                 if (selection.length === 0) return;
-
-                selection.forEach(function (file, index) {
-                    if (!file) return;
-                    var frameName = "downloadFrame_" + Date.now() + "_" + index;
-                    var iframe = document.createElement("iframe");
-                    iframe.name = frameName;
-                    iframe.style.display = "none";
-                    document.body.appendChild(iframe);
-
-                    var tempForm = document.createElement("form");
-                    tempForm.method = "post";
-                    tempForm.action = "/download";
-                    tempForm.enctype = "application/x-www-form-urlencoded";
-                    tempForm.target = frameName;
-
-                    var hiddenFields = {
-                        repository: currentRepo,
-                        user: currentUser,
-                        "working-directory": currentPath,
-                        itemName: file,
-                    };
-                    Object.keys(hiddenFields).forEach(function (name) {
-                        var input = document.createElement("input");
-                        input.type = "hidden";
-                        input.name = name;
-                        input.value = hiddenFields[name];
-                        tempForm.appendChild(input);
-                    });
-
-                    document.body.appendChild(tempForm);
-                    tempForm.submit();
-
-                    window.setTimeout(function () {
-                        document.body.removeChild(tempForm);
-                        if (iframe.parentNode) {
-                            iframe.parentNode.removeChild(iframe);
-                        }
-                    }, 60000);
-                });
+                downloadFiles(selection);
             }
 
             function liveEditSelectedFile() {
@@ -1079,7 +1396,12 @@
 
             function beginSelectionDrag(event) {
                 if (!panel || event.button !== 0) return;
-                if (event.target.closest(".repo-card") || isTypingContext(event.target)) return;
+                if (
+                    event.target.closest(".repo-card") ||
+                    event.target.closest(".file-preview-panel") ||
+                    (previewPanel && previewPanel.contains(event.target)) ||
+                    isTypingContext(event.target)
+                ) return;
                 var rect = panel.getBoundingClientRect();
                 selectionDragState = {
                     startX: event.clientX,
@@ -1124,7 +1446,19 @@
             }
 
             panel.addEventListener("mousedown", beginSelectionDrag);
-            previewPanel.removeEventListener("mousedown", beginSelectionDrag);
+            if (previewPanel) {
+                var stopPreviewPropagation = function (event) {
+                    event.stopPropagation();
+                };
+                ["pointerdown", "mousedown", "mouseup", "click", "dblclick", "wheel"].forEach(function (eventName) {
+                    previewPanel.addEventListener(eventName, stopPreviewPropagation, true);
+                });
+                if (previewContent) {
+                    ["pointerdown", "mousedown", "mouseup", "click", "dblclick", "dragstart"].forEach(function (eventName) {
+                        previewContent.addEventListener(eventName, stopPreviewPropagation, true);
+                    });
+                }
+            }
             document.addEventListener("mousemove", updateSelectionDrag);
             document.addEventListener("mouseup", endSelectionDrag);
 
