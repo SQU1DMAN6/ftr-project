@@ -252,13 +252,15 @@
                 linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(239, 246, 255, 0.78));
             padding: 14px;
             overflow: auto;
+            display: grid;
+            place-items: center;
         }
 
         .preview-image,
         .preview-video,
         .preview-audio,
         .preview-pdf {
-            width: 100%;
+            max-width: 100%;
             border-radius: 14px;
             background: #00000000;
         }
@@ -1296,7 +1298,6 @@
                     } else {
                         selectEntry(entry);
                     }
-                    panel.focus();
                 });
 
                 entryList.addEventListener("dblclick", function (event) {
