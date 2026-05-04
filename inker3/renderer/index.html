@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FtR Inker 3.0 — Daemon Manager</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="inker-shell">
+    <!-- Main content area -->
+    <main class="content-area" id="contentArea">
+      <!-- Content rendered by tab controllers -->
+    </main>
+
+    <!-- Bottom tab switcher -->
+    <nav class="tab-switcher" id="tabSwitcher" aria-label="View selection">
+      <button class="tab-button" data-tab="settings" title="Configuration and settings">
+        ⚙️ Settings
+      </button>
+      <button class="tab-button" data-tab="sync-status" title="Sync activity and status">
+        📊 Sync Status
+      </button>
+      <button class="tab-button" data-tab="repo-search" title="Discover and sync repositories">
+        🔍 Repo Search
+      </button>
+      <button class="tab-button" data-tab="conflicts" title="Review and resolve conflicts">
+        ⚠️ Conflicts
+      </button>
+      <button class="tab-button" data-tab="daemon-logs" title="Daemon process logs and health">
+        📋 Daemon Logs
+      </button>
+    </nav>
+  </div>
+
+  <script src="./ipc-client.js"></script>
+  <script src="./state.js"></script>
+  <script src="./views/settings.js"></script>
+  <script src="./views/sync-status.js"></script>
+  <script src="./views/repo-search.js"></script>
+  <script src="./views/conflict-review.js"></script>
+  <script src="./views/daemon-logs.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
